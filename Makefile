@@ -6,14 +6,15 @@ LOG_FILE ?= /tmp/soon-api.log
 BASE_URL ?= http://127.0.0.1:3100
 START_WAIT_SEC ?= 30
 
-.PHONY: help migrate up status check doctor smoke down restart logs
+.PHONY: help migrate up status check doctor doctor-json smoke down restart logs
 
 help:
 	@echo "Soon local ops"
 	@echo "  make up      - run db migrations, start API in background, wait for health"
 	@echo "  make status  - print health + read-model status"
 	@echo "  make check   - run read-model alert checker"
-	@echo "  make doctor  - full diagnostics report (health/status/metrics/checker)"
+	@echo "  make doctor  - full diagnostics + JSON artifact at ops/reports/doctor/latest.json"
+	@echo "  make doctor-json - print full doctor report JSON"
 	@echo "  make smoke   - run full quality gate (contracts+workers+smoke)"
 	@echo "  make down    - stop background API"
 	@echo "  make restart - down + up"
@@ -50,27 +51,10 @@ check:
 	@npm run -s obs:read-model:alert:check
 
 doctor:
-	@bash -lc 'set -euo pipefail; \
-	echo "[Soon/doctor] health"; \
-	HEALTH="$$(curl -fsS "$(BASE_URL)/health")"; \
-	echo "$$HEALTH"; \
-	echo; \
-	echo "[Soon/doctor] read-model status"; \
-	STATUS="$$(curl -fsS "$(BASE_URL)/automation/read-model/status")"; \
-	echo "$$STATUS"; \
-	echo; \
-	echo "[Soon/doctor] metrics (core read-model lines)"; \
-	METRICS="$$(curl -fsS "$(BASE_URL)/metrics" | rg "soon_read_model_refresh_(info|pending_count|in_flight|total_errors|last_duration_ms)" -n || true)"; \
-	if [ -z "$$METRICS" ]; then \
-	  echo "[Soon/doctor] FAIL: required metrics not found"; \
-	  exit 1; \
-	fi; \
-	echo "$$METRICS"; \
-	echo; \
-	echo "[Soon/doctor] alert checker"; \
-	npm run -s obs:read-model:alert:check; \
-	echo; \
-	echo "[Soon/doctor] PASS";'
+	@npm run -s obs:doctor:report
+
+doctor-json:
+	@npm run -s obs:doctor:report:json
 
 smoke:
 	@npm run -s check
