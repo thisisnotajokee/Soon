@@ -16,7 +16,7 @@ route:
 receivers:
   - name: discord-ops
     discord_configs:
-      - webhook_url: "https://example.com/soon-discord-webhook"
+      - webhook_url: "${SOON_OPS_DISCORD_WEBHOOK_URL}"
         title: "[Soon][{{ .CommonLabels.severity | toUpper }}] {{ .CommonLabels.alertname }}"
         message: >-
           {{ range .Alerts -}}

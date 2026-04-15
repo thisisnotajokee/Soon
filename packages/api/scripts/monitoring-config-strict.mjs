@@ -1,4 +1,4 @@
-import { access } from 'node:fs/promises';
+import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { resolve } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -9,11 +9,13 @@ const execFileAsync = promisify(execFile);
 const DEFAULTS = {
   prometheusRulesPath: 'ops/monitoring/prometheus/soon-read-model-alerts.yml',
   alertmanagerPath: 'ops/monitoring/alertmanager/soon-alertmanager-discord.example.yml',
+  renderedAlertmanagerPath: 'tmp/monitoring/alertmanager.strict.rendered.yml',
   promImage: 'prom/prometheus:v2.53.3',
   alertmanagerImage: 'prom/alertmanager:v0.28.1',
 };
 
 const AMTOOL_WEBHOOK_FALLBACK_URL = 'https://example.invalid/soon-discord-webhook';
+const DISCORD_WEBHOOK_TOKEN = '${SOON_OPS_DISCORD_WEBHOOK_URL}';
 
 function parseArgs(argv) {
   return { json: argv.includes('--json') };
@@ -81,8 +83,6 @@ async function runAmtoolDocker(repoRoot, alertmanagerPath) {
     `${repoRoot}:/repo`,
     '-w',
     '/repo',
-    '-e',
-    `SOON_OPS_DISCORD_WEBHOOK_URL=${process.env.SOON_OPS_DISCORD_WEBHOOK_URL || AMTOOL_WEBHOOK_FALLBACK_URL}`,
     '--entrypoint',
     'amtool',
     DEFAULTS.alertmanagerImage,
@@ -90,6 +90,36 @@ async function runAmtoolDocker(repoRoot, alertmanagerPath) {
     alertmanagerPath,
   ]);
   return { mode: 'docker-fallback', tool: 'amtool', image: DEFAULTS.alertmanagerImage };
+}
+
+async function prepareAlertmanagerConfig(repoRoot, alertmanagerPath) {
+  const absoluteSource = resolve(repoRoot, alertmanagerPath);
+  const source = await readFile(absoluteSource, 'utf8');
+
+  if (!source.includes(DISCORD_WEBHOOK_TOKEN)) {
+    return {
+      configPathForCheck: alertmanagerPath,
+      rendered: false,
+      cleanup: async () => {},
+    };
+  }
+
+  const rendered = source.replaceAll(
+    DISCORD_WEBHOOK_TOKEN,
+    process.env.SOON_OPS_DISCORD_WEBHOOK_URL || AMTOOL_WEBHOOK_FALLBACK_URL,
+  );
+
+  const absoluteRendered = resolve(repoRoot, DEFAULTS.renderedAlertmanagerPath);
+  await mkdir(resolve(repoRoot, 'tmp/monitoring'), { recursive: true });
+  await writeFile(absoluteRendered, rendered, 'utf8');
+
+  return {
+    configPathForCheck: DEFAULTS.renderedAlertmanagerPath,
+    rendered: true,
+    cleanup: async () => {
+      await rm(absoluteRendered, { force: true });
+    },
+  };
 }
 
 async function strictValidate() {
@@ -109,10 +139,6 @@ async function strictValidate() {
     return { overall: 'CRIT', findings, details };
   }
 
-  if (!process.env.SOON_OPS_DISCORD_WEBHOOK_URL) {
-    process.env.SOON_OPS_DISCORD_WEBHOOK_URL = AMTOOL_WEBHOOK_FALLBACK_URL;
-  }
-
   const forceDocker = process.env.SOON_MONITORING_STRICT_FORCE_DOCKER === '1';
 
   try {
@@ -125,14 +151,25 @@ async function strictValidate() {
     findings.push(`promtool-check failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 
+  const preparedAlertmanager = await prepareAlertmanagerConfig(repoRoot, alertmanagerPath);
   try {
     if (!forceDocker && (await hasBinary('amtool'))) {
-      details.push(await runAmtoolLocal(alertmanagerPath));
+      details.push(await runAmtoolLocal(preparedAlertmanager.configPathForCheck));
     } else {
-      details.push(await runAmtoolDocker(repoRoot, alertmanagerPath));
+      details.push(await runAmtoolDocker(repoRoot, preparedAlertmanager.configPathForCheck));
+    }
+    if (preparedAlertmanager.rendered) {
+      details.push({
+        mode: 'rendered-config',
+        tool: 'amtool',
+        source: alertmanagerPath,
+        renderedPath: preparedAlertmanager.configPathForCheck,
+      });
     }
   } catch (error) {
     findings.push(`amtool-check failed: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    await preparedAlertmanager.cleanup();
   }
 
   return { overall: findings.length ? 'CRIT' : 'PASS', findings, details };
