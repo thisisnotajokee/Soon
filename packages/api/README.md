@@ -24,6 +24,14 @@ Minimalny runtime API v1 dla projektu `Soon`.
 11. `GET /metrics` (Prometheus/OpenTelemetry scrape endpoint)
 12. `POST /self-heal/run` (manualny trigger cyklu self-heal; anomalies + scoring priorytetów + retry policy)
 13. `GET /self-heal/runs/latest?limit=20` (historia self-heal runów; `playbookId + status + attempts/retries`)
+14. `POST /self-heal/retry/process` (ręczne przetworzenie due retry queue; body: `limit`, opcjonalnie `now`)
+15. `GET /self-heal/retry/status` (stan kolejki retry + dead-letter)
+16. `GET /self-heal/dead-letter?limit=20` (najnowsze wpisy dead-letter)
+17. `POST /self-heal/dead-letter/requeue` (ręczne przywrócenie dead-letter do retry queue; body: `deadLetterId`)
+: jeśli wpis był już wcześniej przywrócony (`status != dead_letter`), endpoint zwraca `409 dead_letter_not_pending`
+18. `POST /self-heal/dead-letter/requeue-bulk` (hurtowe requeue: `deadLetterIds[]` albo fallback do najnowszych `limit`; opcjonalnie `now`; summary: `requested|requeued|conflicts|missing`)
+19. `GET /self-heal/requeue-audit?limit=20&reason=manual_requeue&from=<iso>&to=<iso>` (historia manualnych requeue z filtrami)
+20. `GET /self-heal/requeue-audit/summary?days=7` (agregaty audit: `total`, `byReason`, `byPlaybook`, `daily`)
 
 ## Storage mode
 
@@ -32,14 +40,18 @@ Minimalny runtime API v1 dla projektu `Soon`.
 3. `SOON_DATABASE_URL=postgres://...` (wymagane dla trybu postgres)
 4. `SOON_DATABASE_SSL=1` (opcjonalnie)
 5. `SOON_READ_MODEL_REFRESH_MODE=async|sync` (postgres, domyślnie `async`)
+6. `SOON_SELF_HEAL_RETRY_INTERVAL_SEC` (scheduler retry queue, domyślnie `30`, min `5`)
 
 ## Observability
 
 1. Prometheus scrape: `GET /metrics`
-2. OpenTelemetry: użyj `prometheus receiver` w OTel Collector i scrape `GET /metrics`.
-3. Reguły alertów: `ops/monitoring/prometheus/soon-read-model-alerts.yml`
-4. Local checker (threshold gates): `npm run obs:read-model:alert:check`
-5. JSON checker output: `npm run obs:read-model:alert:check:json`
+2. `GET /metrics` zawiera metryki:
+   - read-model refresh (`soon_read_model_refresh_*`)
+   - self-heal retry queue (`soon_self_heal_retry_queue_*`, `soon_self_heal_dead_letter_total`, `soon_self_heal_manual_requeue_total`)
+3. OpenTelemetry: użyj `prometheus receiver` w OTel Collector i scrape `GET /metrics`.
+4. Reguły alertów: `ops/monitoring/prometheus/soon-read-model-alerts.yml`
+5. Local checker (threshold gates): `npm run obs:read-model:alert:check`
+6. JSON checker output: `npm run obs:read-model:alert:check:json`
 
 ### Alert thresholds (checker ENV)
 
@@ -64,6 +76,9 @@ Minimalny runtime API v1 dla projektu `Soon`.
 - `soon_alert_dispatch_audit`
 - `soon_self_heal_run`
 - `soon_self_heal_playbook_execution`
+- `soon_self_heal_retry_queue`
+- `soon_self_heal_dead_letter`
+- `soon_self_heal_requeue_audit`
 - `soon_maintenance_event`
 
 ## Legacy backup retention

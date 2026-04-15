@@ -111,6 +111,105 @@ export function createApiClient(baseUrl) {
       return body;
     },
 
+    async processSelfHealRetryQueue(limit = 20) {
+      const safeLimit = Number.isFinite(Number(limit)) ? Number(limit) : 20;
+      const response = await fetch(`${apiBase}/self-heal/retry/process`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ limit: safeLimit }),
+      });
+      const body = await response.json();
+      assertOk(response, body, 'processSelfHealRetryQueue');
+      return body;
+    },
+
+    async getSelfHealRetryStatus() {
+      const response = await fetch(`${apiBase}/self-heal/retry/status`);
+      const body = await response.json();
+      assertOk(response, body, 'getSelfHealRetryStatus');
+      return body;
+    },
+
+    async getSelfHealDeadLetter(limit = 20) {
+      const safeLimit = Number.isFinite(Number(limit)) ? Number(limit) : 20;
+      const response = await fetch(
+        `${apiBase}/self-heal/dead-letter?limit=${encodeURIComponent(String(safeLimit))}`,
+      );
+      const body = await response.json();
+      assertOk(response, body, 'getSelfHealDeadLetter');
+      return body;
+    },
+
+    async requeueSelfHealDeadLetter(deadLetterId) {
+      const response = await fetch(`${apiBase}/self-heal/dead-letter/requeue`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ deadLetterId }),
+      });
+      const body = await response.json();
+      assertOk(response, body, 'requeueSelfHealDeadLetter');
+      return body;
+    },
+
+    async requeueSelfHealDeadLettersBulk(input = 20) {
+      const requestBody = Array.isArray(input)
+        ? { deadLetterIds: input }
+        : typeof input === 'object' && input !== null
+          ? {
+              limit: Number.isFinite(Number(input.limit)) ? Number(input.limit) : 20,
+              deadLetterIds: Array.isArray(input.deadLetterIds) ? input.deadLetterIds : undefined,
+            }
+          : { limit: Number.isFinite(Number(input)) ? Number(input) : 20 };
+      const response = await fetch(`${apiBase}/self-heal/dead-letter/requeue-bulk`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+      const responseBody = await response.json();
+      assertOk(response, responseBody, 'requeueSelfHealDeadLettersBulk');
+      return responseBody;
+    },
+
+    async getSelfHealRequeueAudit(input = 20) {
+      const params = new URLSearchParams();
+      const safeLimit =
+        typeof input === 'object' && input !== null
+          ? Number.isFinite(Number(input.limit))
+            ? Number(input.limit)
+            : 20
+          : Number.isFinite(Number(input))
+            ? Number(input)
+            : 20;
+      params.set('limit', String(safeLimit));
+
+      if (typeof input === 'object' && input !== null) {
+        if (typeof input.reason === 'string' && input.reason.trim()) {
+          params.set('reason', input.reason.trim());
+        }
+        if (typeof input.from === 'string' && input.from.trim()) {
+          params.set('from', input.from.trim());
+        }
+        if (typeof input.to === 'string' && input.to.trim()) {
+          params.set('to', input.to.trim());
+        }
+      }
+
+      const response = await fetch(`${apiBase}/self-heal/requeue-audit?${params.toString()}`);
+      const body = await response.json();
+      assertOk(response, body, 'getSelfHealRequeueAudit');
+      return body;
+    },
+
+    async getSelfHealRequeueAuditSummary(days = 7) {
+      const safeDays = Number.isFinite(Number(days)) ? Number(days) : 7;
+      const response = await fetch(
+        `${apiBase}/self-heal/requeue-audit/summary?days=${encodeURIComponent(String(safeDays))}`,
+      );
+      const body = await response.json();
+      assertOk(response, body, 'getSelfHealRequeueAuditSummary');
+      return body;
+    },
+
     async getPrometheusMetrics() {
       const response = await fetch(`${apiBase}/metrics`);
       const body = await response.text();

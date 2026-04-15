@@ -274,6 +274,31 @@ function renderReadModelPrometheusMetrics(status) {
   return `${lines.join('\n')}\n`;
 }
 
+function renderSelfHealRetryPrometheusMetrics(status) {
+  const scheduler = escapePromLabel(status?.scheduler ?? 'unknown');
+  const lines = [
+    '# HELP soon_self_heal_retry_queue_info Self-heal retry queue metadata.',
+    '# TYPE soon_self_heal_retry_queue_info gauge',
+    `soon_self_heal_retry_queue_info{scheduler="${scheduler}"} 1`,
+    '# HELP soon_self_heal_retry_queue_pending Number of queued self-heal retry jobs.',
+    '# TYPE soon_self_heal_retry_queue_pending gauge',
+    `soon_self_heal_retry_queue_pending ${toPromNumber(status?.queuePending)}`,
+    '# HELP soon_self_heal_retry_queue_done Number of completed self-heal retry jobs.',
+    '# TYPE soon_self_heal_retry_queue_done counter',
+    `soon_self_heal_retry_queue_done ${toPromNumber(status?.queueDone)}`,
+    '# HELP soon_self_heal_retry_queue_dead_letter Number of retry jobs moved to dead-letter.',
+    '# TYPE soon_self_heal_retry_queue_dead_letter counter',
+    `soon_self_heal_retry_queue_dead_letter ${toPromNumber(status?.queueDeadLetter)}`,
+    '# HELP soon_self_heal_dead_letter_total Number of dead-letter records.',
+    '# TYPE soon_self_heal_dead_letter_total gauge',
+    `soon_self_heal_dead_letter_total ${toPromNumber(status?.deadLetterCount)}`,
+    '# HELP soon_self_heal_manual_requeue_total Number of manual dead-letter requeue operations.',
+    '# TYPE soon_self_heal_manual_requeue_total counter',
+    `soon_self_heal_manual_requeue_total ${toPromNumber(status?.manualRequeueTotal)}`,
+  ];
+  return `${lines.join('\n')}\n`;
+}
+
 export function createSoonApiServer({ store = resolveStore() } = {}) {
   return http.createServer(async (req, res) => {
     try {
@@ -410,18 +435,28 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
       }
 
       if (method === 'POST' && pathname === '/self-heal/run') {
+        const body = await readJsonBody(req).catch(() => ({}));
+        const override = body?.readModelStatusOverride ?? null;
         const cycle = await runSelfHealWorker({
           readModelStatusProvider: store.getReadModelRefreshStatus
-            ? async () => store.getReadModelRefreshStatus()
+            ? async () => (override ?? store.getReadModelRefreshStatus())
             : undefined,
         });
         const persisted = store.recordSelfHealRun ? await store.recordSelfHealRun(cycle) : null;
+        const retryQueue = store.enqueueSelfHealRetryJobs
+          ? await store.enqueueSelfHealRetryJobs({
+              runId: persisted?.runId ?? cycle.runId ?? null,
+              source: cycle.source,
+              jobs: cycle.executedPlaybooks,
+            })
+          : null;
 
         return sendJson(res, 200, {
           status: 'ok',
           ...cycle,
           runId: persisted?.runId ?? null,
           persisted,
+          retryQueue,
         });
       }
 
@@ -437,6 +472,132 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         return sendJson(res, 200, { items, count: items.length });
       }
 
+      if (method === 'POST' && pathname === '/self-heal/retry/process') {
+        const body = await readJsonBody(req).catch(() => ({}));
+        const rawLimit = Number(body?.limit ?? url.searchParams.get('limit') ?? 20);
+        const limit = Math.max(1, Math.min(100, Number.isFinite(rawLimit) ? rawLimit : 20));
+        const rawNow = body?.now ?? url.searchParams.get('now');
+        const now = Number.isFinite(Number(rawNow)) ? Number(rawNow) : Date.now();
+
+        if (!store.processSelfHealRetryQueue) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const summary = await store.processSelfHealRetryQueue({ limit, now });
+        return sendJson(res, 200, { status: 'ok', summary });
+      }
+
+      if (method === 'GET' && pathname === '/self-heal/retry/status') {
+        if (!store.getSelfHealRetryStatus) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const status = await store.getSelfHealRetryStatus();
+        return sendJson(res, 200, status);
+      }
+
+      if (method === 'GET' && pathname === '/self-heal/dead-letter') {
+        const rawLimit = Number(url.searchParams.get('limit') ?? 20);
+        const limit = Math.max(1, Math.min(100, Number.isFinite(rawLimit) ? rawLimit : 20));
+
+        if (!store.listSelfHealDeadLetters) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const items = await store.listSelfHealDeadLetters(limit);
+        return sendJson(res, 200, { items, count: items.length });
+      }
+
+      if (method === 'POST' && pathname === '/self-heal/dead-letter/requeue') {
+        if (!store.requeueSelfHealDeadLetter) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const body = await readJsonBody(req).catch(() => ({}));
+        const deadLetterId = body?.deadLetterId;
+        if (!deadLetterId) {
+          return sendJson(res, 400, { error: 'dead_letter_id_required' });
+        }
+
+        const result = await store.requeueSelfHealDeadLetter(deadLetterId, { now: Date.now() });
+        if (!result) {
+          return sendJson(res, 404, { error: 'dead_letter_not_found', deadLetterId: String(deadLetterId) });
+        }
+        if (result.error === 'not_dead_letter') {
+          return sendJson(res, 409, {
+            error: 'dead_letter_not_pending',
+            deadLetterId: String(deadLetterId),
+            currentStatus: result.currentStatus ?? 'unknown',
+          });
+        }
+
+        const retryStatus = store.getSelfHealRetryStatus ? await store.getSelfHealRetryStatus() : null;
+        return sendJson(res, 200, { status: 'ok', requeue: result, retryStatus });
+      }
+
+      if (method === 'POST' && pathname === '/self-heal/dead-letter/requeue-bulk') {
+        if (!store.requeueSelfHealDeadLetters) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const body = await readJsonBody(req).catch(() => ({}));
+        const hasIds = Array.isArray(body?.deadLetterIds);
+        const deadLetterIds = hasIds
+          ? [...new Set(body.deadLetterIds.map((value) => String(value ?? '').trim()).filter(Boolean))]
+          : null;
+        if (hasIds && (!deadLetterIds || deadLetterIds.length === 0)) {
+          return sendJson(res, 400, { error: 'dead_letter_ids_invalid' });
+        }
+
+        const rawLimit = Number(body?.limit ?? url.searchParams.get('limit') ?? 20);
+        const limit = Math.max(1, Math.min(100, Number.isFinite(rawLimit) ? rawLimit : 20));
+        const rawNow = body?.now ?? url.searchParams.get('now');
+        const now = Number.isFinite(Number(rawNow)) ? Number(rawNow) : Date.now();
+
+        const summary = await store.requeueSelfHealDeadLetters({ limit, deadLetterIds, now });
+        const retryStatus = store.getSelfHealRetryStatus ? await store.getSelfHealRetryStatus() : null;
+        return sendJson(res, 200, { status: 'ok', summary, retryStatus });
+      }
+
+      if (method === 'GET' && pathname === '/self-heal/requeue-audit') {
+        const rawLimit = Number(url.searchParams.get('limit') ?? 20);
+        const limit = Math.max(1, Math.min(100, Number.isFinite(rawLimit) ? rawLimit : 20));
+        const reason = (url.searchParams.get('reason') ?? '').trim();
+        const from = url.searchParams.get('from');
+        const to = url.searchParams.get('to');
+        const fromMs = from ? Date.parse(from) : null;
+        const toMs = to ? Date.parse(to) : null;
+
+        if (from && !Number.isFinite(fromMs)) {
+          return sendJson(res, 400, { error: 'invalid_from_timestamp' });
+        }
+        if (to && !Number.isFinite(toMs)) {
+          return sendJson(res, 400, { error: 'invalid_to_timestamp' });
+        }
+
+        if (!store.listSelfHealRequeueAudit) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const items = await store.listSelfHealRequeueAudit(limit, {
+          reason: reason || undefined,
+          fromMs: fromMs ?? undefined,
+          toMs: toMs ?? undefined,
+        });
+        return sendJson(res, 200, { items, count: items.length });
+      }
+
+      if (method === 'GET' && pathname === '/self-heal/requeue-audit/summary') {
+        if (!store.getSelfHealRequeueAuditSummary) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const rawDays = Number(url.searchParams.get('days') ?? 7);
+        const days = Math.max(1, Math.min(365, Number.isFinite(rawDays) ? rawDays : 7));
+        const summary = await store.getSelfHealRequeueAuditSummary(days, { now: Date.now() });
+        return sendJson(res, 200, summary);
+      }
+
       if (method === 'GET' && pathname === '/metrics') {
         if (!store.getReadModelRefreshStatus) {
           res.writeHead(501, { 'content-type': 'text/plain; charset=utf-8' });
@@ -445,7 +606,10 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         }
 
         const status = await store.getReadModelRefreshStatus();
-        const payload = renderReadModelPrometheusMetrics(status);
+        const retryStatus = store.getSelfHealRetryStatus ? await store.getSelfHealRetryStatus() : null;
+        const payload = retryStatus
+          ? `${renderReadModelPrometheusMetrics(status)}${renderSelfHealRetryPrometheusMetrics(retryStatus)}`
+          : renderReadModelPrometheusMetrics(status);
         res.writeHead(200, {
           'content-type': 'text/plain; version=0.0.4; charset=utf-8',
           'cache-control': 'no-store',
@@ -470,8 +634,23 @@ function startFromCli() {
 
   const store = resolveStore();
   const server = createSoonApiServer({ store });
+  const retryIntervalSec = Math.max(5, Number(process.env.SOON_SELF_HEAL_RETRY_INTERVAL_SEC ?? 30));
+  let retryTimer = null;
+
+  if (store.processSelfHealRetryQueue) {
+    retryTimer = setInterval(() => {
+      store.processSelfHealRetryQueue({ limit: 20 }).catch((error) => {
+        console.error('[Soon/self-heal] retry scheduler error', error);
+      });
+    }, retryIntervalSec * 1000);
+    retryTimer.unref();
+  }
 
   const shutdown = async () => {
+    if (retryTimer) {
+      clearInterval(retryTimer);
+      retryTimer = null;
+    }
     await new Promise((resolve) => server.close(resolve));
     if (store?.close) {
       await store.close();

@@ -206,6 +206,158 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Testy / weryfikacja
 
 1. `npm run check` -> PASS.
+
+### Update (2026-04-15, requeue-audit summary endpoint)
+
+1. Dodano endpoint:
+   - `GET /self-heal/requeue-audit/summary?days=7`.
+2. Endpoint zwraca agregaty:
+   - `total`
+   - `byReason[]`
+   - `byPlaybook[]`
+   - `daily[]`
+3. Implementacja w store:
+   - memory: agregacja in-process,
+   - postgres: agregacje SQL (GROUP BY reason/playbook/day).
+4. Rozszerzono web API client:
+   - `getSelfHealRequeueAuditSummary(days)`.
+5. Rozszerzono kontrakty HTTP:
+   - walidacja `summary` po realnych requeue (`manual_requeue` obecny, `count >= 2`).
+6. Zaktualizowano `packages/api/README.md` o endpoint `summary`.
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS.
+
+### Update (2026-04-15, requeue-audit filters reason/from/to)
+
+1. Rozszerzono `GET /self-heal/requeue-audit` o filtry query:
+   - `reason`
+   - `from` (ISO timestamp)
+   - `to` (ISO timestamp)
+2. Dodano walidację API:
+   - błędny `from` -> `400 invalid_from_timestamp`,
+   - błędny `to` -> `400 invalid_to_timestamp`.
+3. Rozszerzono implementację store (memory/postgres) o filtrowanie audit entries po `reason` i zakresie czasu.
+4. Rozszerzono web API client:
+   - `getSelfHealRequeueAudit({ limit, reason, from, to })`.
+5. Rozszerzono kontrakty HTTP:
+   - walidacja błędnego `from`,
+   - filtrowanie po `reason`,
+   - filtrowanie po przyszłym `from` (wynik pusty).
+6. Zaktualizowano `packages/api/README.md` o nowe parametry endpointu.
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS.
+
+### Update (2026-04-15, bulk requeue conflicts telemetry)
+
+1. Rozszerzono wynik `POST /self-heal/dead-letter/requeue-bulk` o pole `conflicts`.
+2. Semantyka:
+   - `conflicts`: wpisy odrzucone, bo nie są już w statusie `dead_letter`,
+   - `missing`: wpisy nieistniejące/nieprawidłowe.
+3. Rozszerzono implementację memory/postgres, aby rozdzielać `conflicts` i `missing`.
+4. Rozszerzono kontrakty HTTP:
+   - pierwszy bulk: `requeued=2, conflicts=0`,
+   - drugi bulk na tych samych ID: `requeued=0, conflicts=2`.
+5. Zaktualizowano `packages/api/README.md` o nowy format summary.
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS.
+
+### Update (2026-04-15, dead-letter requeue idempotency hardening)
+
+1. Dodano guard na `POST /self-heal/dead-letter/requeue`:
+   - requeue działa tylko gdy queue status to `dead_letter`,
+   - ponowna próba requeue tego samego wpisu zwraca `409 dead_letter_not_pending`.
+2. Hardening wdrożony w obu store:
+   - memory/postgres `requeueSelfHealDeadLetter(...)` zwraca błąd domenowy `not_dead_letter` przy statusie innym niż `dead_letter`.
+3. Endpoint API mapuje ten błąd do odpowiedzi 409 z `currentStatus`.
+4. Rozszerzono kontrakt HTTP:
+   - testuje drugi requeue tego samego dead-letter (`409`, `currentStatus=queued`).
+5. Zaktualizowano `packages/api/README.md` o semantykę 409.
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS.
+
+### Update (2026-04-15, bulk requeue by explicit deadLetterIds)
+
+1. Rozszerzono `POST /self-heal/dead-letter/requeue-bulk`:
+   - wspiera jawne `deadLetterIds[]` (precyzyjne requeue),
+   - zachowuje fallback do `limit` (najnowsze wpisy).
+2. Dodano walidację inputu bulk:
+   - pusta lista `deadLetterIds` -> `400 dead_letter_ids_invalid`.
+3. Rozszerzono implementację store (memory/postgres):
+   - `requeueSelfHealDeadLetters({ deadLetterIds, limit, now })`.
+4. Rozszerzono web API client:
+   - `requeueSelfHealDeadLettersBulk(input)` obsługuje:
+     - `number` (`limit`),
+     - `deadLetterIds[]`,
+     - obiekt `{ limit, deadLetterIds }`.
+5. Rozszerzono kontrakty HTTP:
+   - test walidacji pustej listy `deadLetterIds`,
+   - bulk happy-path po konkretnych ID (nie tylko po `limit`).
+6. Zaktualizowano `packages/api/README.md` (opis endpointu bulk).
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS.
+
+### Update (2026-04-15, self-heal dead-letter bulk requeue)
+
+1. Dodano endpoint:
+   - `POST /self-heal/dead-letter/requeue-bulk` (`limit`, opcjonalnie `now`).
+2. Rozszerzono store:
+   - memory/postgres: `requeueSelfHealDeadLetters({ limit, now })`.
+3. Endpoint zwraca:
+   - `summary` (`requested`, `requeued`, `missing`, `items[]`),
+   - aktualny `retryStatus`.
+4. Rozszerzono web API client:
+   - `requeueSelfHealDeadLettersBulk(limit)`.
+5. Rozszerzono kontrakty HTTP:
+   - scenariusz bulk requeue dla 2 dead-letter,
+   - walidacja `retryStatus.manualRequeueTotal` i wpisów `requeue-audit`.
+6. Zaktualizowano `packages/api/README.md` o nowy endpoint.
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS.
+
+### Update (2026-04-15, self-heal requeue audit endpoint)
+
+1. Dodano endpoint operacyjny:
+   - `GET /self-heal/requeue-audit?limit=20`.
+2. Rozszerzono store:
+   - memory: trwa historia requeue audit in-memory (`listSelfHealRequeueAudit`),
+   - postgres: odczyt z `soon_self_heal_requeue_audit`.
+3. Rozszerzono client web o `getSelfHealRequeueAudit(limit)`.
+4. Rozszerzono kontrakty HTTP o walidację:
+   - po requeue endpoint zwraca audit z wpisem `reason=manual_requeue`.
+5. Zaktualizowano `packages/api/README.md` o nowy endpoint.
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS.
+
+### Update (2026-04-15, dead-letter manual requeue endpoint)
+
+1. Dodano operacyjny endpoint:
+   - `POST /self-heal/dead-letter/requeue` (`deadLetterId` w body).
+2. Rozszerzono store `memory` i `postgres` o:
+   - `requeueSelfHealDeadLetter(deadLetterId, { now })`.
+3. Requeue ustawia job z powrotem na `queued`, wymusza co najmniej jeden dodatkowy retry budget i ustawia `last_error='manual_requeue'`.
+4. Rozszerzono web API client o metodę `requeueSelfHealDeadLetter(...)`.
+5. Rozszerzono kontrakty HTTP o walidację:
+   - `400 dead_letter_id_required`,
+   - `404 dead_letter_not_found`.
+6. Zaktualizowano `packages/api/README.md` o nowy endpoint.
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS.
 2. `npm run db:migrate` -> PASS.
 3. `npm run test:contracts` na `SOON_DB_MODE=postgres` -> PASS.
 4. `npm run smoke:e2e` na `SOON_DB_MODE=postgres` -> PASS.
@@ -429,6 +581,89 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 2. `npm run test:workers` -> PASS.
 3. `npm run smoke:e2e` -> PASS.
 4. `npm run check` -> PASS.
+
+### Update (2026-04-15, manual requeue counter + Prometheus metric)
+
+1. Dodano licznik operacji ręcznego requeue dead-letter:
+   - pole `manualRequeueTotal` w `getSelfHealRetryStatus()` (memory/postgres).
+2. Dodano migrację `009_self_heal_manual_requeue_audit.sql`:
+   - tabela `soon_self_heal_requeue_audit` do trwałego audytu requeue w trybie postgres.
+3. Endpoint `POST /self-heal/dead-letter/requeue` zapisuje teraz audit:
+   - memory: inkrementacja licznika runtime,
+   - postgres: insert do `soon_self_heal_requeue_audit`.
+4. Rozszerzono `GET /metrics` o nową metrykę:
+   - `soon_self_heal_manual_requeue_total`.
+5. Rozszerzono kontrakty HTTP:
+   - asercja obecności `soon_self_heal_manual_requeue_total` w payload `/metrics`,
+   - asercja `manualRequeueTotal >= 1` w happy-path requeue.
+6. Zaktualizowano `packages/api/README.md` (metryka + model DB).
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS.
+
+### Update (2026-04-15, self-heal dead-letter requeue happy-path contract)
+
+1. Rozszerzono `contracts-v1` o pełny scenariusz happy-path dla `POST /self-heal/dead-letter/requeue`:
+   - przygotowanie kontrolowanego dead-letter przez in-memory store,
+   - requeue przez endpoint API,
+   - ponowne procesowanie retry queue.
+2. Zmieniono helper testowy `withServer(...)`, aby obsługiwał wstrzyknięty `store` do scenariuszy kontrolowanych.
+3. Cel: mieć deterministyczny test operacyjny requeue bez zależności od przypadkowej produkcji dead-letter w runtime.
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS (contracts 15/15 + workers + smoke).
+
+### Update (2026-04-15, self-heal async retry queue + dead-letter)
+
+1. Dodano migrację `008_self_heal_retry_queue.sql`:
+   - `soon_self_heal_retry_queue`
+   - `soon_self_heal_dead_letter`
+   - indeksy dla due queue i dead-letter timeline.
+2. Przebudowano wykonanie playbooków:
+   - pierwszy cykl `self-heal/run` wykonuje tylko attempt #1,
+   - porażki z retry policy są odkładane do kolejki async (`shouldRetry=true`).
+3. Dodano runtime evaluator retry:
+   - `evaluateSelfHealRetryAttempt(...)` (outcome: `done|retry|dead_letter`).
+4. Rozszerzono `memory` i `postgres` store o:
+   - `enqueueSelfHealRetryJobs(...)`
+   - `processSelfHealRetryQueue(...)`
+   - `getSelfHealRetryStatus()`
+   - `listSelfHealDeadLetters(limit)`.
+5. Dodano endpointy API:
+   - `POST /self-heal/retry/process`
+   - `GET /self-heal/retry/status`
+   - `GET /self-heal/dead-letter?limit=20`
+6. Dodano scheduler retry queue po stronie API runtime:
+   - ENV: `SOON_SELF_HEAL_RETRY_INTERVAL_SEC` (default 30s, min 5s).
+7. `POST /self-heal/run`:
+   - wspiera `readModelStatusOverride`,
+   - zwraca `retryQueue` (`enqueued`, `queueSize`).
+8. Zaktualizowano client web (`api-client`) o metody retry/dead-letter.
+9. Rozszerzono testy:
+   - workers: scenariusz async retry scheduling + evaluator terminal states,
+   - contracts: retry status/dead-letter endpointy + procesowanie queue.
+10. Zaktualizowano `packages/api/README.md` o nowe endpointy, scheduler i tabele DB.
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS (contracts + workers + smoke).
+
+### Update (2026-04-15, self-heal retry metrics in Prometheus)
+
+1. Rozszerzono `GET /metrics` o metryki kolejki retry self-heal:
+   - `soon_self_heal_retry_queue_pending`
+   - `soon_self_heal_retry_queue_done`
+   - `soon_self_heal_retry_queue_dead_letter`
+   - `soon_self_heal_dead_letter_total`
+2. Implementacja wykorzystuje `store.getSelfHealRetryStatus()` i dołącza payload retry metrics do istniejących read-model metrics.
+3. Rozszerzono kontrakty HTTP (`contracts-v1`) o asercje obecności nowych metryk.
+4. Zaktualizowano `packages/api/README.md` (sekcja Observability).
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS.
 
 ### Update (2026-04-15, self-heal priority scoring + retry policy)
 

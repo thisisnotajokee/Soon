@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createSoonApiServer } from '../src/runtime/server.mjs';
+import { createInMemoryStore } from '../src/runtime/in-memory-store.mjs';
 
-async function withServer(fn) {
-  const server = createSoonApiServer();
+async function withServer(fn, options = {}) {
+  const server = createSoonApiServer(options);
 
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
@@ -226,6 +227,11 @@ test('GET /metrics exports read-model Prometheus metrics', async () => {
     assert.match(body, /soon_read_model_refresh_total_runs/);
     assert.match(body, /soon_read_model_refresh_total_errors/);
     assert.match(body, /soon_read_model_refresh_info\{mode="/);
+    assert.match(body, /soon_self_heal_retry_queue_pending/);
+    assert.match(body, /soon_self_heal_retry_queue_done/);
+    assert.match(body, /soon_self_heal_retry_queue_dead_letter/);
+    assert.match(body, /soon_self_heal_dead_letter_total/);
+    assert.match(body, /soon_self_heal_manual_requeue_total/);
   });
 });
 
@@ -254,6 +260,8 @@ test('POST /self-heal/run persists self-heal run and playbooks', async () => {
     assert.ok(Number.isFinite(run.body.executedPlaybooks[0].retryBackoffSec));
     assert.ok(Array.isArray(run.body.executedPlaybooks[0].matchedAnomalyCodes));
     assert.ok(run.body.runId);
+    assert.ok(run.body.retryQueue);
+    assert.ok(Number.isFinite(run.body.retryQueue.enqueued));
 
     const latest = await readJson(await fetch(`${baseUrl}/self-heal/runs/latest?limit=5`));
     assert.equal(latest.status, 200);
@@ -266,7 +274,272 @@ test('POST /self-heal/run persists self-heal run and playbooks', async () => {
     assert.ok(['success', 'rollback', 'failed'].includes(latest.body.items[0].executedPlaybooks[0].status));
     assert.ok(Number.isFinite(latest.body.items[0].executedPlaybooks[0].attempts));
     assert.ok(Number.isFinite(latest.body.items[0].executedPlaybooks[0].priorityScore));
+
+    const retryStatus = await readJson(await fetch(`${baseUrl}/self-heal/retry/status`));
+    assert.equal(retryStatus.status, 200);
+    assert.ok(Number.isFinite(retryStatus.body.queuePending));
+    assert.ok(Number.isFinite(retryStatus.body.deadLetterCount));
+
+    const deadLetter = await readJson(await fetch(`${baseUrl}/self-heal/dead-letter?limit=5`));
+    assert.equal(deadLetter.status, 200);
+    assert.ok(Array.isArray(deadLetter.body.items));
+    assert.ok(Number.isFinite(deadLetter.body.count));
   });
+});
+
+test('POST /self-heal/retry/process drains queued retries created from anomaly run', async () => {
+  await withServer(async (baseUrl) => {
+    const run = await readJson(
+      await fetch(`${baseUrl}/self-heal/run`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          readModelStatusOverride: {
+            mode: 'async',
+            pendingCount: 12,
+            pendingDays: [],
+            inFlight: false,
+            lastQueuedAt: null,
+            lastStartedAt: null,
+            lastFinishedAt: new Date().toISOString(),
+            lastDurationMs: 20000,
+            lastBatchDays: 1,
+            totalRuns: 10,
+            totalErrors: 1,
+            lastError: { message: 'refresh failed' },
+          },
+        }),
+      }),
+    );
+
+    assert.equal(run.status, 200);
+    assert.ok(run.body.retryQueue.enqueued >= 1);
+
+    const process = await readJson(
+      await fetch(`${baseUrl}/self-heal/retry/process`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ limit: 10, now: Date.now() + 120000 }),
+      }),
+    );
+    assert.equal(process.status, 200);
+    assert.ok(process.body.summary.processed >= 1);
+    assert.ok(process.body.summary.completed >= 1);
+
+    const retryStatus = await readJson(await fetch(`${baseUrl}/self-heal/retry/status`));
+    assert.equal(retryStatus.status, 200);
+    assert.equal(retryStatus.body.queuePending, 0);
+  });
+});
+
+test('POST /self-heal/dead-letter/requeue validates input and handles missing item', async () => {
+  await withServer(async (baseUrl) => {
+    const missingId = await readJson(
+      await fetch(`${baseUrl}/self-heal/dead-letter/requeue`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      }),
+    );
+    assert.equal(missingId.status, 400);
+    assert.equal(missingId.body.error, 'dead_letter_id_required');
+
+    const notFound = await readJson(
+      await fetch(`${baseUrl}/self-heal/dead-letter/requeue`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ deadLetterId: '999999' }),
+      }),
+    );
+    assert.equal(notFound.status, 404);
+    assert.equal(notFound.body.error, 'dead_letter_not_found');
+
+    const invalidBulk = await readJson(
+      await fetch(`${baseUrl}/self-heal/dead-letter/requeue-bulk`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ deadLetterIds: [] }),
+      }),
+    );
+    assert.equal(invalidBulk.status, 400);
+    assert.equal(invalidBulk.body.error, 'dead_letter_ids_invalid');
+
+    const invalidFrom = await readJson(await fetch(`${baseUrl}/self-heal/requeue-audit?from=invalid-date`));
+    assert.equal(invalidFrom.status, 400);
+    assert.equal(invalidFrom.body.error, 'invalid_from_timestamp');
+  });
+});
+
+test('POST /self-heal/dead-letter/requeue restores dead-letter item back to queue', async () => {
+  const store = createInMemoryStore();
+  await store.enqueueSelfHealRetryJobs({
+    runId: 'run-dead-letter-test',
+    source: 'test-suite',
+    jobs: [
+      {
+        playbookId: 'unknown-playbook',
+        status: 'failed',
+        attempts: 1,
+        maxRetries: 1,
+        retriesUsed: 0,
+        retryBackoffSec: 0,
+        priorityScore: 100,
+        matchedAnomalyCodes: ['TEST_UNKNOWN_PLAYBOOK'],
+      },
+    ],
+  });
+  await store.processSelfHealRetryQueue({ limit: 10, now: Date.now() + 1000 });
+  const deadLetters = await store.listSelfHealDeadLetters(10);
+  assert.ok(deadLetters.length >= 1);
+
+  await withServer(
+    async (baseUrl) => {
+      const requeue = await readJson(
+        await fetch(`${baseUrl}/self-heal/dead-letter/requeue`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ deadLetterId: deadLetters[0].deadLetterId }),
+        }),
+      );
+      assert.equal(requeue.status, 200);
+      assert.equal(requeue.body.status, 'ok');
+      assert.equal(requeue.body.requeue.status, 'queued');
+      assert.ok(requeue.body.retryStatus.queuePending >= 1);
+      assert.ok(requeue.body.retryStatus.manualRequeueTotal >= 1);
+
+      const secondRequeue = await readJson(
+        await fetch(`${baseUrl}/self-heal/dead-letter/requeue`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ deadLetterId: deadLetters[0].deadLetterId }),
+        }),
+      );
+      assert.equal(secondRequeue.status, 409);
+      assert.equal(secondRequeue.body.error, 'dead_letter_not_pending');
+      assert.equal(secondRequeue.body.currentStatus, 'queued');
+
+      const audit = await readJson(await fetch(`${baseUrl}/self-heal/requeue-audit?limit=5`));
+      assert.equal(audit.status, 200);
+      assert.ok(Array.isArray(audit.body.items));
+      assert.ok(audit.body.items.length >= 1);
+      assert.equal(audit.body.items[0].reason, 'manual_requeue');
+      assert.ok(audit.body.items[0].playbookId);
+
+      const process = await readJson(
+        await fetch(`${baseUrl}/self-heal/retry/process`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ limit: 10, now: Date.now() + 120000 }),
+        }),
+      );
+      assert.equal(process.status, 200);
+      assert.ok(process.body.summary.processed >= 1);
+    },
+    { store },
+  );
+});
+
+test('POST /self-heal/dead-letter/requeue-bulk requeues latest dead-letter entries', async () => {
+  const store = createInMemoryStore();
+  await store.enqueueSelfHealRetryJobs({
+    runId: 'run-dead-letter-bulk-test',
+    source: 'test-suite',
+    jobs: [
+      {
+        playbookId: 'unknown-playbook-A',
+        status: 'failed',
+        attempts: 1,
+        maxRetries: 1,
+        retriesUsed: 0,
+        retryBackoffSec: 0,
+        priorityScore: 100,
+        matchedAnomalyCodes: ['TEST_UNKNOWN_PLAYBOOK_A'],
+      },
+      {
+        playbookId: 'unknown-playbook-B',
+        status: 'failed',
+        attempts: 1,
+        maxRetries: 1,
+        retriesUsed: 0,
+        retryBackoffSec: 0,
+        priorityScore: 99,
+        matchedAnomalyCodes: ['TEST_UNKNOWN_PLAYBOOK_B'],
+      },
+    ],
+  });
+  await store.processSelfHealRetryQueue({ limit: 10, now: Date.now() + 1000 });
+  const deadLetters = await store.listSelfHealDeadLetters(10);
+  assert.ok(deadLetters.length >= 2);
+
+  await withServer(
+    async (baseUrl) => {
+      const selectedIds = [deadLetters[0].deadLetterId, deadLetters[1].deadLetterId];
+      const bulk = await readJson(
+        await fetch(`${baseUrl}/self-heal/dead-letter/requeue-bulk`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ deadLetterIds: selectedIds }),
+        }),
+      );
+      assert.equal(bulk.status, 200);
+      assert.equal(bulk.body.status, 'ok');
+      assert.equal(bulk.body.summary.requested, 2);
+      assert.equal(bulk.body.summary.requeued, 2);
+      assert.equal(bulk.body.summary.conflicts, 0);
+      assert.equal(bulk.body.summary.missing, 0);
+      assert.ok(Array.isArray(bulk.body.summary.items));
+      assert.equal(bulk.body.summary.items.length, 2);
+      assert.ok(bulk.body.retryStatus.queuePending >= 2);
+      assert.ok(bulk.body.retryStatus.manualRequeueTotal >= 2);
+
+      const secondBulk = await readJson(
+        await fetch(`${baseUrl}/self-heal/dead-letter/requeue-bulk`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ deadLetterIds: selectedIds }),
+        }),
+      );
+      assert.equal(secondBulk.status, 200);
+      assert.equal(secondBulk.body.summary.requested, 2);
+      assert.equal(secondBulk.body.summary.requeued, 0);
+      assert.equal(secondBulk.body.summary.conflicts, 2);
+      assert.equal(secondBulk.body.summary.missing, 0);
+
+      const audit = await readJson(await fetch(`${baseUrl}/self-heal/requeue-audit?limit=5`));
+      assert.equal(audit.status, 200);
+      assert.ok(Array.isArray(audit.body.items));
+      assert.ok(audit.body.items.length >= 2);
+      assert.equal(audit.body.items[0].reason, 'manual_requeue');
+
+      const filteredByReason = await readJson(
+        await fetch(`${baseUrl}/self-heal/requeue-audit?limit=5&reason=manual_requeue`),
+      );
+      assert.equal(filteredByReason.status, 200);
+      assert.ok(filteredByReason.body.count >= 2);
+
+      const filteredMissingReason = await readJson(
+        await fetch(`${baseUrl}/self-heal/requeue-audit?limit=5&reason=unknown_reason`),
+      );
+      assert.equal(filteredMissingReason.status, 200);
+      assert.equal(filteredMissingReason.body.count, 0);
+
+      const futureFrom = encodeURIComponent(new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
+      const filteredFuture = await readJson(await fetch(`${baseUrl}/self-heal/requeue-audit?limit=5&from=${futureFrom}`));
+      assert.equal(filteredFuture.status, 200);
+      assert.equal(filteredFuture.body.count, 0);
+
+      const summary = await readJson(await fetch(`${baseUrl}/self-heal/requeue-audit/summary?days=30`));
+      assert.equal(summary.status, 200);
+      assert.ok(Number.isFinite(summary.body.total));
+      assert.ok(Array.isArray(summary.body.byReason));
+      assert.ok(summary.body.byReason.every((item) => typeof item.reason === 'string' && Number.isFinite(item.count)));
+      assert.ok(Array.isArray(summary.body.byPlaybook));
+      assert.ok(summary.body.byPlaybook.every((item) => typeof item.playbookId === 'string' && Number.isFinite(item.count)));
+      assert.ok(Array.isArray(summary.body.daily));
+      assert.ok(summary.body.daily.every((item) => typeof item.day === 'string' && Number.isFinite(item.count)));
+    },
+    { store },
+  );
 });
 
 test('GET /products/:asin/detail returns 404 for unknown ASIN', async () => {

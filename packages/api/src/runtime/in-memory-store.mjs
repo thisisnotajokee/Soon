@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { evaluateSelfHealRetryAttempt } from './self-heal-playbooks.mjs';
 
 function sampleHistory(base) {
   const now = Date.now();
@@ -115,6 +116,7 @@ function normalizeExecutedPlaybooks(items) {
         retryBackoffSec: Number.isFinite(Number(item?.retryBackoffSec))
           ? Number(item.retryBackoffSec)
           : 0,
+        shouldRetry: Boolean(item?.shouldRetry),
         priorityScore: Number.isFinite(Number(item?.priorityScore)) ? Number(item.priorityScore) : 0,
         matchedAnomalyCodes: Array.isArray(item?.matchedAnomalyCodes)
           ? item.matchedAnomalyCodes.filter((code) => typeof code === 'string')
@@ -218,6 +220,10 @@ export function createInMemoryStore() {
   const byAsin = new Map(SEEDED_TRACKINGS.map((item) => [item.asin, buildRecord(item)]));
   const automationRuns = [];
   const selfHealRuns = [];
+  const selfHealRetryQueue = [];
+  const selfHealDeadLetters = [];
+  const selfHealRequeueAudit = [];
+  let selfHealManualRequeueTotal = 0;
 
   async function listTrackings() {
     return [...byAsin.values()].map(({ historyPoints, ...rest }) => rest);
@@ -351,6 +357,269 @@ export function createInMemoryStore() {
     return selfHealRuns.slice(0, safeLimit);
   }
 
+  async function enqueueSelfHealRetryJobs({ runId, source, jobs }) {
+    const normalized = normalizeExecutedPlaybooks(jobs);
+    const createdAt = new Date();
+
+    const queueItems = normalized
+      .filter((item) => item.status === 'failed' && item.maxRetries > item.retriesUsed)
+      .map((item) => {
+        const nextRetryAt = new Date(createdAt.getTime() + item.retryBackoffSec * 1000).toISOString();
+        return {
+          jobId: randomUUID(),
+          runId,
+          source: source ?? 'self-heal-worker-v1',
+          playbookId: item.playbookId,
+          status: 'queued',
+          attempts: item.attempts,
+          maxRetries: item.maxRetries,
+          retriesUsed: item.retriesUsed,
+          retryBackoffSec: item.retryBackoffSec,
+          priorityScore: item.priorityScore,
+          matchedAnomalyCodes: item.matchedAnomalyCodes,
+          nextRetryAt,
+          lastError: null,
+          createdAt: createdAt.toISOString(),
+          updatedAt: createdAt.toISOString(),
+        };
+      });
+
+    selfHealRetryQueue.push(...queueItems);
+    return {
+      enqueued: queueItems.length,
+      queueSize: selfHealRetryQueue.filter((item) => item.status === 'queued').length,
+    };
+  }
+
+  async function processSelfHealRetryQueue({ limit = 20, now = Date.now() } = {}) {
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+    const nowMs = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+    const queued = selfHealRetryQueue
+      .filter((item) => item.status === 'queued' && Date.parse(item.nextRetryAt) <= nowMs)
+      .sort((a, b) => b.priorityScore - a.priorityScore || a.nextRetryAt.localeCompare(b.nextRetryAt))
+      .slice(0, safeLimit);
+
+    let processed = 0;
+    let completed = 0;
+    let rescheduled = 0;
+    let deadLettered = 0;
+
+    for (const job of queued) {
+      processed += 1;
+      const outcome = evaluateSelfHealRetryAttempt(job);
+      const jobRef = selfHealRetryQueue.find((item) => item.jobId === job.jobId);
+      if (!jobRef) continue;
+
+      const updatedAt = new Date().toISOString();
+      if (outcome.outcome === 'done') {
+        jobRef.status = 'done';
+        jobRef.attempts = outcome.attempts;
+        jobRef.retriesUsed = outcome.retriesUsed;
+        jobRef.lastError = null;
+        jobRef.updatedAt = updatedAt;
+        completed += 1;
+        continue;
+      }
+
+      if (outcome.outcome === 'retry') {
+        jobRef.status = 'queued';
+        jobRef.attempts = outcome.attempts;
+        jobRef.retriesUsed = outcome.retriesUsed;
+        jobRef.lastError = outcome.status;
+        jobRef.nextRetryAt = new Date(nowMs + outcome.retryBackoffSec * 1000).toISOString();
+        jobRef.updatedAt = updatedAt;
+        rescheduled += 1;
+        continue;
+      }
+
+      jobRef.status = 'dead_letter';
+      jobRef.attempts = outcome.attempts;
+      jobRef.retriesUsed = outcome.retriesUsed;
+      jobRef.lastError = outcome.reason ?? 'unknown_dead_letter_reason';
+      jobRef.updatedAt = updatedAt;
+      selfHealDeadLetters.unshift({
+        deadLetterId: randomUUID(),
+        jobId: jobRef.jobId,
+        runId: jobRef.runId,
+        source: jobRef.source,
+        playbookId: jobRef.playbookId,
+        reason: jobRef.lastError,
+        finalAttemptCount: jobRef.attempts,
+        maxRetries: jobRef.maxRetries,
+        payload: {
+          retryBackoffSec: jobRef.retryBackoffSec,
+          priorityScore: jobRef.priorityScore,
+          matchedAnomalyCodes: jobRef.matchedAnomalyCodes,
+        },
+        createdAt: updatedAt,
+      });
+      deadLettered += 1;
+    }
+
+    if (selfHealDeadLetters.length > 200) {
+      selfHealDeadLetters.length = 200;
+    }
+
+    return {
+      processed,
+      completed,
+      rescheduled,
+      deadLettered,
+      queuePending: selfHealRetryQueue.filter((item) => item.status === 'queued').length,
+    };
+  }
+
+  async function getSelfHealRetryStatus() {
+    const pending = selfHealRetryQueue.filter((item) => item.status === 'queued').length;
+    const done = selfHealRetryQueue.filter((item) => item.status === 'done').length;
+    const deadLetter = selfHealRetryQueue.filter((item) => item.status === 'dead_letter').length;
+    return {
+      queuePending: pending,
+      queueDone: done,
+      queueDeadLetter: deadLetter,
+      deadLetterCount: selfHealDeadLetters.length,
+      manualRequeueTotal: selfHealManualRequeueTotal,
+      scheduler: 'memory-interval',
+    };
+  }
+
+  async function listSelfHealDeadLetters(limit = 20) {
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+    return selfHealDeadLetters.slice(0, safeLimit);
+  }
+
+  async function requeueSelfHealDeadLetter(deadLetterId, { now = Date.now() } = {}) {
+    const id = String(deadLetterId ?? '').trim();
+    if (!id) return null;
+
+    const deadLetter = selfHealDeadLetters.find((item) => item.deadLetterId === id);
+    if (!deadLetter) return null;
+
+    const queueEntry = selfHealRetryQueue.find((item) => item.jobId === deadLetter.jobId);
+    if (!queueEntry) return null;
+    if (queueEntry.status !== 'dead_letter') {
+      return {
+        error: 'not_dead_letter',
+        deadLetterId: deadLetter.deadLetterId,
+        queueJobId: queueEntry.jobId,
+        currentStatus: queueEntry.status,
+      };
+    }
+
+    const nowMs = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+    queueEntry.status = 'queued';
+    queueEntry.maxRetries = Math.max(queueEntry.maxRetries, queueEntry.retriesUsed + 1);
+    queueEntry.nextRetryAt = new Date(nowMs).toISOString();
+    queueEntry.lastError = 'manual_requeue';
+    queueEntry.updatedAt = new Date(nowMs).toISOString();
+    selfHealManualRequeueTotal += 1;
+    selfHealRequeueAudit.unshift({
+      auditId: randomUUID(),
+      deadLetterId: deadLetter.deadLetterId,
+      queueJobId: queueEntry.jobId,
+      runId: queueEntry.runId,
+      source: queueEntry.source,
+      playbookId: queueEntry.playbookId,
+      reason: 'manual_requeue',
+      createdAt: new Date(nowMs).toISOString(),
+    });
+    if (selfHealRequeueAudit.length > 500) {
+      selfHealRequeueAudit.length = 500;
+    }
+
+    return {
+      deadLetterId: deadLetter.deadLetterId,
+      queueJobId: queueEntry.jobId,
+      status: queueEntry.status,
+      nextRetryAt: queueEntry.nextRetryAt,
+      maxRetries: queueEntry.maxRetries,
+      retriesUsed: queueEntry.retriesUsed,
+    };
+  }
+
+  async function listSelfHealRequeueAudit(limit = 20, filters = {}) {
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+    const reason = typeof filters?.reason === 'string' ? filters.reason.trim() : '';
+    const fromMs = Number.isFinite(Number(filters?.fromMs)) ? Number(filters.fromMs) : null;
+    const toMs = Number.isFinite(Number(filters?.toMs)) ? Number(filters.toMs) : null;
+
+    const filtered = selfHealRequeueAudit.filter((item) => {
+      if (reason && item.reason !== reason) return false;
+      const createdMs = Date.parse(item.createdAt);
+      if (!Number.isFinite(createdMs)) return false;
+      if (fromMs !== null && createdMs < fromMs) return false;
+      if (toMs !== null && createdMs > toMs) return false;
+      return true;
+    });
+
+    return filtered.slice(0, safeLimit);
+  }
+
+  async function getSelfHealRequeueAuditSummary(days = 7, { now = Date.now() } = {}) {
+    const safeDays = Math.max(1, Math.min(365, Number(days) || 7));
+    const nowMs = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+    const cutoffMs = nowMs - safeDays * 24 * 60 * 60 * 1000;
+
+    const filtered = selfHealRequeueAudit.filter((item) => {
+      const createdMs = Date.parse(item.createdAt);
+      return Number.isFinite(createdMs) && createdMs >= cutoffMs;
+    });
+
+    const byReasonMap = new Map();
+    const byPlaybookMap = new Map();
+    const dailyMap = new Map();
+
+    for (const item of filtered) {
+      byReasonMap.set(item.reason, (byReasonMap.get(item.reason) ?? 0) + 1);
+      byPlaybookMap.set(item.playbookId, (byPlaybookMap.get(item.playbookId) ?? 0) + 1);
+      const day = item.createdAt.slice(0, 10);
+      dailyMap.set(day, (dailyMap.get(day) ?? 0) + 1);
+    }
+
+    return {
+      days: safeDays,
+      total: filtered.length,
+      byReason: [...byReasonMap.entries()].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count),
+      byPlaybook: [...byPlaybookMap.entries()]
+        .map(([playbookId, count]) => ({ playbookId, count }))
+        .sort((a, b) => b.count - a.count),
+      daily: [...dailyMap.entries()]
+        .map(([day, count]) => ({ day, count }))
+        .sort((a, b) => a.day.localeCompare(b.day)),
+    };
+  }
+
+  async function requeueSelfHealDeadLetters({ limit = 20, deadLetterIds, now = Date.now() } = {}) {
+    const hasIdList = Array.isArray(deadLetterIds) && deadLetterIds.length > 0;
+    const normalizedIds = hasIdList
+      ? [...new Set(deadLetterIds.map((value) => String(value ?? '').trim()).filter(Boolean))]
+      : [];
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+    const candidates = hasIdList ? normalizedIds.map((id) => ({ deadLetterId: id })) : selfHealDeadLetters.slice(0, safeLimit);
+    const requeuedItems = [];
+    let conflicts = 0;
+    let missing = 0;
+
+    for (const item of candidates) {
+      const requeued = await requeueSelfHealDeadLetter(item.deadLetterId, { now });
+      if (requeued && !requeued.error) {
+        requeuedItems.push(requeued);
+      } else if (requeued?.error === 'not_dead_letter') {
+        conflicts += 1;
+      } else {
+        missing += 1;
+      }
+    }
+
+    return {
+      requested: candidates.length,
+      requeued: requeuedItems.length,
+      conflicts,
+      missing,
+      items: requeuedItems,
+    };
+  }
+
   return {
     mode: 'in-memory',
     listTrackings,
@@ -363,6 +632,14 @@ export function createInMemoryStore() {
     getReadModelRefreshStatus,
     recordSelfHealRun,
     listLatestSelfHealRuns,
+    enqueueSelfHealRetryJobs,
+    processSelfHealRetryQueue,
+    getSelfHealRetryStatus,
+    listSelfHealDeadLetters,
+    requeueSelfHealDeadLetter,
+    requeueSelfHealDeadLetters,
+    listSelfHealRequeueAudit,
+    getSelfHealRequeueAuditSummary,
     async close() {
       // no-op
     },
