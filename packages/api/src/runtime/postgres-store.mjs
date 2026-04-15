@@ -1569,6 +1569,54 @@ export function createPostgresStore({
     };
   }
 
+  async function getRuntimeState(stateKey) {
+    await ensureInit();
+    const key = String(stateKey ?? '').trim();
+    if (!key) return null;
+
+    const res = await pool.query(
+      `
+      SELECT state_key, state_value, updated_at
+      FROM soon_runtime_state
+      WHERE state_key = $1
+    `,
+      [key],
+    );
+
+    if (!res.rowCount) return null;
+    const row = res.rows[0];
+    return {
+      stateKey: row.state_key,
+      stateValue: row.state_value ?? null,
+      updatedAt: row.updated_at?.toISOString?.() ?? new Date(row.updated_at).toISOString(),
+    };
+  }
+
+  async function setRuntimeState(stateKey, stateValue) {
+    await ensureInit();
+    const key = String(stateKey ?? '').trim();
+    if (!key) return null;
+
+    const res = await pool.query(
+      `
+      INSERT INTO soon_runtime_state (state_key, state_value, updated_at)
+      VALUES ($1, $2::jsonb, now())
+      ON CONFLICT (state_key) DO UPDATE SET
+        state_value = EXCLUDED.state_value,
+        updated_at = now()
+      RETURNING state_key, state_value, updated_at
+    `,
+      [key, JSON.stringify(stateValue ?? null)],
+    );
+
+    const row = res.rows[0];
+    return {
+      stateKey: row.state_key,
+      stateValue: row.state_value ?? null,
+      updatedAt: row.updated_at?.toISOString?.() ?? new Date(row.updated_at).toISOString(),
+    };
+  }
+
   return {
     mode: 'postgres',
     listTrackings,
@@ -1589,6 +1637,8 @@ export function createPostgresStore({
     requeueSelfHealDeadLetters,
     listSelfHealRequeueAudit,
     getSelfHealRequeueAuditSummary,
+    getRuntimeState,
+    setRuntimeState,
     async close() {
       await flushDailyReadModelRefresh();
       await pool.end();

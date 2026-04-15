@@ -1089,3 +1089,31 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Przenieść cooldown state do trwałego storage (np. tabela runtime state), żeby był odporny na restart procesu.
+
+### Update (2026-04-16, persisted cooldown state for alert-routing remediation)
+
+1. Dodano trwały runtime state dla guardrail cooldown:
+   - migration: `packages/api/db/migrations/010_runtime_state.sql`
+   - tabela: `soon_runtime_state(state_key, state_value, updated_at)`.
+2. Rozszerzono store API (memory + postgres):
+   - `getRuntimeState(stateKey)`
+   - `setRuntimeState(stateKey, stateValue)`
+3. `POST /self-heal/run` używa teraz persisted key:
+   - `alert_routing_last_remediation_at`
+   - cooldown liczony z runtime state zamiast wyłącznie zmiennej procesu.
+4. Dodano regresję kontraktową:
+   - `self-heal alert routing v1: cooldown survives server restart via persisted runtime state`
+   - scenariusz: restart serwera nie resetuje cooldown przy tym samym store/runtime state.
+
+### Testy / weryfikacja
+
+1. `npm run test:contracts` -> PASS (24/24).
+2. `npm run check` -> PASS.
+
+### Ryzyka
+
+1. Dla trybu memory persisted cooldown trwa tylko tyle, ile żyje instancja store (w obrębie procesu testowego); pełna trwałość produkcyjna wymaga trybu postgres.
+
+### Następny krok
+
+1. Dodać endpoint diagnostyczny runtime-state dla self-heal guardrails (read-only) do szybkiej inspekcji operacyjnej.

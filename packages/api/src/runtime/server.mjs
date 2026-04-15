@@ -606,6 +606,7 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         const body = await readJsonBody(req).catch(() => ({}));
         const override = body?.readModelStatusOverride ?? null;
         const remediationConfig = resolveAlertRoutingRemediationConfig(body?.alertRoutingRemediation ?? null);
+        const remediationStateKey = 'alert_routing_last_remediation_at';
         const cycle = await runSelfHealWorker({
           readModelStatusProvider: store.getReadModelRefreshStatus
             ? async () => (override ?? store.getReadModelRefreshStatus())
@@ -635,9 +636,18 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
 
           if (remediationConfig.mode !== 'off' && before.violations.total > 0) {
             const nowMs = Date.now();
+            let persistedLastRemediationAtMs = 0;
+            if (store.getRuntimeState) {
+              const runtimeState = await store.getRuntimeState(remediationStateKey);
+              const rawTimestamp = runtimeState?.stateValue?.timestamp ?? runtimeState?.stateValue?.at ?? null;
+              const parsedTimestamp = Date.parse(rawTimestamp ?? '');
+              persistedLastRemediationAtMs = Number.isFinite(parsedTimestamp) ? parsedTimestamp : 0;
+            } else {
+              persistedLastRemediationAtMs = lastAlertRoutingRemediationAtMs;
+            }
             const cooldownRemainingMs =
               remediationConfig.cooldownSec > 0
-                ? Math.max(0, lastAlertRoutingRemediationAtMs + remediationConfig.cooldownSec * 1000 - nowMs)
+                ? Math.max(0, persistedLastRemediationAtMs + remediationConfig.cooldownSec * 1000 - nowMs)
                 : 0;
 
             if (cooldownRemainingMs > 0) {
@@ -657,7 +667,17 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
                     finishedAt,
                   })
                 : null;
-              lastAlertRoutingRemediationAtMs = nowMs;
+
+              if (store.setRuntimeState) {
+                await store.setRuntimeState(remediationStateKey, {
+                  timestamp: new Date(nowMs).toISOString(),
+                  remediationRunId: remediationPersisted?.runId ?? null,
+                  mode: remediationConfig.mode,
+                });
+              } else {
+                lastAlertRoutingRemediationAtMs = nowMs;
+              }
+
               const afterItems = await store.listLatestAutomationRuns(1);
               const after = summarizeAlertRouting(afterItems, 1);
               alertRoutingAutoRemediation = {

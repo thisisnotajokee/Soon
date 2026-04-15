@@ -223,6 +223,7 @@ export function createInMemoryStore() {
   const selfHealRetryQueue = [];
   const selfHealDeadLetters = [];
   const selfHealRequeueAudit = [];
+  const runtimeState = new Map();
   let selfHealManualRequeueTotal = 0;
 
   async function listTrackings() {
@@ -641,6 +642,24 @@ export function createInMemoryStore() {
     };
   }
 
+  async function getRuntimeState(stateKey) {
+    const key = String(stateKey ?? '').trim();
+    if (!key) return null;
+    const entry = runtimeState.get(key);
+    return entry ? { stateKey: key, ...entry } : null;
+  }
+
+  async function setRuntimeState(stateKey, stateValue) {
+    const key = String(stateKey ?? '').trim();
+    if (!key) return null;
+    const entry = {
+      stateValue: stateValue ?? null,
+      updatedAt: new Date().toISOString(),
+    };
+    runtimeState.set(key, entry);
+    return { stateKey: key, ...entry };
+  }
+
   return {
     mode: 'in-memory',
     listTrackings,
@@ -661,6 +680,8 @@ export function createInMemoryStore() {
     requeueSelfHealDeadLetters,
     listSelfHealRequeueAudit,
     getSelfHealRequeueAuditSummary,
+    getRuntimeState,
+    setRuntimeState,
     async close() {
       // no-op
     },
