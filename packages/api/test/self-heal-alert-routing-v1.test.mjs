@@ -92,3 +92,64 @@ test('self-heal alert routing v1: records dead-letter retry_budget_exhausted and
     { store },
   );
 });
+
+test('self-heal alert routing v1: policy drift triggers auto-remediation and recovers in next cycle', async () => {
+  const store = createInMemoryStore();
+  const now = new Date().toISOString();
+  await store.recordAutomationCycle({
+    cycle: {
+      executedSteps: ['test-drift'],
+      tokenPlan: [],
+      decisions: [
+        {
+          asin: 'B0BYW7MMBR',
+          score: 90,
+          confidence: 0.9,
+          shouldAlert: true,
+          reason: 'drift-injected-for-test',
+        },
+      ],
+      alerts: [
+        {
+          asin: 'B0BYW7MMBR',
+          kind: 'purchase',
+          channel: 'discord',
+          reason: 'drift-injected-for-test',
+        },
+      ],
+    },
+    trackingCount: 1,
+    startedAt: now,
+    finishedAt: now,
+  });
+
+  await withServer(
+    async (baseUrl) => {
+      const before = await readJson(await fetch(`${baseUrl}/api/check-alert-status?limit=1`));
+      assert.equal(before.status, 200);
+      assert.equal(before.body.overall, 'WARN');
+      assert.ok(before.body.violations.purchaseToNonTelegram >= 1);
+
+      const selfHealRun = await readJson(
+        await fetch(`${baseUrl}/self-heal/run`, {
+          method: 'POST',
+        }),
+      );
+      assert.equal(selfHealRun.status, 200);
+      assert.equal(selfHealRun.body.status, 'ok');
+      assert.ok(selfHealRun.body.alertRoutingAutoRemediation);
+      assert.equal(selfHealRun.body.alertRoutingAutoRemediation.triggered, true);
+      assert.equal(selfHealRun.body.alertRoutingAutoRemediation.reason, 'policy_drift_latest_run');
+      assert.ok(selfHealRun.body.alertRoutingAutoRemediation.beforeViolations >= 1);
+      assert.equal(selfHealRun.body.alertRoutingAutoRemediation.afterViolations, 0);
+      assert.equal(selfHealRun.body.alertRoutingAutoRemediation.recovered, true);
+      assert.ok(selfHealRun.body.alertRoutingAutoRemediation.remediationRunId);
+
+      const after = await readJson(await fetch(`${baseUrl}/api/check-alert-status?limit=1`));
+      assert.equal(after.status, 200);
+      assert.equal(after.body.overall, 'PASS');
+      assert.equal(after.body.violations.total, 0);
+    },
+    { store },
+  );
+});

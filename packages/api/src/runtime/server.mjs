@@ -587,6 +587,48 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
             ? async () => (override ?? store.getReadModelRefreshStatus())
             : undefined,
         });
+
+        let alertRoutingAutoRemediation = null;
+        if (store.listLatestAutomationRuns) {
+          const beforeItems = await store.listLatestAutomationRuns(1);
+          const before = summarizeAlertRouting(beforeItems, 1);
+          alertRoutingAutoRemediation = {
+            checked: true,
+            triggered: false,
+            reason: null,
+            beforeViolations: Number(before?.violations?.total ?? 0),
+            afterViolations: Number(before?.violations?.total ?? 0),
+            recovered: false,
+            remediationRunId: null,
+          };
+
+          if (before.violations.total > 0) {
+            const startedAt = new Date().toISOString();
+            const trackings = await store.listTrackings();
+            const remediationCycle = runAutomationCycle(trackings);
+            const finishedAt = new Date().toISOString();
+            const remediationPersisted = store.recordAutomationCycle
+              ? await store.recordAutomationCycle({
+                  cycle: remediationCycle,
+                  trackingCount: trackings.length,
+                  startedAt,
+                  finishedAt,
+                })
+              : null;
+            const afterItems = await store.listLatestAutomationRuns(1);
+            const after = summarizeAlertRouting(afterItems, 1);
+            alertRoutingAutoRemediation = {
+              checked: true,
+              triggered: true,
+              reason: 'policy_drift_latest_run',
+              beforeViolations: Number(before?.violations?.total ?? 0),
+              afterViolations: Number(after?.violations?.total ?? 0),
+              recovered: Number(after?.violations?.total ?? 0) === 0,
+              remediationRunId: remediationPersisted?.runId ?? null,
+            };
+          }
+        }
+
         const persisted = store.recordSelfHealRun ? await store.recordSelfHealRun(cycle) : null;
         const retryQueue = store.enqueueSelfHealRetryJobs
           ? await store.enqueueSelfHealRetryJobs({
@@ -602,6 +644,7 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           runId: persisted?.runId ?? null,
           persisted,
           retryQueue,
+          alertRoutingAutoRemediation,
         });
       }
 
