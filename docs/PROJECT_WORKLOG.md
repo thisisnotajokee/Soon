@@ -775,3 +775,28 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 1. `npm run test:scripts` -> PASS (3/3).
 2. `npm run check` -> PASS.
+
+### Update (2026-04-15, CI hardening for triage artifact presence and shape)
+
+1. Dodano walidator artefaktu triage:
+   - `packages/api/scripts/self-heal-triage-validate.mjs`.
+2. Walidator sprawdza twardo:
+   - `overall`,
+   - `policy.warnAsError`,
+   - `bulk.summary.{requested,requeued,conflicts,missing}`,
+   - `findings`.
+3. Workflow `quality-gate`:
+   - dodano krok `Validate self-heal triage artifact (postgres)`,
+   - `doctor-summary` uruchamiany z `SOON_DOCTOR_SUMMARY_REQUIRE_TRIAGE=1`,
+   - brak/niepoprawny artefakt triage powoduje fail CI.
+4. `doctor-summary`:
+   - w trybie strict (ENV) failuje dla brakującego lub niepoprawnego artefaktu triage.
+5. Dodano testy regresyjne:
+   - strict-mode fail dla `doctor-summary` bez triage,
+   - fail walidatora triage przy brakujących polach.
+6. Dokumentacja uzupełniona (`README.md`, `packages/api/README.md`).
+
+### Testy / weryfikacja
+
+1. `npm run test:scripts` -> PASS (5/5).
+2. `npm run check` -> PASS.

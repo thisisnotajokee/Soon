@@ -17,6 +17,7 @@
     "obs:doctor:report": "bash -lc \"set -a; [ -f .env.local ] && source .env.local; set +a; node packages/api/scripts/doctor-report.mjs\"",
     "obs:doctor:report:json": "bash -lc \"set -a; [ -f .env.local ] && source .env.local; set +a; node packages/api/scripts/doctor-report.mjs --json-only\"",
     "obs:doctor:summary": "node packages/api/scripts/doctor-summary.mjs",
+    "ops:self-heal:triage:validate": "node packages/api/scripts/self-heal-triage-validate.mjs",
     "ops:self-heal:requeue:triage": "bash -lc \"set -a; [ -f .env.local ] && source .env.local; set +a; node packages/api/scripts/self-heal-requeue-triage.mjs\"",
     "ops:self-heal:requeue:triage:json": "bash -lc \"set -a; [ -f .env.local ] && source .env.local; set +a; node packages/api/scripts/self-heal-requeue-triage.mjs --json\"",
     "test:contracts": "node --test packages/api/test/contracts-v1.test.mjs",

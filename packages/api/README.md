@@ -58,6 +58,8 @@ Minimalny runtime API v1 dla projektu `Soon`.
    - `SOON_SELF_HEAL_TRIAGE_WARN_AS_ERROR=0|1` (default `0`; w CI ustaw na `1`)
 10. Self-heal triage artifact:
    - `ops/reports/doctor/self-heal-triage.json` (gdy uruchamiane przez `make doctor`)
+11. Self-heal triage artifact validator:
+   - `npm run ops:self-heal:triage:validate -- ops/reports/doctor/self-heal-triage.json`
 
 ## Runbook: dead-letter bulk requeue
 
