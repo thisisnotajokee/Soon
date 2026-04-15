@@ -151,16 +151,23 @@ export function createApiClient(baseUrl) {
       return body;
     },
 
-    async requeueSelfHealDeadLettersBulk(limit = 20) {
-      const safeLimit = Number.isFinite(Number(limit)) ? Number(limit) : 20;
+    async requeueSelfHealDeadLettersBulk(input = 20) {
+      const requestBody = Array.isArray(input)
+        ? { deadLetterIds: input }
+        : typeof input === 'object' && input !== null
+          ? {
+              limit: Number.isFinite(Number(input.limit)) ? Number(input.limit) : 20,
+              deadLetterIds: Array.isArray(input.deadLetterIds) ? input.deadLetterIds : undefined,
+            }
+          : { limit: Number.isFinite(Number(input)) ? Number(input) : 20 };
       const response = await fetch(`${apiBase}/self-heal/dead-letter/requeue-bulk`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ limit: safeLimit }),
+        body: JSON.stringify(requestBody),
       });
-      const body = await response.json();
-      assertOk(response, body, 'requeueSelfHealDeadLettersBulk');
-      return body;
+      const responseBody = await response.json();
+      assertOk(response, responseBody, 'requeueSelfHealDeadLettersBulk');
+      return responseBody;
     },
 
     async getSelfHealRequeueAudit(limit = 20) {

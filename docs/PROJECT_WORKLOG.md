@@ -207,6 +207,29 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 1. `npm run check` -> PASS.
 
+### Update (2026-04-15, bulk requeue by explicit deadLetterIds)
+
+1. Rozszerzono `POST /self-heal/dead-letter/requeue-bulk`:
+   - wspiera jawne `deadLetterIds[]` (precyzyjne requeue),
+   - zachowuje fallback do `limit` (najnowsze wpisy).
+2. Dodano walidację inputu bulk:
+   - pusta lista `deadLetterIds` -> `400 dead_letter_ids_invalid`.
+3. Rozszerzono implementację store (memory/postgres):
+   - `requeueSelfHealDeadLetters({ deadLetterIds, limit, now })`.
+4. Rozszerzono web API client:
+   - `requeueSelfHealDeadLettersBulk(input)` obsługuje:
+     - `number` (`limit`),
+     - `deadLetterIds[]`,
+     - obiekt `{ limit, deadLetterIds }`.
+5. Rozszerzono kontrakty HTTP:
+   - test walidacji pustej listy `deadLetterIds`,
+   - bulk happy-path po konkretnych ID (nie tylko po `limit`).
+6. Zaktualizowano `packages/api/README.md` (opis endpointu bulk).
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS.
+
 ### Update (2026-04-15, self-heal dead-letter bulk requeue)
 
 1. Dodano endpoint:

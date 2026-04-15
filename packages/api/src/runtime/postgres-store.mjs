@@ -1401,23 +1401,38 @@ export function createPostgresStore({
     }));
   }
 
-  async function requeueSelfHealDeadLetters({ limit = 20, now = Date.now() } = {}) {
+  async function requeueSelfHealDeadLetters({ limit = 20, deadLetterIds, now = Date.now() } = {}) {
     await ensureInit();
-    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
-    const idsRes = await pool.query(
-      `
-      SELECT id
-      FROM soon_self_heal_dead_letter
-      ORDER BY created_at DESC
-      LIMIT $1
-    `,
-      [safeLimit],
-    );
+    const hasIdList = Array.isArray(deadLetterIds) && deadLetterIds.length > 0;
+    const normalizedIds = hasIdList
+      ? [...new Set(deadLetterIds.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0))]
+      : [];
+
+    let candidateIds = [];
+    let requestedCount = 0;
+    let missing = 0;
+    if (hasIdList) {
+      candidateIds = normalizedIds;
+      requestedCount = deadLetterIds.length;
+      missing = Math.max(0, deadLetterIds.length - normalizedIds.length);
+    } else {
+      const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+      const idsRes = await pool.query(
+        `
+        SELECT id
+        FROM soon_self_heal_dead_letter
+        ORDER BY created_at DESC
+        LIMIT $1
+      `,
+        [safeLimit],
+      );
+      candidateIds = idsRes.rows.map((row) => row.id);
+      requestedCount = candidateIds.length;
+    }
 
     const items = [];
-    let missing = 0;
-    for (const row of idsRes.rows) {
-      const requeued = await requeueSelfHealDeadLetter(row.id, { now });
+    for (const deadLetterId of candidateIds) {
+      const requeued = await requeueSelfHealDeadLetter(deadLetterId, { now });
       if (requeued) {
         items.push(requeued);
       } else {
@@ -1426,7 +1441,7 @@ export function createPostgresStore({
     }
 
     return {
-      requested: idsRes.rows.length,
+      requested: requestedCount,
       requeued: items.length,
       missing,
       items,

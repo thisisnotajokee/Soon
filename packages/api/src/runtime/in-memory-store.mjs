@@ -534,9 +534,13 @@ export function createInMemoryStore() {
     return selfHealRequeueAudit.slice(0, safeLimit);
   }
 
-  async function requeueSelfHealDeadLetters({ limit = 20, now = Date.now() } = {}) {
+  async function requeueSelfHealDeadLetters({ limit = 20, deadLetterIds, now = Date.now() } = {}) {
+    const hasIdList = Array.isArray(deadLetterIds) && deadLetterIds.length > 0;
+    const normalizedIds = hasIdList
+      ? [...new Set(deadLetterIds.map((value) => String(value ?? '').trim()).filter(Boolean))]
+      : [];
     const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
-    const candidates = selfHealDeadLetters.slice(0, safeLimit);
+    const candidates = hasIdList ? normalizedIds.map((id) => ({ deadLetterId: id })) : selfHealDeadLetters.slice(0, safeLimit);
     const requeuedItems = [];
     let missing = 0;
 

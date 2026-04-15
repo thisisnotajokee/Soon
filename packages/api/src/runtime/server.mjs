@@ -534,12 +534,20 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         }
 
         const body = await readJsonBody(req).catch(() => ({}));
+        const hasIds = Array.isArray(body?.deadLetterIds);
+        const deadLetterIds = hasIds
+          ? [...new Set(body.deadLetterIds.map((value) => String(value ?? '').trim()).filter(Boolean))]
+          : null;
+        if (hasIds && (!deadLetterIds || deadLetterIds.length === 0)) {
+          return sendJson(res, 400, { error: 'dead_letter_ids_invalid' });
+        }
+
         const rawLimit = Number(body?.limit ?? url.searchParams.get('limit') ?? 20);
         const limit = Math.max(1, Math.min(100, Number.isFinite(rawLimit) ? rawLimit : 20));
         const rawNow = body?.now ?? url.searchParams.get('now');
         const now = Number.isFinite(Number(rawNow)) ? Number(rawNow) : Date.now();
 
-        const summary = await store.requeueSelfHealDeadLetters({ limit, now });
+        const summary = await store.requeueSelfHealDeadLetters({ limit, deadLetterIds, now });
         const retryStatus = store.getSelfHealRetryStatus ? await store.getSelfHealRetryStatus() : null;
         return sendJson(res, 200, { status: 'ok', summary, retryStatus });
       }

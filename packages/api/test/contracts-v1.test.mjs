@@ -353,6 +353,16 @@ test('POST /self-heal/dead-letter/requeue validates input and handles missing it
     );
     assert.equal(notFound.status, 404);
     assert.equal(notFound.body.error, 'dead_letter_not_found');
+
+    const invalidBulk = await readJson(
+      await fetch(`${baseUrl}/self-heal/dead-letter/requeue-bulk`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ deadLetterIds: [] }),
+      }),
+    );
+    assert.equal(invalidBulk.status, 400);
+    assert.equal(invalidBulk.body.error, 'dead_letter_ids_invalid');
   });
 });
 
@@ -448,11 +458,12 @@ test('POST /self-heal/dead-letter/requeue-bulk requeues latest dead-letter entri
 
   await withServer(
     async (baseUrl) => {
+      const selectedIds = [deadLetters[0].deadLetterId, deadLetters[1].deadLetterId];
       const bulk = await readJson(
         await fetch(`${baseUrl}/self-heal/dead-letter/requeue-bulk`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ limit: 2 }),
+          body: JSON.stringify({ deadLetterIds: selectedIds }),
         }),
       );
       assert.equal(bulk.status, 200);
