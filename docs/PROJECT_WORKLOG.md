@@ -332,3 +332,17 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 2. `make doctor` -> PASS + zapis artefaktu.
 3. `make doctor-json` -> PASS.
 4. `make down` -> PASS.
+
+### Update (2026-04-15, CI doctor artifact)
+
+1. W workflow `quality-gate` (job `postgres`) krok checker został podniesiony do `make doctor`.
+2. Dodano upload artefaktu diagnostycznego:
+   - `actions/upload-artifact@v7`
+   - plik: `ops/reports/doctor/latest.json`
+3. Artefakt jest publikowany w każdym runie (`if: always()`), co daje ślad diagnostyczny także przy awariach.
+
+### Testy / weryfikacja
+
+1. `make up` -> PASS.
+2. `make doctor` -> PASS.
+3. `make down` -> PASS.

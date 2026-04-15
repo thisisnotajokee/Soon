@@ -76,9 +76,17 @@ jobs:
       - name: Web smoke (postgres path)
         run: npm run smoke:e2e
 
-      - name: Read-model checker (with running API)
+      - name: Doctor report (with running API)
         run: |
           set -euo pipefail
           make up
           trap 'make down' EXIT
-          make check
+          make doctor
+
+      - name: Upload doctor artifact (postgres)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: doctor-report-postgres-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ops/reports/doctor/latest.json
+          if-no-files-found: warn
