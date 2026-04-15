@@ -974,3 +974,28 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Dodać snapshot expected-output dla strict check oraz test regresji dla rendered Alertmanager config.
+
+### Update (2026-04-16, self-heal alert routing + auto-remediation runbook v1 bootstrap)
+
+1. Utworzono runbook operacyjny v1:
+   - `docs/SELF_HEAL_ALERT_ROUTING_RUNBOOK_V1.md`
+   - zawiera invarianty routingu, flow auto-remediation, checklistę wdrożeniową i kryterium DONE.
+2. Dodano szkielet testów pod kolejne wdrożenia:
+   - `packages/api/test/self-heal-alert-routing-v1.test.mjs`
+   - dwa `test.todo` dla:
+     - policy routing + auto-remediation,
+     - retry exhausted/backoff telemetry.
+3. Cel tego kroku:
+   - ustabilizować backlog wdrożenia i mieć jasny kontrakt operacyjny przed kolejnymi zmianami kodu.
+
+### Testy / weryfikacja
+
+1. `npm run check` (na `main` przed utworzeniem brancha) -> PASS.
+
+### Ryzyka
+
+1. Szkielet testów `todo` nie wymusza jeszcze egzekucji scenariuszy end-to-end.
+
+### Następny krok
+
+1. Zamienić `test.todo` na aktywne testy kontraktowe i dodać je do ścieżki CI.
