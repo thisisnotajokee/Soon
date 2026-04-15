@@ -94,6 +94,23 @@ export function createApiClient(baseUrl) {
       return body;
     },
 
+    async runSelfHealCycle() {
+      const response = await fetch(`${apiBase}/self-heal/run`, { method: 'POST' });
+      const body = await response.json();
+      assertOk(response, body, 'runSelfHealCycle');
+      return body;
+    },
+
+    async getLatestSelfHealRuns(limit = 20) {
+      const safeLimit = Number.isFinite(Number(limit)) ? Number(limit) : 20;
+      const response = await fetch(
+        `${apiBase}/self-heal/runs/latest?limit=${encodeURIComponent(String(safeLimit))}`,
+      );
+      const body = await response.json();
+      assertOk(response, body, 'getLatestSelfHealRuns');
+      return body;
+    },
+
     async getPrometheusMetrics() {
       const response = await fetch(`${apiBase}/metrics`);
       const body = await response.text();

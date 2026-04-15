@@ -229,6 +229,31 @@ test('GET /metrics exports read-model Prometheus metrics', async () => {
   });
 });
 
+test('POST /self-heal/run persists self-heal run and playbooks', async () => {
+  await withServer(async (baseUrl) => {
+    const run = await readJson(
+      await fetch(`${baseUrl}/self-heal/run`, {
+        method: 'POST',
+      }),
+    );
+
+    assert.equal(run.status, 200);
+    assert.equal(run.body.status, 'ok');
+    assert.equal(run.body.worker, 'self-heal');
+    assert.ok(Array.isArray(run.body.executedPlaybooks));
+    assert.ok(run.body.executedPlaybooks.length >= 1);
+    assert.ok(run.body.runId);
+
+    const latest = await readJson(await fetch(`${baseUrl}/self-heal/runs/latest?limit=5`));
+    assert.equal(latest.status, 200);
+    assert.ok(latest.body.count >= 1);
+    assert.ok(Array.isArray(latest.body.items));
+    assert.ok(latest.body.items[0].runId);
+    assert.ok(Array.isArray(latest.body.items[0].executedPlaybooks));
+    assert.ok(latest.body.items[0].executedPlaybooks.length >= 1);
+  });
+});
+
 test('GET /products/:asin/detail returns 404 for unknown ASIN', async () => {
   await withServer(async (baseUrl) => {
     const { status, body } = await readJson(await fetch(`${baseUrl}/products/UNKNOWN_ASIN/detail`));

@@ -66,6 +66,18 @@ function summarizeRun({ runId, startedAt, finishedAt, trackingCount, decisions, 
   };
 }
 
+function summarizeSelfHealRun({ runId, source, status, startedAt, finishedAt, executedPlaybooks }) {
+  return {
+    runId,
+    source: source ?? 'self-heal-worker-v1',
+    status: status ?? 'ok',
+    startedAt,
+    finishedAt,
+    playbookCount: executedPlaybooks.length,
+    executedPlaybooks,
+  };
+}
+
 function toDayKey(value) {
   const parsed = Date.parse(value ?? '');
   if (!Number.isFinite(parsed)) return null;
@@ -153,6 +165,7 @@ function buildDailyReadModel(runs, days) {
 export function createInMemoryStore() {
   const byAsin = new Map(SEEDED_TRACKINGS.map((item) => [item.asin, buildRecord(item)]));
   const automationRuns = [];
+  const selfHealRuns = [];
 
   async function listTrackings() {
     return [...byAsin.values()].map(({ historyPoints, ...rest }) => rest);
@@ -262,6 +275,29 @@ export function createInMemoryStore() {
     };
   }
 
+  async function recordSelfHealRun(payload) {
+    const run = summarizeSelfHealRun({
+      runId: randomUUID(),
+      source: payload?.source,
+      status: payload?.status,
+      startedAt: payload?.startedAt ?? new Date().toISOString(),
+      finishedAt: payload?.finishedAt ?? new Date().toISOString(),
+      executedPlaybooks: [...(payload?.executedPlaybooks ?? [])],
+    });
+
+    selfHealRuns.unshift(run);
+    if (selfHealRuns.length > 100) {
+      selfHealRuns.length = 100;
+    }
+
+    return run;
+  }
+
+  async function listLatestSelfHealRuns(limit = 20) {
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+    return selfHealRuns.slice(0, safeLimit);
+  }
+
   return {
     mode: 'in-memory',
     listTrackings,
@@ -272,6 +308,8 @@ export function createInMemoryStore() {
     listLatestAutomationRuns,
     getAutomationDailyReadModel,
     getReadModelRefreshStatus,
+    recordSelfHealRun,
+    listLatestSelfHealRuns,
     async close() {
       // no-op
     },

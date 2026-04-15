@@ -381,3 +381,27 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 2. `SOON_DOCTOR_EXPECT_STORAGE=postgres SOON_DOCTOR_EXPECT_READ_MODEL_MODE=async make doctor` -> PASS (`expectations ok`).
 3. `npm run -s obs:doctor:summary -- ops/reports/doctor/latest.json` -> PASS (sekcja Expectations obecna).
 4. `make down` -> PASS.
+
+### Update (2026-04-15, self-heal runs persistence + API)
+
+1. Dodano migrację `006_self_heal_runs.sql`:
+   - `soon_self_heal_run`
+   - `soon_self_heal_playbook_execution`
+2. Rozszerzono store runtime (`memory` i `postgres`) o:
+   - `recordSelfHealRun(...)`
+   - `listLatestSelfHealRuns(limit)`
+3. Dodano endpointy API:
+   - `POST /self-heal/run`
+   - `GET /self-heal/runs/latest?limit=20`
+4. Rozszerzono smoke/client:
+   - `packages/web/src/api-client.mjs` o metody self-heal
+   - `packages/web/smoke/e2e-smoke.mjs` o walidację self-heal flow
+5. Zaktualizowano kontrakty HTTP (`contracts-v1`) o test persistencji self-heal runu.
+6. Zaktualizowano `packages/api/README.md` o nowe endpointy i tabele.
+
+### Testy / weryfikacja
+
+1. `npm run db:migrate` -> PASS.
+2. `npm run test:contracts` -> PASS (12/12, w tym self-heal).
+3. `npm run test:workers` -> PASS.
+4. `npm run smoke:e2e` -> PASS (`selfHealRuns: 1`).

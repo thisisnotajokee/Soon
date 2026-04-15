@@ -22,6 +22,8 @@ Minimalny runtime API v1 dla projektu `Soon`.
 9. `GET /automation/runs/daily?days=30` (read-model dzienny dashboardu)
 10. `GET /automation/read-model/status` (diagnostyka kolejki refreshu)
 11. `GET /metrics` (Prometheus/OpenTelemetry scrape endpoint)
+12. `POST /self-heal/run` (manualny trigger cyklu self-heal)
+13. `GET /self-heal/runs/latest?limit=20` (historia self-heal runów)
 
 ## Storage mode
 
@@ -60,6 +62,8 @@ Minimalny runtime API v1 dla projektu `Soon`.
 - `soon_hunter_run`
 - `soon_hunter_decision`
 - `soon_alert_dispatch_audit`
+- `soon_self_heal_run`
+- `soon_self_heal_playbook_execution`
 - `soon_maintenance_event`
 
 ## Legacy backup retention
