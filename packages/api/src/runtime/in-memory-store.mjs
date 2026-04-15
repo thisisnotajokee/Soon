@@ -403,6 +403,8 @@ export function createInMemoryStore() {
     let completed = 0;
     let rescheduled = 0;
     let deadLettered = 0;
+    let retryExhausted = 0;
+    let retryBackoffSeconds = 0;
 
     for (const job of queued) {
       processed += 1;
@@ -426,8 +428,10 @@ export function createInMemoryStore() {
         jobRef.attempts = outcome.attempts;
         jobRef.retriesUsed = outcome.retriesUsed;
         jobRef.lastError = outcome.status;
+        jobRef.retryBackoffSec = outcome.retryBackoffSec;
         jobRef.nextRetryAt = new Date(nowMs + outcome.retryBackoffSec * 1000).toISOString();
         jobRef.updatedAt = updatedAt;
+        retryBackoffSeconds = Math.max(retryBackoffSeconds, Math.max(0, Number(outcome.retryBackoffSec ?? 0)));
         rescheduled += 1;
         continue;
       }
@@ -454,6 +458,9 @@ export function createInMemoryStore() {
         createdAt: updatedAt,
       });
       deadLettered += 1;
+      if (jobRef.lastError === 'retry_budget_exhausted') {
+        retryExhausted += 1;
+      }
     }
 
     if (selfHealDeadLetters.length > 200) {
@@ -465,19 +472,33 @@ export function createInMemoryStore() {
       completed,
       rescheduled,
       deadLettered,
+      retryExhausted,
+      retryBackoffSeconds,
       queuePending: selfHealRetryQueue.filter((item) => item.status === 'queued').length,
     };
   }
 
   async function getSelfHealRetryStatus() {
+    const nowMs = Date.now();
+    const queued = selfHealRetryQueue.filter((item) => item.status === 'queued');
     const pending = selfHealRetryQueue.filter((item) => item.status === 'queued').length;
     const done = selfHealRetryQueue.filter((item) => item.status === 'done').length;
     const deadLetter = selfHealRetryQueue.filter((item) => item.status === 'dead_letter').length;
+    const retryExhaustedTotal = selfHealDeadLetters.filter((item) => item.reason === 'retry_budget_exhausted').length;
+    const retryBackoffSeconds = queued.reduce((maxValue, item) => {
+      const nextRetryMs = Date.parse(item.nextRetryAt ?? '');
+      if (!Number.isFinite(nextRetryMs)) return maxValue;
+      const remaining = Math.max(0, Math.round((nextRetryMs - nowMs) / 1000));
+      return Math.max(maxValue, remaining);
+    }, 0);
+
     return {
       queuePending: pending,
       queueDone: done,
       queueDeadLetter: deadLetter,
       deadLetterCount: selfHealDeadLetters.length,
+      retryExhaustedTotal,
+      retryBackoffSeconds,
       manualRequeueTotal: selfHealManualRequeueTotal,
       scheduler: 'memory-interval',
     };

@@ -1112,6 +1112,8 @@ export function createPostgresStore({
     let completed = 0;
     let rescheduled = 0;
     let deadLettered = 0;
+    let retryExhausted = 0;
+    let retryBackoffSeconds = 0;
 
     for (const row of dueRes.rows) {
       processed += 1;
@@ -1185,6 +1187,7 @@ export function createPostgresStore({
         `,
           [row.id, outcome.attempts, outcome.retriesUsed, outcome.retryBackoffSec],
         );
+        retryBackoffSeconds = Math.max(retryBackoffSeconds, Math.max(0, Number(outcome.retryBackoffSec ?? 0)));
         rescheduled += 1;
         continue;
       }
@@ -1232,6 +1235,9 @@ export function createPostgresStore({
         ],
       );
       deadLettered += 1;
+      if ((outcome.reason ?? 'dead_letter') === 'retry_budget_exhausted') {
+        retryExhausted += 1;
+      }
     }
 
     const pendingRes = await pool.query(
@@ -1243,6 +1249,8 @@ export function createPostgresStore({
       completed,
       rescheduled,
       deadLettered,
+      retryExhausted,
+      retryBackoffSeconds,
       queuePending: Number(pendingRes.rows[0]?.count ?? 0),
     };
   }
@@ -1254,18 +1262,33 @@ export function createPostgresStore({
       SELECT
         COALESCE(SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END), 0)::int AS pending,
         COALESCE(SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END), 0)::int AS done,
-        COALESCE(SUM(CASE WHEN status = 'dead_letter' THEN 1 ELSE 0 END), 0)::int AS dead_letter
+        COALESCE(SUM(CASE WHEN status = 'dead_letter' THEN 1 ELSE 0 END), 0)::int AS dead_letter,
+        COALESCE(
+          MAX(
+            CASE
+              WHEN status = 'queued'
+              THEN GREATEST(EXTRACT(EPOCH FROM (next_retry_at - now())), 0)
+              ELSE 0
+            END
+          ),
+          0
+        )::int AS retry_backoff_seconds
       FROM soon_self_heal_retry_queue
     `,
     );
     const dlqRes = await pool.query('SELECT COUNT(*)::int AS count FROM soon_self_heal_dead_letter');
+    const exhaustedRes = await pool.query(
+      "SELECT COUNT(*)::int AS count FROM soon_self_heal_dead_letter WHERE reason = 'retry_budget_exhausted'",
+    );
     const requeueRes = await pool.query('SELECT COUNT(*)::int AS count FROM soon_self_heal_requeue_audit');
 
     return {
       queuePending: Number(countsRes.rows[0]?.pending ?? 0),
       queueDone: Number(countsRes.rows[0]?.done ?? 0),
       queueDeadLetter: Number(countsRes.rows[0]?.dead_letter ?? 0),
+      retryBackoffSeconds: Number(countsRes.rows[0]?.retry_backoff_seconds ?? 0),
       deadLetterCount: Number(dlqRes.rows[0]?.count ?? 0),
+      retryExhaustedTotal: Number(exhaustedRes.rows[0]?.count ?? 0),
       manualRequeueTotal: Number(requeueRes.rows[0]?.count ?? 0),
       scheduler: 'postgres-interval',
     };

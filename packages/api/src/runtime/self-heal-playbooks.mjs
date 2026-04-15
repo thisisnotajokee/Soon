@@ -6,6 +6,17 @@ const DEFAULT_THRESHOLDS = {
   stuckSec: 300,
 };
 
+const RETRY_POLICY_OVERRIDES = {
+  'alert-router-backlog': {
+    PENDING_BACKLOG_WARN: { maxRetries: 1, backoffSec: 15 },
+    PENDING_BACKLOG_CRIT: { maxRetries: 1, backoffSec: 20 },
+  },
+  'read-model-slow-path': {
+    REFRESH_DURATION_WARN: { maxRetries: 1, backoffSec: 30 },
+    REFRESH_DURATION_CRIT: { maxRetries: 2, backoffSec: 45 },
+  },
+};
+
 export const DEFAULT_PLAYBOOKS = [
   {
     id: 'system-health-check',
@@ -44,6 +55,18 @@ export const DEFAULT_PLAYBOOKS = [
 function toNumber(value, fallback) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function clampNonNegativeInt(value, fallback = 0) {
+  return Math.max(0, Math.floor(toNumber(value, fallback)));
+}
+
+function getRetryGuardrails() {
+  return {
+    maxRetriesCap: Math.max(0, clampNonNegativeInt(process.env.SOON_SELF_HEAL_MAX_RETRIES_CAP, 5)),
+    backoffCapSec: Math.max(0, clampNonNegativeInt(process.env.SOON_SELF_HEAL_MAX_BACKOFF_SEC, 900)),
+    backoffFactor: Math.max(1, toNumber(process.env.SOON_SELF_HEAL_RETRY_BACKOFF_FACTOR, 2)),
+  };
 }
 
 function parseStartedAtMs(value) {
@@ -132,7 +155,6 @@ export function detectSelfHealAnomalies({ readModelStatus, now = Date.now(), thr
 
 function selectPlaybooks(findings) {
   const severityWeight = { CRIT: 100, WARN: 40 };
-  const anomalyCodes = new Set(findings.map((item) => item.code));
   const selected = [];
 
   for (const playbook of DEFAULT_PLAYBOOKS) {
@@ -153,6 +175,40 @@ function selectPlaybooks(findings) {
   }
 
   return selected.sort((a, b) => b.priorityScore - a.priorityScore || a.id.localeCompare(b.id));
+}
+
+function resolveRetryPolicy(playbook, matchedFindings = []) {
+  const baseMaxRetries = clampNonNegativeInt(playbook?.retryPolicy?.maxRetries, 0);
+  const baseBackoffSec = clampNonNegativeInt(playbook?.retryPolicy?.backoffSec, 0);
+
+  const overridesForPlaybook = RETRY_POLICY_OVERRIDES[playbook?.id] ?? {};
+  let resolvedMaxRetries = baseMaxRetries;
+  let resolvedBackoffSec = baseBackoffSec;
+
+  for (const finding of matchedFindings) {
+    const override = overridesForPlaybook[finding?.code];
+    if (!override) continue;
+
+    resolvedMaxRetries = Math.max(resolvedMaxRetries, clampNonNegativeInt(override.maxRetries, resolvedMaxRetries));
+    resolvedBackoffSec = Math.max(resolvedBackoffSec, clampNonNegativeInt(override.backoffSec, resolvedBackoffSec));
+  }
+
+  const guardrails = getRetryGuardrails();
+  return {
+    maxRetries: Math.min(resolvedMaxRetries, guardrails.maxRetriesCap),
+    baseBackoffSec: Math.min(resolvedBackoffSec, guardrails.backoffCapSec),
+  };
+}
+
+function computeRetryBackoffSec(baseBackoffSec, retriesUsed) {
+  const guardrails = getRetryGuardrails();
+  const safeBase = clampNonNegativeInt(baseBackoffSec, 0);
+  const safeRetriesUsed = clampNonNegativeInt(retriesUsed, 0);
+  if (safeBase === 0) return 0;
+
+  const scaled = safeBase * Math.pow(guardrails.backoffFactor, safeRetriesUsed);
+  const rounded = Math.max(0, Math.round(scaled));
+  return Math.min(rounded, guardrails.backoffCapSec);
 }
 
 function resolvePlaybookStatus(playbook, findings) {
@@ -176,11 +232,11 @@ function resolvePlaybookAttemptStatus(playbook, matchedFindings, attempt) {
     return 'rollback';
   }
 
-  if (playbook.id === 'alert-router-backlog' && anomalyCodes.has('PENDING_BACKLOG_CRIT') && attempt === 1) {
+  if (playbook.id === 'alert-router-backlog' && anomalyCodes.has('PENDING_BACKLOG_CRIT') && attempt <= 2) {
     return 'failed';
   }
 
-  if (playbook.id === 'read-model-slow-path' && anomalyCodes.has('REFRESH_DURATION_CRIT') && attempt === 1) {
+  if (playbook.id === 'read-model-slow-path' && anomalyCodes.has('REFRESH_DURATION_CRIT') && attempt <= 2) {
     return 'failed';
   }
 
@@ -188,20 +244,19 @@ function resolvePlaybookAttemptStatus(playbook, matchedFindings, attempt) {
 }
 
 function executePlaybookInitial(playbook) {
-  const maxRetries = toNumber(playbook.retryPolicy?.maxRetries, 0);
-  const retryBackoffSec = toNumber(playbook.retryPolicy?.backoffSec, 0);
+  const retryPolicy = resolveRetryPolicy(playbook, playbook.matchedFindings);
   const attempts = 1;
   const status = resolvePlaybookAttemptStatus(playbook, playbook.matchedFindings, attempts);
   const retriesUsed = 0;
-  const shouldRetry = status === 'failed' && retriesUsed < maxRetries;
+  const shouldRetry = status === 'failed' && retriesUsed < retryPolicy.maxRetries;
 
   return {
     playbookId: playbook.id,
     status,
     attempts,
-    maxRetries,
+    maxRetries: retryPolicy.maxRetries,
     retriesUsed,
-    retryBackoffSec,
+    retryBackoffSec: retryPolicy.baseBackoffSec,
     shouldRetry,
     priorityScore: Number(playbook.priorityScore.toFixed(2)),
     matchedAnomalyCodes: playbook.matchedFindings.map((item) => item.code),
@@ -230,8 +285,12 @@ export function evaluateSelfHealRetryAttempt(retryJob) {
   }
 
   const matchedFindings = toMatchedFindingsFromCodes(retryJob?.matchedAnomalyCodes ?? []);
-  const currentAttempts = toNumber(retryJob?.attempts, 1);
-  const maxRetries = Math.max(0, toNumber(retryJob?.maxRetries, 0));
+  const resolvedPolicy = resolveRetryPolicy(playbook, matchedFindings);
+  const currentAttempts = clampNonNegativeInt(retryJob?.attempts, 1);
+  const configuredMaxRetries = clampNonNegativeInt(retryJob?.maxRetries, resolvedPolicy.maxRetries);
+  const maxRetries = Math.min(configuredMaxRetries, resolvedPolicy.maxRetries);
+  const baseBackoffSec = clampNonNegativeInt(retryJob?.retryBackoffSec, resolvedPolicy.baseBackoffSec);
+
   const nextAttempt = currentAttempts + 1;
   const status = resolvePlaybookAttemptStatus(playbook, matchedFindings, nextAttempt);
   const retriesUsed = Math.max(0, nextAttempt - 1);
@@ -243,7 +302,7 @@ export function evaluateSelfHealRetryAttempt(retryJob) {
       attempts: nextAttempt,
       retriesUsed,
       maxRetries,
-      retryBackoffSec: Math.max(0, toNumber(retryJob?.retryBackoffSec, 0)),
+      retryBackoffSec: computeRetryBackoffSec(baseBackoffSec, retriesUsed),
     };
   }
 
