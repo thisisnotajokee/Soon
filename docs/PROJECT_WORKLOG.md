@@ -346,3 +346,17 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 1. `make up` -> PASS.
 2. `make doctor` -> PASS.
 3. `make down` -> PASS.
+
+### Update (2026-04-15, CI doctor run summary)
+
+1. Dodano skrypt `packages/api/scripts/doctor-summary.mjs` (render Markdown z raportu doctor JSON).
+2. Dodano npm script: `obs:doctor:summary`.
+3. Workflow `quality-gate` (job `postgres`) publikuje teraz podsumowanie doctor do `GITHUB_STEP_SUMMARY`.
+4. Jeśli artefakt JSON nie istnieje, workflow publikuje fallback z informacją o braku pliku.
+
+### Testy / weryfikacja
+
+1. `make up` -> PASS.
+2. `make doctor` -> PASS.
+3. `npm run -s obs:doctor:summary -- ops/reports/doctor/latest.json` -> PASS.
+4. `make down` -> PASS.
