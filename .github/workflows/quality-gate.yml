@@ -50,6 +50,8 @@ jobs:
       SOON_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5433/soon
       SOON_DATABASE_SSL: '0'
       SOON_READ_MODEL_REFRESH_MODE: async
+      SOON_DOCTOR_EXPECT_STORAGE: postgres
+      SOON_DOCTOR_EXPECT_READ_MODEL_MODE: async
 
     steps:
       - name: Checkout

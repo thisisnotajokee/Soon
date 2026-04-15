@@ -360,3 +360,24 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 2. `make doctor` -> PASS.
 3. `npm run -s obs:doctor:summary -- ops/reports/doctor/latest.json` -> PASS.
 4. `make down` -> PASS.
+
+### Update (2026-04-15, doctor expectation hardening)
+
+1. Rozszerzono `packages/api/scripts/doctor-report.mjs` o jawne oczekiwania trybu runtime:
+   - `SOON_DOCTOR_EXPECT_STORAGE`
+   - `SOON_DOCTOR_EXPECT_READ_MODEL_MODE`
+2. Dodano walidację zgodności oczekiwań z realnym stanem:
+   - `UNEXPECTED_STORAGE_MODE` (CRIT)
+   - `UNEXPECTED_READ_MODEL_MODE` (CRIT)
+3. Raport JSON zawiera teraz sekcję `expectations` z flagami `matches`.
+4. Rozszerzono `packages/api/scripts/doctor-summary.mjs` o sekcję "Expectations".
+5. Workflow `.github/workflows/quality-gate.yml` (job `postgres`) wymusza oczekiwane wartości:
+   - `SOON_DOCTOR_EXPECT_STORAGE=postgres`
+   - `SOON_DOCTOR_EXPECT_READ_MODEL_MODE=async`
+
+### Testy / weryfikacja
+
+1. `make up` -> PASS.
+2. `SOON_DOCTOR_EXPECT_STORAGE=postgres SOON_DOCTOR_EXPECT_READ_MODEL_MODE=async make doctor` -> PASS (`expectations ok`).
+3. `npm run -s obs:doctor:summary -- ops/reports/doctor/latest.json` -> PASS (sekcja Expectations obecna).
+4. `make down` -> PASS.
