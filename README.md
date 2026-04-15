@@ -33,7 +33,7 @@ Status: scaffold architektury v1 + działający runtime API MVP.
 
 1. `make up` — migracje + start API w tle + wait for health.
 2. `make status` — szybki podgląd `health` i `read-model status`.
-3. `make check` — local checker progów alertów read-modelu.
+3. `make check` — local checkery progów alertów (read-model + runtime/alert-routing).
 4. `make doctor` — pełny raport diagnostyczny + triage self-heal requeue (flow status -> dead-letter -> requeue-bulk -> audit -> summary).
 5. `make doctor-json` — pełny raport JSON na stdout.
 6. `make smoke` — pełny quality gate (`contracts + workers + smoke:e2e`).
@@ -45,12 +45,19 @@ Skrypty pomocnicze:
 
 1. `npm run ops:self-heal:requeue:triage`
 2. `npm run ops:self-heal:requeue:triage:json`
+3. `npm run obs:runtime:alert:check`
+4. `npm run obs:runtime:alert:check:json`
 
 Polityka triage:
 
 1. Lokalnie domyślnie `SOON_SELF_HEAL_TRIAGE_WARN_AS_ERROR=0` (WARN nie przerywa `make doctor`).
 2. W CI ustawiamy `SOON_SELF_HEAL_TRIAGE_WARN_AS_ERROR=1` (WARN traktowany jako błąd quality gate).
 3. W CI walidujemy artefakt `ops/reports/doctor/self-heal-triage.json` i wymagamy jego obecności w `doctor-summary`.
+
+Monitoring runtime/ops:
+
+1. Reguły Prometheus: `ops/monitoring/prometheus/soon-read-model-alerts.yml` (read-model + runtime self-heal + alert-routing).
+2. Alertmanager -> Discord (szablon): `ops/monitoring/alertmanager/soon-alertmanager-discord.example.yml`.
 
 ## Runbook self-heal (dead-letter)
 

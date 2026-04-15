@@ -273,6 +273,12 @@ test('GET /metrics exports read-model Prometheus metrics', async () => {
     assert.match(body, /soon_self_heal_retry_queue_dead_letter/);
     assert.match(body, /soon_self_heal_dead_letter_total/);
     assert.match(body, /soon_self_heal_manual_requeue_total/);
+    assert.match(body, /soon_runtime_self_heal_overall_score/);
+    assert.match(body, /soon_runtime_self_heal_signals_total/);
+    assert.match(body, /soon_alert_routing_overall_score/);
+    assert.match(body, /soon_alert_routing_violations_total/);
+    assert.match(body, /soon_alert_routing_purchase_non_telegram_total/);
+    assert.match(body, /soon_alert_routing_technical_non_discord_total/);
   });
 });
 

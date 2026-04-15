@@ -54,13 +54,15 @@ Minimalny runtime API v1 dla projektu `Soon`.
 4. Reguły alertów: `ops/monitoring/prometheus/soon-read-model-alerts.yml`
 5. Local checker (threshold gates): `npm run obs:read-model:alert:check`
 6. JSON checker output: `npm run obs:read-model:alert:check:json`
-7. Self-heal runbook checker: `npm run ops:self-heal:requeue:triage`
-8. Self-heal runbook checker JSON: `npm run ops:self-heal:requeue:triage:json`
-9. Self-heal triage policy:
+7. Runtime checker (self-heal + alert-routing): `npm run obs:runtime:alert:check`
+8. Runtime checker JSON output: `npm run obs:runtime:alert:check:json`
+9. Self-heal runbook checker: `npm run ops:self-heal:requeue:triage`
+10. Self-heal runbook checker JSON: `npm run ops:self-heal:requeue:triage:json`
+11. Self-heal triage policy:
    - `SOON_SELF_HEAL_TRIAGE_WARN_AS_ERROR=0|1` (default `0`; w CI ustaw na `1`)
-10. Self-heal triage artifact:
+12. Self-heal triage artifact:
    - `ops/reports/doctor/self-heal-triage.json` (gdy uruchamiane przez `make doctor`)
-11. Self-heal triage artifact validator:
+13. Self-heal triage artifact validator:
    - `npm run ops:self-heal:triage:validate -- ops/reports/doctor/self-heal-triage.json`
 
 ## Runbook: dead-letter bulk requeue

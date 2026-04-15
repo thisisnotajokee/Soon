@@ -49,6 +49,7 @@ status:
 
 check:
 	@npm run -s obs:read-model:alert:check
+	@npm run -s obs:runtime:alert:check
 
 doctor:
 	@npm run -s obs:doctor:report

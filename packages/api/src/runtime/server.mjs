@@ -396,6 +396,48 @@ function renderSelfHealRetryPrometheusMetrics(status) {
   return `${lines.join('\n')}\n`;
 }
 
+function overallToScore(overall) {
+  if (overall === 'CRIT') return 2;
+  if (overall === 'WARN') return 1;
+  return 0;
+}
+
+function renderRuntimeOperationalPrometheusMetrics({ selfHeal, alertRouting }) {
+  const selfHealOverall = String(selfHeal?.overall ?? 'PASS');
+  const selfHealSignals = Array.isArray(selfHeal?.signals) ? selfHeal.signals.length : 0;
+  const violations = alertRouting?.violations ?? {};
+  const alertRoutingOverall = String(alertRouting?.overall ?? 'PASS');
+
+  const lines = [
+    '# HELP soon_runtime_self_heal_overall_score Runtime self-heal operational score (0=PASS,1=WARN,2=CRIT).',
+    '# TYPE soon_runtime_self_heal_overall_score gauge',
+    `soon_runtime_self_heal_overall_score ${overallToScore(selfHealOverall)}`,
+    '# HELP soon_runtime_self_heal_signals_total Runtime self-heal active signal count.',
+    '# TYPE soon_runtime_self_heal_signals_total gauge',
+    `soon_runtime_self_heal_signals_total ${toPromNumber(selfHealSignals)}`,
+    '# HELP soon_alert_routing_overall_score Alert routing policy score (0=PASS,1=WARN,2=CRIT).',
+    '# TYPE soon_alert_routing_overall_score gauge',
+    `soon_alert_routing_overall_score ${overallToScore(alertRoutingOverall)}`,
+    '# HELP soon_alert_routing_violations_total Total alert routing policy violations.',
+    '# TYPE soon_alert_routing_violations_total gauge',
+    `soon_alert_routing_violations_total ${toPromNumber(violations.total)}`,
+    '# HELP soon_alert_routing_purchase_non_telegram_total Purchase alerts routed to non-Telegram channels.',
+    '# TYPE soon_alert_routing_purchase_non_telegram_total gauge',
+    `soon_alert_routing_purchase_non_telegram_total ${toPromNumber(violations.purchaseToNonTelegram)}`,
+    '# HELP soon_alert_routing_technical_non_discord_total Technical alerts routed to non-Discord channels.',
+    '# TYPE soon_alert_routing_technical_non_discord_total gauge',
+    `soon_alert_routing_technical_non_discord_total ${toPromNumber(violations.technicalToNonDiscord)}`,
+    '# HELP soon_alert_routing_unknown_kind_total Alerts with unknown kind.',
+    '# TYPE soon_alert_routing_unknown_kind_total gauge',
+    `soon_alert_routing_unknown_kind_total ${toPromNumber(violations.unknownKind)}`,
+    '# HELP soon_alert_routing_unknown_channel_total Alerts with unknown/unexpected channel.',
+    '# TYPE soon_alert_routing_unknown_channel_total gauge',
+    `soon_alert_routing_unknown_channel_total ${toPromNumber(violations.unknownChannel)}`,
+  ];
+
+  return `${lines.join('\n')}\n`;
+}
+
 export function createSoonApiServer({ store = resolveStore() } = {}) {
   return http.createServer(async (req, res) => {
     try {
@@ -757,9 +799,19 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
 
         const status = await store.getReadModelRefreshStatus();
         const retryStatus = store.getSelfHealRetryStatus ? await store.getSelfHealRetryStatus() : null;
-        const payload = retryStatus
-          ? `${renderReadModelPrometheusMetrics(status)}${renderSelfHealRetryPrometheusMetrics(retryStatus)}`
-          : renderReadModelPrometheusMetrics(status);
+        let payload = renderReadModelPrometheusMetrics(status);
+        if (retryStatus) {
+          payload += renderSelfHealRetryPrometheusMetrics(retryStatus);
+        }
+        if (store.getSelfHealRetryStatus && store.listLatestAutomationRuns) {
+          const selfHealEval = evaluateSelfHealOperationalStatus(retryStatus ?? {});
+          const latestRuns = await store.listLatestAutomationRuns(20);
+          const alertRouting = summarizeAlertRouting(latestRuns, 20);
+          payload += renderRuntimeOperationalPrometheusMetrics({
+            selfHeal: selfHealEval,
+            alertRouting,
+          });
+        }
         res.writeHead(200, {
           'content-type': 'text/plain; version=0.0.4; charset=utf-8',
           'cache-control': 'no-store',
