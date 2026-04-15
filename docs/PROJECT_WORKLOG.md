@@ -207,6 +207,22 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 1. `npm run check` -> PASS.
 
+### Update (2026-04-15, self-heal requeue audit endpoint)
+
+1. Dodano endpoint operacyjny:
+   - `GET /self-heal/requeue-audit?limit=20`.
+2. Rozszerzono store:
+   - memory: trwa historia requeue audit in-memory (`listSelfHealRequeueAudit`),
+   - postgres: odczyt z `soon_self_heal_requeue_audit`.
+3. Rozszerzono client web o `getSelfHealRequeueAudit(limit)`.
+4. Rozszerzono kontrakty HTTP o walidację:
+   - po requeue endpoint zwraca audit z wpisem `reason=manual_requeue`.
+5. Zaktualizowano `packages/api/README.md` o nowy endpoint.
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS.
+
 ### Update (2026-04-15, dead-letter manual requeue endpoint)
 
 1. Dodano operacyjny endpoint:

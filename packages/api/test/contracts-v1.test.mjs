@@ -393,6 +393,13 @@ test('POST /self-heal/dead-letter/requeue restores dead-letter item back to queu
       assert.ok(requeue.body.retryStatus.queuePending >= 1);
       assert.ok(requeue.body.retryStatus.manualRequeueTotal >= 1);
 
+      const audit = await readJson(await fetch(`${baseUrl}/self-heal/requeue-audit?limit=5`));
+      assert.equal(audit.status, 200);
+      assert.ok(Array.isArray(audit.body.items));
+      assert.ok(audit.body.items.length >= 1);
+      assert.equal(audit.body.items[0].reason, 'manual_requeue');
+      assert.ok(audit.body.items[0].playbookId);
+
       const process = await readJson(
         await fetch(`${baseUrl}/self-heal/retry/process`, {
           method: 'POST',

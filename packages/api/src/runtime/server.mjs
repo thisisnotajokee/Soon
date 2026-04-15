@@ -528,6 +528,18 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         return sendJson(res, 200, { status: 'ok', requeue: result, retryStatus });
       }
 
+      if (method === 'GET' && pathname === '/self-heal/requeue-audit') {
+        const rawLimit = Number(url.searchParams.get('limit') ?? 20);
+        const limit = Math.max(1, Math.min(100, Number.isFinite(rawLimit) ? rawLimit : 20));
+
+        if (!store.listSelfHealRequeueAudit) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const items = await store.listSelfHealRequeueAudit(limit);
+        return sendJson(res, 200, { items, count: items.length });
+      }
+
       if (method === 'GET' && pathname === '/metrics') {
         if (!store.getReadModelRefreshStatus) {
           res.writeHead(501, { 'content-type': 'text/plain; charset=utf-8' });

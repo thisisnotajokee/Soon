@@ -1368,6 +1368,39 @@ export function createPostgresStore({
     };
   }
 
+  async function listSelfHealRequeueAudit(limit = 20) {
+    await ensureInit();
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+    const res = await pool.query(
+      `
+      SELECT
+        id,
+        dead_letter_id,
+        queue_id,
+        run_id,
+        source,
+        playbook_id,
+        reason,
+        created_at
+      FROM soon_self_heal_requeue_audit
+      ORDER BY created_at DESC
+      LIMIT $1
+    `,
+      [safeLimit],
+    );
+
+    return res.rows.map((row) => ({
+      auditId: String(row.id),
+      deadLetterId: row.dead_letter_id === null ? null : String(row.dead_letter_id),
+      queueJobId: row.queue_id === null ? null : String(row.queue_id),
+      runId: row.run_id,
+      source: row.source,
+      playbookId: row.playbook_id,
+      reason: row.reason,
+      createdAt: row.created_at.toISOString(),
+    }));
+  }
+
   return {
     mode: 'postgres',
     listTrackings,
@@ -1385,6 +1418,7 @@ export function createPostgresStore({
     getSelfHealRetryStatus,
     listSelfHealDeadLetters,
     requeueSelfHealDeadLetter,
+    listSelfHealRequeueAudit,
     async close() {
       await flushDailyReadModelRefresh();
       await pool.end();

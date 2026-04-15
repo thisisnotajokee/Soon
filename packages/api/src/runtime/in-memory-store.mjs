@@ -222,6 +222,7 @@ export function createInMemoryStore() {
   const selfHealRuns = [];
   const selfHealRetryQueue = [];
   const selfHealDeadLetters = [];
+  const selfHealRequeueAudit = [];
   let selfHealManualRequeueTotal = 0;
 
   async function listTrackings() {
@@ -504,6 +505,19 @@ export function createInMemoryStore() {
     queueEntry.lastError = 'manual_requeue';
     queueEntry.updatedAt = new Date(nowMs).toISOString();
     selfHealManualRequeueTotal += 1;
+    selfHealRequeueAudit.unshift({
+      auditId: randomUUID(),
+      deadLetterId: deadLetter.deadLetterId,
+      queueJobId: queueEntry.jobId,
+      runId: queueEntry.runId,
+      source: queueEntry.source,
+      playbookId: queueEntry.playbookId,
+      reason: 'manual_requeue',
+      createdAt: new Date(nowMs).toISOString(),
+    });
+    if (selfHealRequeueAudit.length > 500) {
+      selfHealRequeueAudit.length = 500;
+    }
 
     return {
       deadLetterId: deadLetter.deadLetterId,
@@ -513,6 +527,11 @@ export function createInMemoryStore() {
       maxRetries: queueEntry.maxRetries,
       retriesUsed: queueEntry.retriesUsed,
     };
+  }
+
+  async function listSelfHealRequeueAudit(limit = 20) {
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+    return selfHealRequeueAudit.slice(0, safeLimit);
   }
 
   return {
@@ -532,6 +551,7 @@ export function createInMemoryStore() {
     getSelfHealRetryStatus,
     listSelfHealDeadLetters,
     requeueSelfHealDeadLetter,
+    listSelfHealRequeueAudit,
     async close() {
       // no-op
     },

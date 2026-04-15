@@ -151,6 +151,16 @@ export function createApiClient(baseUrl) {
       return body;
     },
 
+    async getSelfHealRequeueAudit(limit = 20) {
+      const safeLimit = Number.isFinite(Number(limit)) ? Number(limit) : 20;
+      const response = await fetch(
+        `${apiBase}/self-heal/requeue-audit?limit=${encodeURIComponent(String(safeLimit))}`,
+      );
+      const body = await response.json();
+      assertOk(response, body, 'getSelfHealRequeueAudit');
+      return body;
+    },
+
     async getPrometheusMetrics() {
       const response = await fetch(`${apiBase}/metrics`);
       const body = await response.text();
