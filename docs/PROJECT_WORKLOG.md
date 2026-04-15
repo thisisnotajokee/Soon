@@ -308,3 +308,10 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 1. Naprawiono job `postgres` w workflow `quality-gate`.
 2. `Read-model checker` uruchamia teraz API przez `make up`, odpala `make check`, a następnie zawsze robi cleanup `make down` (trap EXIT).
 3. Przyczyna błędu: checker był odpalany bez aktywnego API (`fetch failed`).
+
+### Update (2026-04-15, CI Node runtime warning)
+
+1. Podniesiono akcje GitHub w `quality-gate.yml`:
+   - `actions/checkout@v6`
+   - `actions/setup-node@v6`
+2. Cel: usunięcie ostrzeżeń o deprecacji Node 20 na runnerach GitHub Actions.
