@@ -121,6 +121,26 @@ function escapePromLabel(value) {
   return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
 }
 
+function buildBulkRequeueOperationalAlert(summary) {
+  const conflicts = Number(summary?.conflicts ?? 0);
+  const missing = Number(summary?.missing ?? 0);
+  if (conflicts <= 0 && missing <= 0) return null;
+
+  const requested = Number(summary?.requested ?? 0);
+  const requeued = Number(summary?.requeued ?? 0);
+  const reasons = [];
+  if (conflicts > 0) reasons.push('conflicts');
+  if (missing > 0) reasons.push('missing');
+
+  return {
+    level: 'warn',
+    code: 'self_heal_bulk_requeue_partial',
+    reasons,
+    message: `Bulk requeue partial: requested=${requested}, requeued=${requeued}, conflicts=${conflicts}, missing=${missing}.`,
+    metrics: { requested, requeued, conflicts, missing },
+  };
+}
+
 function aggregateTrendWindowFromDaily(items) {
   const totals = items.reduce(
     (acc, item) => {
@@ -556,7 +576,11 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
 
         const summary = await store.requeueSelfHealDeadLetters({ limit, deadLetterIds, now });
         const retryStatus = store.getSelfHealRetryStatus ? await store.getSelfHealRetryStatus() : null;
-        return sendJson(res, 200, { status: 'ok', summary, retryStatus });
+        const operationalAlert = buildBulkRequeueOperationalAlert(summary);
+        if (operationalAlert) {
+          console.warn('[Soon/self-heal] bulk requeue partial', operationalAlert.metrics);
+        }
+        return sendJson(res, 200, { status: 'ok', summary, retryStatus, operationalAlert });
       }
 
       if (method === 'GET' && pathname === '/self-heal/requeue-audit') {

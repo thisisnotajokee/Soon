@@ -29,7 +29,7 @@ Minimalny runtime API v1 dla projektu `Soon`.
 16. `GET /self-heal/dead-letter?limit=20` (najnowsze wpisy dead-letter)
 17. `POST /self-heal/dead-letter/requeue` (ręczne przywrócenie dead-letter do retry queue; body: `deadLetterId`)
 : jeśli wpis był już wcześniej przywrócony (`status != dead_letter`), endpoint zwraca `409 dead_letter_not_pending`
-18. `POST /self-heal/dead-letter/requeue-bulk` (hurtowe requeue: `deadLetterIds[]` albo fallback do najnowszych `limit`; opcjonalnie `now`; summary: `requested|requeued|conflicts|missing`)
+18. `POST /self-heal/dead-letter/requeue-bulk` (hurtowe requeue: `deadLetterIds[]` albo fallback do najnowszych `limit`; opcjonalnie `now`; summary: `requested|requeued|conflicts|missing`; gdy `conflicts>0` lub `missing>0` odpowiedź zawiera `operationalAlert`)
 19. `GET /self-heal/requeue-audit?limit=20&reason=manual_requeue&from=<iso>&to=<iso>` (historia manualnych requeue z filtrami)
 20. `GET /self-heal/requeue-audit/summary?days=7` (agregaty audit: `total`, `byReason`, `byPlaybook`, `daily`)
 
@@ -52,6 +52,21 @@ Minimalny runtime API v1 dla projektu `Soon`.
 4. Reguły alertów: `ops/monitoring/prometheus/soon-read-model-alerts.yml`
 5. Local checker (threshold gates): `npm run obs:read-model:alert:check`
 6. JSON checker output: `npm run obs:read-model:alert:check:json`
+
+## Runbook: dead-letter bulk requeue
+
+Kolejność operacyjna:
+
+1. `GET /self-heal/retry/status`
+2. `GET /self-heal/dead-letter?limit=20`
+3. `POST /self-heal/dead-letter/requeue-bulk`
+4. `GET /self-heal/requeue-audit?limit=20`
+5. `GET /self-heal/requeue-audit/summary?days=7`
+
+Uwagi:
+
+1. Jeśli bulk zwróci `operationalAlert.level=warn`, traktuj to jako sygnał incydentu operacyjnego (partial requeue).
+2. Diagnostyka jest oparta o `summary.conflicts` i `summary.missing`.
 
 ### Alert thresholds (checker ENV)
 
