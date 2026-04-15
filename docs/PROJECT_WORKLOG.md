@@ -295,3 +295,10 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 1. Dodano `make doctor` (health + read-model status + metrics + alert checker).
 2. Zaktualizowano README o nowy flow: `make up -> make doctor -> make smoke -> make down`.
 3. Walidacja: `make up`, `make doctor`, `make down` -> PASS.
+
+### Update (2026-04-15, CI quality gate)
+
+1. Dodano workflow GitHub Actions: `.github/workflows/quality-gate.yml`.
+2. Job `memory`: `npm ci` + `make smoke`.
+3. Job `postgres`: service Postgres + migracje + contracts + workers + smoke + checker.
+4. Cel: automatyczna walidacja obu ścieżek storage na każdym push/PR.

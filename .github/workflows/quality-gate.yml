@@ -1,0 +1,80 @@
+name: quality-gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  memory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Quality gate (memory)
+        run: make smoke
+
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: soon
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d soon"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      SOON_DB_MODE: postgres
+      SOON_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5433/soon
+      SOON_DATABASE_SSL: '0'
+      SOON_READ_MODEL_REFRESH_MODE: async
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run migrations
+        run: npm run db:migrate
+
+      - name: Contract tests
+        run: npm run test:contracts
+
+      - name: Worker tests
+        run: npm run test:workers
+
+      - name: Web smoke (postgres path)
+        run: npm run smoke:e2e
+
+      - name: Read-model checker
+        run: npm run obs:read-model:alert:check
