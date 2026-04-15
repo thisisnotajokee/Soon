@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createSoonApiServer } from '../src/runtime/server.mjs';
+import { createInMemoryStore } from '../src/runtime/in-memory-store.mjs';
 
-async function withServer(fn) {
-  const server = createSoonApiServer();
+async function withServer(fn, options = {}) {
+  const server = createSoonApiServer(options);
 
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
@@ -352,6 +353,56 @@ test('POST /self-heal/dead-letter/requeue validates input and handles missing it
     assert.equal(notFound.status, 404);
     assert.equal(notFound.body.error, 'dead_letter_not_found');
   });
+});
+
+test('POST /self-heal/dead-letter/requeue restores dead-letter item back to queue', async () => {
+  const store = createInMemoryStore();
+  await store.enqueueSelfHealRetryJobs({
+    runId: 'run-dead-letter-test',
+    source: 'test-suite',
+    jobs: [
+      {
+        playbookId: 'unknown-playbook',
+        status: 'failed',
+        attempts: 1,
+        maxRetries: 1,
+        retriesUsed: 0,
+        retryBackoffSec: 0,
+        priorityScore: 100,
+        matchedAnomalyCodes: ['TEST_UNKNOWN_PLAYBOOK'],
+      },
+    ],
+  });
+  await store.processSelfHealRetryQueue({ limit: 10, now: Date.now() + 1000 });
+  const deadLetters = await store.listSelfHealDeadLetters(10);
+  assert.ok(deadLetters.length >= 1);
+
+  await withServer(
+    async (baseUrl) => {
+      const requeue = await readJson(
+        await fetch(`${baseUrl}/self-heal/dead-letter/requeue`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ deadLetterId: deadLetters[0].deadLetterId }),
+        }),
+      );
+      assert.equal(requeue.status, 200);
+      assert.equal(requeue.body.status, 'ok');
+      assert.equal(requeue.body.requeue.status, 'queued');
+      assert.ok(requeue.body.retryStatus.queuePending >= 1);
+
+      const process = await readJson(
+        await fetch(`${baseUrl}/self-heal/retry/process`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ limit: 10, now: Date.now() + 120000 }),
+        }),
+      );
+      assert.equal(process.status, 200);
+      assert.ok(process.body.summary.processed >= 1);
+    },
+    { store },
+  );
 });
 
 test('GET /products/:asin/detail returns 404 for unknown ASIN', async () => {

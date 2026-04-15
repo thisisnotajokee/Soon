@@ -447,6 +447,19 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 3. `npm run smoke:e2e` -> PASS.
 4. `npm run check` -> PASS.
 
+### Update (2026-04-15, self-heal dead-letter requeue happy-path contract)
+
+1. Rozszerzono `contracts-v1` o pełny scenariusz happy-path dla `POST /self-heal/dead-letter/requeue`:
+   - przygotowanie kontrolowanego dead-letter przez in-memory store,
+   - requeue przez endpoint API,
+   - ponowne procesowanie retry queue.
+2. Zmieniono helper testowy `withServer(...)`, aby obsługiwał wstrzyknięty `store` do scenariuszy kontrolowanych.
+3. Cel: mieć deterministyczny test operacyjny requeue bez zależności od przypadkowej produkcji dead-letter w runtime.
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS (contracts 15/15 + workers + smoke).
+
 ### Update (2026-04-15, self-heal async retry queue + dead-letter)
 
 1. Dodano migrację `008_self_heal_retry_queue.sql`:
