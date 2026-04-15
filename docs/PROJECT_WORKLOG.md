@@ -922,3 +922,32 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Dodać pełną walidację składni YAML (`promtool` / `amtool`) jako optional strict stage w CI.
+
+### Update (2026-04-15, monitoring strict stage with promtool/amtool)
+
+1. Dodano strict validator:
+   - `packages/api/scripts/monitoring-config-strict.mjs`.
+2. Strict validator:
+   - uruchamia `promtool check rules` dla reguł Prometheus,
+   - uruchamia `amtool check-config` dla configu Alertmanager,
+   - wspiera fallback Docker (`prom/prometheus`, `prom/alertmanager`) gdy binarki lokalne nie istnieją.
+3. Dodano npm skrypty:
+   - `obs:monitoring:strict`
+   - `obs:monitoring:strict:json`
+4. Workflow `quality-gate`:
+   - dodano nowy job `monitoring-strict`,
+   - wymusza `SOON_MONITORING_STRICT_FORCE_DOCKER=1` dla spójnego środowiska CI.
+5. Dokumentacja monitoringu zaktualizowana (`README.md`, `ops/monitoring/README.md`).
+
+### Testy / weryfikacja
+
+1. `npm run obs:monitoring:strict` -> PASS.
+2. `npm run check` -> PASS.
+
+### Ryzyka
+
+1. Strict checker zależy od dostępności Dockera w środowisku CI.
+
+### Następny krok
+
+1. Dodać snapshot expected-output dla strict check (stabilna kontrola zmian tooling output).

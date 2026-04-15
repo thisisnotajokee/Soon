@@ -5,6 +5,8 @@
 1. Załaduj reguły: `ops/monitoring/prometheus/soon-read-model-alerts.yml`.
 2. Scrape target: `GET /metrics` z API Soon.
 3. Walidacja configu lokalnie/CI: `npm run obs:monitoring:check`.
+4. Walidacja strict (promtool + amtool): `npm run obs:monitoring:strict`.
+5. W CI strict stage wymusza tryb docker fallback (`SOON_MONITORING_STRICT_FORCE_DOCKER=1`).
 
 Nowe metryki runtime/ops:
 

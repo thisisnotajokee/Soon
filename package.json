@@ -18,6 +18,8 @@
     "obs:runtime:alert:check:json": "bash -lc \"set -a; [ -f .env.local ] && source .env.local; set +a; node packages/api/scripts/runtime-alert-check.mjs --json\"",
     "obs:monitoring:check": "node packages/api/scripts/monitoring-config-check.mjs",
     "obs:monitoring:check:json": "node packages/api/scripts/monitoring-config-check.mjs --json",
+    "obs:monitoring:strict": "node packages/api/scripts/monitoring-config-strict.mjs",
+    "obs:monitoring:strict:json": "node packages/api/scripts/monitoring-config-strict.mjs --json",
     "obs:doctor:report": "bash -lc \"set -a; [ -f .env.local ] && source .env.local; set +a; node packages/api/scripts/doctor-report.mjs\"",
     "obs:doctor:report:json": "bash -lc \"set -a; [ -f .env.local ] && source .env.local; set +a; node packages/api/scripts/doctor-report.mjs --json-only\"",
     "obs:doctor:summary": "node packages/api/scripts/doctor-summary.mjs",

@@ -49,6 +49,8 @@ Skrypty pomocnicze:
 4. `npm run obs:runtime:alert:check:json`
 5. `npm run obs:monitoring:check`
 6. `npm run obs:monitoring:check:json`
+7. `npm run obs:monitoring:strict`
+8. `npm run obs:monitoring:strict:json`
 
 Polityka triage:
 
