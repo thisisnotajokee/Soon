@@ -489,6 +489,7 @@ test('POST /self-heal/dead-letter/requeue-bulk requeues latest dead-letter entri
       assert.equal(bulk.body.summary.missing, 0);
       assert.ok(Array.isArray(bulk.body.summary.items));
       assert.equal(bulk.body.summary.items.length, 2);
+      assert.equal(bulk.body.operationalAlert, null);
       assert.ok(bulk.body.retryStatus.queuePending >= 2);
       assert.ok(bulk.body.retryStatus.manualRequeueTotal >= 2);
 
@@ -504,6 +505,10 @@ test('POST /self-heal/dead-letter/requeue-bulk requeues latest dead-letter entri
       assert.equal(secondBulk.body.summary.requeued, 0);
       assert.equal(secondBulk.body.summary.conflicts, 2);
       assert.equal(secondBulk.body.summary.missing, 0);
+      assert.equal(secondBulk.body.operationalAlert?.level, 'warn');
+      assert.equal(secondBulk.body.operationalAlert?.code, 'self_heal_bulk_requeue_partial');
+      assert.ok(Array.isArray(secondBulk.body.operationalAlert?.reasons));
+      assert.ok(secondBulk.body.operationalAlert.reasons.includes('conflicts'));
 
       const audit = await readJson(await fetch(`${baseUrl}/self-heal/requeue-audit?limit=5`));
       assert.equal(audit.status, 200);

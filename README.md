@@ -41,6 +41,14 @@ Status: scaffold architektury v1 + działający runtime API MVP.
 8. `make restart` — restart API.
 9. `make logs` — podgląd logów API (`/tmp/soon-api.log`).
 
+## Runbook self-heal (dead-letter)
+
+1. `curl -fsS http://127.0.0.1:3100/self-heal/retry/status`
+2. `curl -fsS "http://127.0.0.1:3100/self-heal/dead-letter?limit=20"`
+3. `curl -fsS -X POST http://127.0.0.1:3100/self-heal/dead-letter/requeue-bulk -H 'content-type: application/json' -d '{"limit":20}'`
+4. `curl -fsS "http://127.0.0.1:3100/self-heal/requeue-audit?limit=20"`
+5. `curl -fsS "http://127.0.0.1:3100/self-heal/requeue-audit/summary?days=7"`
+
 ## Tryby storage
 
 1. `SOON_DB_MODE=memory` (domyślnie)

@@ -577,10 +577,27 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ### Testy / weryfikacja
 
-1. `npm run test:contracts` -> PASS.
+1. `npm run test:contracts` -> PASS (16/16).
 2. `npm run test:workers` -> PASS.
 3. `npm run smoke:e2e` -> PASS.
 4. `npm run check` -> PASS.
+
+### Update (2026-04-15, bulk requeue operational alert + runbook flow)
+
+1. Rozszerzono `POST /self-heal/dead-letter/requeue-bulk` o sygnał operacyjny:
+   - `operationalAlert` w odpowiedzi API, gdy `summary.conflicts > 0` lub `summary.missing > 0`.
+   - `operationalAlert.code = self_heal_bulk_requeue_partial`.
+2. Runtime loguje ostrzeżenie (`console.warn`) dla partial bulk requeue z metrykami `requested|requeued|conflicts|missing`.
+3. Rozszerzono kontrakty HTTP:
+   - pierwszy bulk bez błędów: `operationalAlert = null`,
+   - drugi bulk na tych samych ID: `operationalAlert.level = warn` i `code` zgodny.
+4. Ujednolicono runbook endpoint flow w docs:
+   - `status -> dead-letter -> requeue-bulk -> audit -> summary`
+   - aktualizacja w `README.md` i `packages/api/README.md`.
+
+### Testy / weryfikacja
+
+1. `npm run test:contracts` -> PASS.
 
 ### Update (2026-04-15, manual requeue counter + Prometheus metric)
 
