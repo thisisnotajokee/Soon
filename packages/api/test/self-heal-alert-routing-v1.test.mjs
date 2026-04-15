@@ -153,3 +153,109 @@ test('self-heal alert routing v1: policy drift triggers auto-remediation and rec
     { store },
   );
 });
+
+test('self-heal alert routing v1: window mode (limit=5) detects older drift and cooldown guardrail blocks rapid retrigger', async () => {
+  const store = createInMemoryStore();
+  const now = new Date().toISOString();
+  const later = new Date(Date.now() + 1000).toISOString();
+
+  await store.recordAutomationCycle({
+    cycle: {
+      executedSteps: ['test-window-drift'],
+      tokenPlan: [],
+      decisions: [
+        {
+          asin: 'B0BYW7MMBR',
+          score: 88,
+          confidence: 0.86,
+          shouldAlert: true,
+          reason: 'window-drift-injected-for-test',
+        },
+      ],
+      alerts: [
+        {
+          asin: 'B0BYW7MMBR',
+          kind: 'purchase',
+          channel: 'discord',
+          reason: 'window-drift-injected-for-test',
+        },
+      ],
+    },
+    trackingCount: 1,
+    startedAt: now,
+    finishedAt: now,
+  });
+
+  await store.recordAutomationCycle({
+    cycle: {
+      executedSteps: ['test-window-pass'],
+      tokenPlan: [],
+      decisions: [
+        {
+          asin: 'B09JRYMSD5',
+          score: 91,
+          confidence: 0.9,
+          shouldAlert: true,
+          reason: 'window-pass-injected-for-test',
+        },
+      ],
+      alerts: [
+        {
+          asin: 'B09JRYMSD5',
+          kind: 'purchase',
+          channel: 'telegram',
+          reason: 'window-pass-injected-for-test',
+        },
+      ],
+    },
+    trackingCount: 1,
+    startedAt: later,
+    finishedAt: later,
+  });
+
+  await withServer(
+    async (baseUrl) => {
+      const latestOnly = await readJson(await fetch(`${baseUrl}/api/check-alert-status?limit=1`));
+      assert.equal(latestOnly.status, 200);
+      assert.equal(latestOnly.body.overall, 'PASS');
+      assert.equal(latestOnly.body.violations.total, 0);
+
+      const firstHeal = await readJson(
+        await fetch(`${baseUrl}/self-heal/run`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            alertRoutingRemediation: { mode: 'window', limit: 5, cooldownSec: 3600 },
+          }),
+        }),
+      );
+      assert.equal(firstHeal.status, 200);
+      assert.equal(firstHeal.body.alertRoutingAutoRemediation.mode, 'window');
+      assert.equal(firstHeal.body.alertRoutingAutoRemediation.windowLimit, 5);
+      assert.equal(firstHeal.body.alertRoutingAutoRemediation.triggered, true);
+      assert.equal(firstHeal.body.alertRoutingAutoRemediation.reason, 'policy_drift_window_runset');
+      assert.ok(firstHeal.body.alertRoutingAutoRemediation.beforeViolations >= 1);
+      assert.equal(firstHeal.body.alertRoutingAutoRemediation.afterViolations, 0);
+      assert.equal(firstHeal.body.alertRoutingAutoRemediation.recovered, true);
+      assert.ok(firstHeal.body.alertRoutingAutoRemediation.remediationRunId);
+
+      const secondHeal = await readJson(
+        await fetch(`${baseUrl}/self-heal/run`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            alertRoutingRemediation: { mode: 'window', limit: 5, cooldownSec: 3600 },
+          }),
+        }),
+      );
+      assert.equal(secondHeal.status, 200);
+      assert.equal(secondHeal.body.alertRoutingAutoRemediation.mode, 'window');
+      assert.equal(secondHeal.body.alertRoutingAutoRemediation.triggered, false);
+      assert.equal(secondHeal.body.alertRoutingAutoRemediation.reason, 'cooldown_active');
+      assert.equal(secondHeal.body.alertRoutingAutoRemediation.cooldownActive, true);
+      assert.ok(secondHeal.body.alertRoutingAutoRemediation.cooldownRemainingSec > 0);
+      assert.ok(secondHeal.body.alertRoutingAutoRemediation.beforeViolations >= 1);
+    },
+    { store },
+  );
+});

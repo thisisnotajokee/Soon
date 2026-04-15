@@ -1060,3 +1060,32 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Dodać opcjonalny tryb `window-based remediation` (np. `limit=5`) z guardrail na max frequency triggerów.
+
+### Update (2026-04-16, window-based remediation + frequency guardrail)
+
+1. Rozszerzono `POST /self-heal/run` o konfigurację remediacji alert routing:
+   - `alertRoutingRemediation.mode`: `latest | window | off`
+   - `alertRoutingRemediation.limit`: rozmiar okna (`window`), domyślnie `5`
+   - `alertRoutingRemediation.cooldownSec`: guardrail częstotliwości triggerów (domyślnie `120s`)
+2. Dodano runtime guardrail:
+   - jeśli wykryty drift i cooldown aktywny, remediacja nie jest wykonywana (`reason: cooldown_active`),
+   - odpowiedź zawiera `cooldownActive` i `cooldownRemainingSec`.
+3. Rozszerzono telemetryczne pola odpowiedzi `alertRoutingAutoRemediation`:
+   - `mode`, `windowLimit`, `cooldownSec`,
+   - `evaluatedRuns`, `recoveryWindowLimit`.
+4. Domknięto regresję kontraktową:
+   - `packages/api/test/self-heal-alert-routing-v1.test.mjs`
+   - scenariusz: `window mode (limit=5)` wykrywa drift spoza latest-run i cooldown blokuje szybki retrigger.
+
+### Testy / weryfikacja
+
+1. `npm run test:contracts` -> PASS (23/23).
+2. `npm run check` -> PASS.
+
+### Ryzyka
+
+1. Guardrail cooldown jest obecnie in-memory (per process); po restarcie procesu licznik cooldown resetuje się.
+
+### Następny krok
+
+1. Przenieść cooldown state do trwałego storage (np. tabela runtime state), żeby był odporny na restart procesu.

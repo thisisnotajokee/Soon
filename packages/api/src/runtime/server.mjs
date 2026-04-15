@@ -218,6 +218,27 @@ function summarizeAlertRouting(items, limit) {
   };
 }
 
+function clampInt(value, fallback, min, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  const rounded = Math.floor(parsed);
+  return Math.max(min, Math.min(max, rounded));
+}
+
+function resolveAlertRoutingRemediationConfig(rawConfig) {
+  const rawMode = String(rawConfig?.mode ?? 'latest').trim().toLowerCase();
+  const mode = rawMode === 'off' || rawMode === 'window' || rawMode === 'latest' ? rawMode : 'latest';
+  const fallbackWindowLimit = mode === 'window' ? 5 : 1;
+  const windowLimit = clampInt(rawConfig?.limit, fallbackWindowLimit, 1, 20);
+  const fallbackCooldownSec = clampInt(process.env.SOON_ALERT_ROUTING_REMEDIATION_COOLDOWN_SEC, 120, 0, 86400);
+  const cooldownSec = clampInt(rawConfig?.cooldownSec, fallbackCooldownSec, 0, 86400);
+  return {
+    mode,
+    windowLimit,
+    cooldownSec,
+  };
+}
+
 function aggregateTrendWindowFromDaily(items) {
   const totals = items.reduce(
     (acc, item) => {
@@ -445,6 +466,8 @@ function renderRuntimeOperationalPrometheusMetrics({ selfHeal, alertRouting }) {
 }
 
 export function createSoonApiServer({ store = resolveStore() } = {}) {
+  let lastAlertRoutingRemediationAtMs = 0;
+
   return http.createServer(async (req, res) => {
     try {
       const method = req.method ?? 'GET';
@@ -582,6 +605,7 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
       if (method === 'POST' && pathname === '/self-heal/run') {
         const body = await readJsonBody(req).catch(() => ({}));
         const override = body?.readModelStatusOverride ?? null;
+        const remediationConfig = resolveAlertRoutingRemediationConfig(body?.alertRoutingRemediation ?? null);
         const cycle = await runSelfHealWorker({
           readModelStatusProvider: store.getReadModelRefreshStatus
             ? async () => (override ?? store.getReadModelRefreshStatus())
@@ -590,42 +614,69 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
 
         let alertRoutingAutoRemediation = null;
         if (store.listLatestAutomationRuns) {
-          const beforeItems = await store.listLatestAutomationRuns(1);
-          const before = summarizeAlertRouting(beforeItems, 1);
+          const beforeItems = await store.listLatestAutomationRuns(remediationConfig.windowLimit);
+          const before = summarizeAlertRouting(beforeItems, remediationConfig.windowLimit);
           alertRoutingAutoRemediation = {
             checked: true,
             triggered: false,
-            reason: null,
+            reason: remediationConfig.mode === 'off' ? 'disabled' : 'no_policy_drift',
+            mode: remediationConfig.mode,
+            windowLimit: remediationConfig.windowLimit,
+            cooldownSec: remediationConfig.cooldownSec,
+            cooldownActive: false,
+            cooldownRemainingSec: 0,
             beforeViolations: Number(before?.violations?.total ?? 0),
             afterViolations: Number(before?.violations?.total ?? 0),
             recovered: false,
+            evaluatedRuns: Number(before?.window?.runs ?? 0),
+            recoveryWindowLimit: 1,
             remediationRunId: null,
           };
 
-          if (before.violations.total > 0) {
-            const startedAt = new Date().toISOString();
-            const trackings = await store.listTrackings();
-            const remediationCycle = runAutomationCycle(trackings);
-            const finishedAt = new Date().toISOString();
-            const remediationPersisted = store.recordAutomationCycle
-              ? await store.recordAutomationCycle({
-                  cycle: remediationCycle,
-                  trackingCount: trackings.length,
-                  startedAt,
-                  finishedAt,
-                })
-              : null;
-            const afterItems = await store.listLatestAutomationRuns(1);
-            const after = summarizeAlertRouting(afterItems, 1);
-            alertRoutingAutoRemediation = {
-              checked: true,
-              triggered: true,
-              reason: 'policy_drift_latest_run',
-              beforeViolations: Number(before?.violations?.total ?? 0),
-              afterViolations: Number(after?.violations?.total ?? 0),
-              recovered: Number(after?.violations?.total ?? 0) === 0,
-              remediationRunId: remediationPersisted?.runId ?? null,
-            };
+          if (remediationConfig.mode !== 'off' && before.violations.total > 0) {
+            const nowMs = Date.now();
+            const cooldownRemainingMs =
+              remediationConfig.cooldownSec > 0
+                ? Math.max(0, lastAlertRoutingRemediationAtMs + remediationConfig.cooldownSec * 1000 - nowMs)
+                : 0;
+
+            if (cooldownRemainingMs > 0) {
+              alertRoutingAutoRemediation.reason = 'cooldown_active';
+              alertRoutingAutoRemediation.cooldownActive = true;
+              alertRoutingAutoRemediation.cooldownRemainingSec = Math.ceil(cooldownRemainingMs / 1000);
+            } else {
+              const startedAt = new Date().toISOString();
+              const trackings = await store.listTrackings();
+              const remediationCycle = runAutomationCycle(trackings);
+              const finishedAt = new Date().toISOString();
+              const remediationPersisted = store.recordAutomationCycle
+                ? await store.recordAutomationCycle({
+                    cycle: remediationCycle,
+                    trackingCount: trackings.length,
+                    startedAt,
+                    finishedAt,
+                  })
+                : null;
+              lastAlertRoutingRemediationAtMs = nowMs;
+              const afterItems = await store.listLatestAutomationRuns(1);
+              const after = summarizeAlertRouting(afterItems, 1);
+              alertRoutingAutoRemediation = {
+                checked: true,
+                triggered: true,
+                reason: remediationConfig.mode === 'window' ? 'policy_drift_window_runset' : 'policy_drift_latest_run',
+                mode: remediationConfig.mode,
+                windowLimit: remediationConfig.windowLimit,
+                cooldownSec: remediationConfig.cooldownSec,
+                cooldownActive: false,
+                cooldownRemainingSec: 0,
+                beforeViolations: Number(before?.violations?.total ?? 0),
+                afterViolations: Number(after?.violations?.total ?? 0),
+                recovered: Number(after?.violations?.total ?? 0) === 0,
+                evaluatedRuns: Number(before?.window?.runs ?? 0),
+                recoveryWindowLimit: 1,
+                remediationRunId: remediationPersisted?.runId ?? null,
+              };
+            }
           }
         }
 
