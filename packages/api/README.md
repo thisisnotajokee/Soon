@@ -28,7 +28,8 @@ Minimalny runtime API v1 dla projektu `Soon`.
 15. `GET /self-heal/retry/status` (stan kolejki retry + dead-letter)
 16. `GET /self-heal/dead-letter?limit=20` (najnowsze wpisy dead-letter)
 17. `POST /self-heal/dead-letter/requeue` (ręczne przywrócenie dead-letter do retry queue; body: `deadLetterId`)
-18. `GET /self-heal/requeue-audit?limit=20` (historia manualnych requeue)
+18. `POST /self-heal/dead-letter/requeue-bulk` (hurtowe przywrócenie najnowszych dead-letter; body: `limit`, opcjonalnie `now`)
+19. `GET /self-heal/requeue-audit?limit=20` (historia manualnych requeue)
 
 ## Storage mode
 

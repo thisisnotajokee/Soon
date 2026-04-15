@@ -414,6 +414,66 @@ test('POST /self-heal/dead-letter/requeue restores dead-letter item back to queu
   );
 });
 
+test('POST /self-heal/dead-letter/requeue-bulk requeues latest dead-letter entries', async () => {
+  const store = createInMemoryStore();
+  await store.enqueueSelfHealRetryJobs({
+    runId: 'run-dead-letter-bulk-test',
+    source: 'test-suite',
+    jobs: [
+      {
+        playbookId: 'unknown-playbook-A',
+        status: 'failed',
+        attempts: 1,
+        maxRetries: 1,
+        retriesUsed: 0,
+        retryBackoffSec: 0,
+        priorityScore: 100,
+        matchedAnomalyCodes: ['TEST_UNKNOWN_PLAYBOOK_A'],
+      },
+      {
+        playbookId: 'unknown-playbook-B',
+        status: 'failed',
+        attempts: 1,
+        maxRetries: 1,
+        retriesUsed: 0,
+        retryBackoffSec: 0,
+        priorityScore: 99,
+        matchedAnomalyCodes: ['TEST_UNKNOWN_PLAYBOOK_B'],
+      },
+    ],
+  });
+  await store.processSelfHealRetryQueue({ limit: 10, now: Date.now() + 1000 });
+  const deadLetters = await store.listSelfHealDeadLetters(10);
+  assert.ok(deadLetters.length >= 2);
+
+  await withServer(
+    async (baseUrl) => {
+      const bulk = await readJson(
+        await fetch(`${baseUrl}/self-heal/dead-letter/requeue-bulk`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ limit: 2 }),
+        }),
+      );
+      assert.equal(bulk.status, 200);
+      assert.equal(bulk.body.status, 'ok');
+      assert.equal(bulk.body.summary.requested, 2);
+      assert.equal(bulk.body.summary.requeued, 2);
+      assert.ok(Array.isArray(bulk.body.summary.items));
+      assert.equal(bulk.body.summary.items.length, 2);
+      assert.ok(bulk.body.retryStatus.queuePending >= 2);
+      assert.ok(bulk.body.retryStatus.manualRequeueTotal >= 2);
+
+      const audit = await readJson(await fetch(`${baseUrl}/self-heal/requeue-audit?limit=5`));
+      assert.equal(audit.status, 200);
+      assert.ok(Array.isArray(audit.body.items));
+      assert.ok(audit.body.items.length >= 2);
+      assert.equal(audit.body.items[0].reason, 'manual_requeue');
+    },
+    { store },
+  );
+});
+
 test('GET /products/:asin/detail returns 404 for unknown ASIN', async () => {
   await withServer(async (baseUrl) => {
     const { status, body } = await readJson(await fetch(`${baseUrl}/products/UNKNOWN_ASIN/detail`));

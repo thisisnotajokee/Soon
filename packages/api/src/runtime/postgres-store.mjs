@@ -1401,6 +1401,38 @@ export function createPostgresStore({
     }));
   }
 
+  async function requeueSelfHealDeadLetters({ limit = 20, now = Date.now() } = {}) {
+    await ensureInit();
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+    const idsRes = await pool.query(
+      `
+      SELECT id
+      FROM soon_self_heal_dead_letter
+      ORDER BY created_at DESC
+      LIMIT $1
+    `,
+      [safeLimit],
+    );
+
+    const items = [];
+    let missing = 0;
+    for (const row of idsRes.rows) {
+      const requeued = await requeueSelfHealDeadLetter(row.id, { now });
+      if (requeued) {
+        items.push(requeued);
+      } else {
+        missing += 1;
+      }
+    }
+
+    return {
+      requested: idsRes.rows.length,
+      requeued: items.length,
+      missing,
+      items,
+    };
+  }
+
   return {
     mode: 'postgres',
     listTrackings,
@@ -1418,6 +1450,7 @@ export function createPostgresStore({
     getSelfHealRetryStatus,
     listSelfHealDeadLetters,
     requeueSelfHealDeadLetter,
+    requeueSelfHealDeadLetters,
     listSelfHealRequeueAudit,
     async close() {
       await flushDailyReadModelRefresh();

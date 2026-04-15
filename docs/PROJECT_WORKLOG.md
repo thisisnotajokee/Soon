@@ -207,6 +207,26 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 1. `npm run check` -> PASS.
 
+### Update (2026-04-15, self-heal dead-letter bulk requeue)
+
+1. Dodano endpoint:
+   - `POST /self-heal/dead-letter/requeue-bulk` (`limit`, opcjonalnie `now`).
+2. Rozszerzono store:
+   - memory/postgres: `requeueSelfHealDeadLetters({ limit, now })`.
+3. Endpoint zwraca:
+   - `summary` (`requested`, `requeued`, `missing`, `items[]`),
+   - aktualny `retryStatus`.
+4. Rozszerzono web API client:
+   - `requeueSelfHealDeadLettersBulk(limit)`.
+5. Rozszerzono kontrakty HTTP:
+   - scenariusz bulk requeue dla 2 dead-letter,
+   - walidacja `retryStatus.manualRequeueTotal` i wpisów `requeue-audit`.
+6. Zaktualizowano `packages/api/README.md` o nowy endpoint.
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS.
+
 ### Update (2026-04-15, self-heal requeue audit endpoint)
 
 1. Dodano endpoint operacyjny:

@@ -528,6 +528,22 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         return sendJson(res, 200, { status: 'ok', requeue: result, retryStatus });
       }
 
+      if (method === 'POST' && pathname === '/self-heal/dead-letter/requeue-bulk') {
+        if (!store.requeueSelfHealDeadLetters) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const body = await readJsonBody(req).catch(() => ({}));
+        const rawLimit = Number(body?.limit ?? url.searchParams.get('limit') ?? 20);
+        const limit = Math.max(1, Math.min(100, Number.isFinite(rawLimit) ? rawLimit : 20));
+        const rawNow = body?.now ?? url.searchParams.get('now');
+        const now = Number.isFinite(Number(rawNow)) ? Number(rawNow) : Date.now();
+
+        const summary = await store.requeueSelfHealDeadLetters({ limit, now });
+        const retryStatus = store.getSelfHealRetryStatus ? await store.getSelfHealRetryStatus() : null;
+        return sendJson(res, 200, { status: 'ok', summary, retryStatus });
+      }
+
       if (method === 'GET' && pathname === '/self-heal/requeue-audit') {
         const rawLimit = Number(url.searchParams.get('limit') ?? 20);
         const limit = Math.max(1, Math.min(100, Number.isFinite(rawLimit) ? rawLimit : 20));

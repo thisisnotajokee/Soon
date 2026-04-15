@@ -534,6 +534,29 @@ export function createInMemoryStore() {
     return selfHealRequeueAudit.slice(0, safeLimit);
   }
 
+  async function requeueSelfHealDeadLetters({ limit = 20, now = Date.now() } = {}) {
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+    const candidates = selfHealDeadLetters.slice(0, safeLimit);
+    const requeuedItems = [];
+    let missing = 0;
+
+    for (const item of candidates) {
+      const requeued = await requeueSelfHealDeadLetter(item.deadLetterId, { now });
+      if (requeued) {
+        requeuedItems.push(requeued);
+      } else {
+        missing += 1;
+      }
+    }
+
+    return {
+      requested: candidates.length,
+      requeued: requeuedItems.length,
+      missing,
+      items: requeuedItems,
+    };
+  }
+
   return {
     mode: 'in-memory',
     listTrackings,
@@ -551,6 +574,7 @@ export function createInMemoryStore() {
     getSelfHealRetryStatus,
     listSelfHealDeadLetters,
     requeueSelfHealDeadLetter,
+    requeueSelfHealDeadLetters,
     listSelfHealRequeueAudit,
     async close() {
       // no-op
