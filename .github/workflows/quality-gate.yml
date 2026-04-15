@@ -6,6 +6,28 @@ on:
   pull_request:
 
 jobs:
+  monitoring-strict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate monitoring config (strict)
+        env:
+          SOON_MONITORING_STRICT_FORCE_DOCKER: '1'
+        run: npm run obs:monitoring:strict
+
   monitoring-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 10
