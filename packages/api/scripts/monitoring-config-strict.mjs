@@ -13,6 +13,8 @@ const DEFAULTS = {
   alertmanagerImage: 'prom/alertmanager:v0.28.1',
 };
 
+const AMTOOL_WEBHOOK_FALLBACK_URL = 'https://example.invalid/soon-discord-webhook';
+
 function parseArgs(argv) {
   return { json: argv.includes('--json') };
 }
@@ -61,7 +63,7 @@ async function runPromtoolDocker(repoRoot, rulesPath) {
     `${repoRoot}:/repo`,
     '-w',
     '/repo',
-     '--entrypoint',
+    '--entrypoint',
     'promtool',
     DEFAULTS.promImage,
     'check',
@@ -79,7 +81,9 @@ async function runAmtoolDocker(repoRoot, alertmanagerPath) {
     `${repoRoot}:/repo`,
     '-w',
     '/repo',
-     '--entrypoint',
+    '-e',
+    `SOON_OPS_DISCORD_WEBHOOK_URL=${process.env.SOON_OPS_DISCORD_WEBHOOK_URL || AMTOOL_WEBHOOK_FALLBACK_URL}`,
+    '--entrypoint',
     'amtool',
     DEFAULTS.alertmanagerImage,
     'check-config',
@@ -103,6 +107,10 @@ async function strictValidate() {
   }
   if (findings.length) {
     return { overall: 'CRIT', findings, details };
+  }
+
+  if (!process.env.SOON_OPS_DISCORD_WEBHOOK_URL) {
+    process.env.SOON_OPS_DISCORD_WEBHOOK_URL = AMTOOL_WEBHOOK_FALLBACK_URL;
   }
 
   const forceDocker = process.env.SOON_MONITORING_STRICT_FORCE_DOCKER === '1';
