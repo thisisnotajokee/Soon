@@ -39,6 +39,12 @@ function pickTimeoutMs() {
   return toNumber(process.env.SOON_ALERT_REQUEST_TIMEOUT_MS || process.env.SOON_DOCTOR_REQUEST_TIMEOUT_MS, DEFAULTS.requestTimeoutMs);
 }
 
+function readExpectations() {
+  const expectedStorage = (process.env.SOON_DOCTOR_EXPECT_STORAGE || '').trim() || null;
+  const expectedReadModelMode = (process.env.SOON_DOCTOR_EXPECT_READ_MODEL_MODE || '').trim() || null;
+  return { expectedStorage, expectedReadModelMode };
+}
+
 async function fetchJson(baseUrl, path, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -107,8 +113,35 @@ async function runAlertCheckerJson() {
   }
 }
 
-function computeOverall({ healthOk, metricsComplete, checker }) {
-  if (!healthOk || !metricsComplete || !checker.ok) return { overall: 'CRIT', exitCode: 2 };
+function evaluateExpectations({ healthStorage, readModelMode, expectedStorage, expectedReadModelMode }) {
+  const findings = [];
+  const checks = {
+    expectedStorage,
+    expectedReadModelMode,
+    storageMatches: expectedStorage ? healthStorage === expectedStorage : null,
+    readModelModeMatches: expectedReadModelMode ? readModelMode === expectedReadModelMode : null,
+  };
+
+  if (expectedStorage && !checks.storageMatches) {
+    findings.push({
+      severity: 'CRIT',
+      code: 'UNEXPECTED_STORAGE_MODE',
+      message: `health.storage=${healthStorage ?? 'null'} expected=${expectedStorage}`,
+    });
+  }
+  if (expectedReadModelMode && !checks.readModelModeMatches) {
+    findings.push({
+      severity: 'CRIT',
+      code: 'UNEXPECTED_READ_MODEL_MODE',
+      message: `readModel.mode=${readModelMode ?? 'null'} expected=${expectedReadModelMode}`,
+    });
+  }
+
+  return { checks, findings };
+}
+
+function computeOverall({ healthOk, metricsComplete, checker, expectationFindings }) {
+  if (!healthOk || !metricsComplete || !checker.ok || expectationFindings.length > 0) return { overall: 'CRIT', exitCode: 2 };
   const checkerOverall = checker.result?.overall ?? 'CRIT';
   if (checkerOverall === 'CRIT') return { overall: 'CRIT', exitCode: 2 };
   if (checkerOverall === 'WARN') return { overall: 'WARN', exitCode: 1 };
@@ -135,6 +168,13 @@ function printHuman(report) {
       `[Soon/doctor] alertCheck ${report.alertCheck.result.overall} findings=${report.alertCheck.result.findings.length}`,
     );
   }
+  if (report.expectations.findings.length) {
+    for (const finding of report.expectations.findings) {
+      console.log(`[Soon/doctor] ${finding.severity} ${finding.code}: ${finding.message}`);
+    }
+  } else {
+    console.log('[Soon/doctor] expectations ok');
+  }
   console.log(`[Soon/doctor] artifact=${report.artifactPath}`);
 }
 
@@ -143,6 +183,7 @@ async function main() {
   const baseUrl = pickBaseUrl();
   const timeoutMs = pickTimeoutMs();
   const outPath = resolve(args.outPath || process.env.SOON_DOCTOR_OUT || DEFAULTS.outPath);
+  const expectations = readExpectations();
 
   const health = await fetchJson(baseUrl, '/health', timeoutMs);
   const readModelStatus = await fetchJson(baseUrl, '/automation/read-model/status', timeoutMs);
@@ -154,10 +195,17 @@ async function main() {
   const refreshMode = extractRefreshMode(metricsText);
 
   const checker = await runAlertCheckerJson();
+  const expectationEval = evaluateExpectations({
+    healthStorage: health?.storage ?? null,
+    readModelMode: readModelStatus?.mode ?? null,
+    expectedStorage: expectations.expectedStorage,
+    expectedReadModelMode: expectations.expectedReadModelMode,
+  });
   const evaluated = computeOverall({
     healthOk: health?.status === 'ok',
     metricsComplete: missing.length === 0,
     checker,
+    expectationFindings: expectationEval.findings,
   });
 
   const report = {
@@ -182,6 +230,7 @@ async function main() {
       values,
     },
     alertCheck: checker,
+    expectations: expectationEval,
     artifactPath: outPath,
   };
 

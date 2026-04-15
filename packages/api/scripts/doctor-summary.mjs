@@ -14,6 +14,9 @@ function buildMarkdown(report, path) {
   const checker = report?.alertCheck ?? {};
   const checkerResult = checker?.result ?? {};
   const checkerFindings = checkerResult?.findings ?? [];
+  const expectations = report?.expectations ?? {};
+  const checks = expectations?.checks ?? {};
+  const expectationFindings = expectations?.findings ?? [];
 
   return [
     '## Soon Doctor Report',
@@ -42,6 +45,13 @@ function buildMarkdown(report, path) {
     `- Runner status: \`${checker.ok ? 'ok' : 'failed'}\``,
     `- Overall: \`${checkerResult.overall ?? 'n/a'}\``,
     `- Findings: \`${checkerFindings.length}\``,
+    '',
+    '### Expectations',
+    `- Expected storage: \`${checks.expectedStorage ?? 'n/a'}\``,
+    `- Storage matches: \`${checks.storageMatches ?? 'n/a'}\``,
+    `- Expected read-model mode: \`${checks.expectedReadModelMode ?? 'n/a'}\``,
+    `- Read-model mode matches: \`${checks.readModelModeMatches ?? 'n/a'}\``,
+    `- Expectation findings: \`${expectationFindings.length}\``,
   ].join('\n');
 }
 
