@@ -1026,3 +1026,37 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Dodać scenariusz regresji „policy drift -> auto-remediation -> recovery w kolejnym cyklu”.
+
+### Update (2026-04-16, alert routing drift auto-remediation + recovery regression)
+
+1. Rozszerzono `POST /self-heal/run` o automatyczną remediację alert routing policy drift:
+   - jeżeli ostatni run automation ma violation policy (`purchase!=telegram` lub `technical!=discord`),
+   - runtime uruchamia automatyczny cykl remediacyjny (`runAutomationCycle` + persist run),
+   - odpowiedź endpointu zawiera sekcję:
+     - `alertRoutingAutoRemediation.checked`,
+     - `triggered`,
+     - `reason`,
+     - `beforeViolations`,
+     - `afterViolations`,
+     - `recovered`,
+     - `remediationRunId`.
+2. Dodano test regresyjny E2E:
+   - `packages/api/test/self-heal-alert-routing-v1.test.mjs`
+   - scenariusz:
+     - wstrzyknięty drift run (`purchase -> discord`),
+     - status przed: `WARN`,
+     - `POST /self-heal/run` triggeruje auto-remediation,
+     - status po: `PASS` (limit=1), `recovered=true`.
+
+### Testy / weryfikacja
+
+1. `npm run test:contracts` -> PASS (22/22).
+2. `npm run check` -> PASS.
+
+### Ryzyka
+
+1. Auto-remediation bazuje obecnie na ocenie ostatniego runu (`limit=1`); historyczne drifty poza ostatnim runem nie triggerują remediacji.
+
+### Następny krok
+
+1. Dodać opcjonalny tryb `window-based remediation` (np. `limit=5`) z guardrail na max frequency triggerów.
