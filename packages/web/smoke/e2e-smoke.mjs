@@ -61,6 +61,18 @@ async function run() {
     assert.ok(readModelStatus.pendingCount >= 0);
     assert.ok(readModelStatus.totalErrors >= 0);
 
+    const selfHeal = await client.runSelfHealCycle();
+    assert.equal(selfHeal.status, 'ok');
+    assert.equal(selfHeal.worker, 'self-heal');
+    assert.ok(Array.isArray(selfHeal.executedPlaybooks));
+    assert.ok(selfHeal.runId);
+
+    const selfHealRuns = await client.getLatestSelfHealRuns(5);
+    assert.ok(selfHealRuns.count >= 1);
+    assert.ok(Array.isArray(selfHealRuns.items));
+    assert.ok(selfHealRuns.items[0].runId);
+    assert.ok(Array.isArray(selfHealRuns.items[0].executedPlaybooks));
+
     const metrics = await client.getPrometheusMetrics();
     assert.ok(metrics.includes('soon_read_model_refresh_pending_count'));
     assert.ok(metrics.includes('soon_read_model_refresh_total_runs'));
@@ -73,6 +85,7 @@ async function run() {
       summaryRuns: summary.window.runs,
       trendWindows: trends.windows.length,
       dailyItems: daily.items.length,
+      selfHealRuns: selfHealRuns.count,
       readModelMode: readModelStatus.mode,
       metricsExported: true,
     });

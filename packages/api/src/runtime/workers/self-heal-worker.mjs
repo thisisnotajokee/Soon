@@ -6,6 +6,7 @@ export async function runSelfHealWorker() {
 
   return {
     worker: 'self-heal',
+    source: 'self-heal-worker-v1',
     status: 'ok',
     executedPlaybooks: playbooks,
     startedAt,

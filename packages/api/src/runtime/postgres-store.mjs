@@ -69,6 +69,18 @@ function summarizeRun(base, decisions, alerts) {
   };
 }
 
+function summarizeSelfHealRun(base, executedPlaybooks) {
+  return {
+    runId: base.run_id,
+    source: base.source,
+    status: base.status,
+    startedAt: base.started_at.toISOString(),
+    finishedAt: base.finished_at.toISOString(),
+    playbookCount: base.playbook_count,
+    executedPlaybooks,
+  };
+}
+
 function toDayKey(value) {
   const parsed = Date.parse(String(value));
   if (!Number.isFinite(parsed)) {
@@ -825,6 +837,94 @@ export function createPostgresStore({
     };
   }
 
+  async function recordSelfHealRun(payload) {
+    await ensureInit();
+
+    const runId = randomUUID();
+    const executedPlaybooks = [...(payload?.executedPlaybooks ?? [])];
+    const source = payload?.source ?? 'self-heal-worker-v1';
+    const status = payload?.status ?? 'ok';
+    const startedAt = payload?.startedAt ?? new Date().toISOString();
+    const finishedAt = payload?.finishedAt ?? new Date().toISOString();
+
+    await pool.query(
+      `
+      INSERT INTO soon_self_heal_run (
+        run_id,
+        source,
+        status,
+        playbook_count,
+        started_at,
+        finished_at
+      ) VALUES ($1, $2, $3, $4, $5::timestamptz, $6::timestamptz)
+    `,
+      [runId, source, status, executedPlaybooks.length, startedAt, finishedAt],
+    );
+
+    for (const playbookId of executedPlaybooks) {
+      await pool.query(
+        `
+        INSERT INTO soon_self_heal_playbook_execution (
+          run_id,
+          playbook_id,
+          status
+        ) VALUES ($1, $2, 'success')
+      `,
+        [runId, playbookId],
+      );
+    }
+
+    return {
+      runId,
+      source,
+      status,
+      startedAt,
+      finishedAt,
+      playbookCount: executedPlaybooks.length,
+      executedPlaybooks,
+    };
+  }
+
+  async function listLatestSelfHealRuns(limit = 20) {
+    await ensureInit();
+
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+    const runRes = await pool.query(
+      `
+      SELECT run_id, source, status, playbook_count, started_at, finished_at
+      FROM soon_self_heal_run
+      ORDER BY started_at DESC
+      LIMIT $1
+    `,
+      [safeLimit],
+    );
+
+    if (!runRes.rowCount) {
+      return [];
+    }
+
+    const runIds = runRes.rows.map((row) => row.run_id);
+    const playbookRes = await pool.query(
+      `
+      SELECT run_id, playbook_id, status, created_at
+      FROM soon_self_heal_playbook_execution
+      WHERE run_id = ANY($1::text[])
+      ORDER BY created_at DESC
+    `,
+      [runIds],
+    );
+
+    const playbooksByRun = new Map();
+    for (const row of playbookRes.rows) {
+      if (!playbooksByRun.has(row.run_id)) {
+        playbooksByRun.set(row.run_id, []);
+      }
+      playbooksByRun.get(row.run_id).push(row.playbook_id);
+    }
+
+    return runRes.rows.map((row) => summarizeSelfHealRun(row, playbooksByRun.get(row.run_id) ?? []));
+  }
+
   return {
     mode: 'postgres',
     listTrackings,
@@ -835,6 +935,8 @@ export function createPostgresStore({
     listLatestAutomationRuns,
     getAutomationDailyReadModel,
     getReadModelRefreshStatus,
+    recordSelfHealRun,
+    listLatestSelfHealRuns,
     async close() {
       await flushDailyReadModelRefresh();
       await pool.end();

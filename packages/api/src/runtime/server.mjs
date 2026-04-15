@@ -5,6 +5,7 @@ import { createInMemoryStore } from './in-memory-store.mjs';
 import { readJsonBody, sendJson } from './json.mjs';
 import { runAutomationCycle } from './automation-cycle.mjs';
 import { createPostgresStore } from './postgres-store.mjs';
+import { runSelfHealWorker } from './workers/self-heal-worker.mjs';
 
 function modulesList() {
   return [
@@ -406,6 +407,30 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
 
         const status = await store.getReadModelRefreshStatus();
         return sendJson(res, 200, status);
+      }
+
+      if (method === 'POST' && pathname === '/self-heal/run') {
+        const cycle = await runSelfHealWorker();
+        const persisted = store.recordSelfHealRun ? await store.recordSelfHealRun(cycle) : null;
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          ...cycle,
+          runId: persisted?.runId ?? null,
+          persisted,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/self-heal/runs/latest') {
+        const rawLimit = Number(url.searchParams.get('limit') ?? 20);
+        const limit = Math.max(1, Math.min(100, Number.isFinite(rawLimit) ? rawLimit : 20));
+
+        if (!store.listLatestSelfHealRuns) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const items = await store.listLatestSelfHealRuns(limit);
+        return sendJson(res, 200, { items, count: items.length });
       }
 
       if (method === 'GET' && pathname === '/metrics') {
