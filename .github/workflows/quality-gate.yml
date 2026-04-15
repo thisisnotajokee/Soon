@@ -52,6 +52,7 @@ jobs:
       SOON_READ_MODEL_REFRESH_MODE: async
       SOON_DOCTOR_EXPECT_STORAGE: postgres
       SOON_DOCTOR_EXPECT_READ_MODEL_MODE: async
+      SOON_SELF_HEAL_TRIAGE_WARN_AS_ERROR: '1'
 
     steps:
       - name: Checkout
@@ -89,7 +90,7 @@ jobs:
         if: always()
         run: |
           if [ -f ops/reports/doctor/latest.json ]; then
-            npm run -s obs:doctor:summary -- ops/reports/doctor/latest.json >> "$GITHUB_STEP_SUMMARY"
+            npm run -s obs:doctor:summary -- ops/reports/doctor/latest.json ops/reports/doctor/self-heal-triage.json >> "$GITHUB_STEP_SUMMARY"
           else
             echo "## Soon Doctor Report" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -101,5 +102,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: doctor-report-postgres-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ops/reports/doctor/latest.json
+          path: |
+            ops/reports/doctor/latest.json
+            ops/reports/doctor/self-heal-triage.json
           if-no-files-found: warn

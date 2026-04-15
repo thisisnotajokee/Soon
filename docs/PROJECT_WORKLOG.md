@@ -733,3 +733,27 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 1. `node --check packages/api/scripts/self-heal-requeue-triage.mjs` -> PASS.
 2. `make up && make doctor && make down` -> PASS (`doctor=PASS`, `self-heal-triage=PASS`).
+
+### Update (2026-04-15, self-heal triage policy + doctor summary integration)
+
+1. Dodano politykę `SOON_SELF_HEAL_TRIAGE_WARN_AS_ERROR`:
+   - lokalnie default `0` (WARN nie przerywa `make doctor`),
+   - w CI ustawione `1` (WARN blokuje quality gate).
+2. Rozszerzono `self-heal-requeue-triage`:
+   - wsparcie `--out` i zapis artefaktu JSON,
+   - raportowanie aktywnej polityki (`warnAsError`) w output.
+3. `make doctor` zapisuje teraz także artefakt:
+   - `ops/reports/doctor/self-heal-triage.json`.
+4. Rozszerzono `doctor-summary` o sekcję:
+   - **Self-heal Requeue Triage** (overall, policy, findings, conflicts/missing).
+5. Workflow `quality-gate`:
+   - ustawia `SOON_SELF_HEAL_TRIAGE_WARN_AS_ERROR=1`,
+   - publikuje summary z obu artefaktów (`latest.json`, `self-heal-triage.json`),
+   - upload artifact obejmuje oba pliki.
+6. Uzupełniono dokumentację (`README.md`, `packages/api/README.md`, `.env.example`).
+
+### Testy / weryfikacja
+
+1. `node --check packages/api/scripts/self-heal-requeue-triage.mjs` -> PASS.
+2. `node --check packages/api/scripts/doctor-summary.mjs` -> PASS.
+3. `make up && make doctor && make down` -> PASS (artefakty: `latest.json`, `self-heal-triage.json`).

@@ -54,6 +54,10 @@ Minimalny runtime API v1 dla projektu `Soon`.
 6. JSON checker output: `npm run obs:read-model:alert:check:json`
 7. Self-heal runbook checker: `npm run ops:self-heal:requeue:triage`
 8. Self-heal runbook checker JSON: `npm run ops:self-heal:requeue:triage:json`
+9. Self-heal triage policy:
+   - `SOON_SELF_HEAL_TRIAGE_WARN_AS_ERROR=0|1` (default `0`; w CI ustaw na `1`)
+10. Self-heal triage artifact:
+   - `ops/reports/doctor/self-heal-triage.json` (gdy uruchamiane przez `make doctor`)
 
 ## Runbook: dead-letter bulk requeue
 
