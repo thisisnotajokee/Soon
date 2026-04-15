@@ -170,11 +170,31 @@ export function createApiClient(baseUrl) {
       return responseBody;
     },
 
-    async getSelfHealRequeueAudit(limit = 20) {
-      const safeLimit = Number.isFinite(Number(limit)) ? Number(limit) : 20;
-      const response = await fetch(
-        `${apiBase}/self-heal/requeue-audit?limit=${encodeURIComponent(String(safeLimit))}`,
-      );
+    async getSelfHealRequeueAudit(input = 20) {
+      const params = new URLSearchParams();
+      const safeLimit =
+        typeof input === 'object' && input !== null
+          ? Number.isFinite(Number(input.limit))
+            ? Number(input.limit)
+            : 20
+          : Number.isFinite(Number(input))
+            ? Number(input)
+            : 20;
+      params.set('limit', String(safeLimit));
+
+      if (typeof input === 'object' && input !== null) {
+        if (typeof input.reason === 'string' && input.reason.trim()) {
+          params.set('reason', input.reason.trim());
+        }
+        if (typeof input.from === 'string' && input.from.trim()) {
+          params.set('from', input.from.trim());
+        }
+        if (typeof input.to === 'string' && input.to.trim()) {
+          params.set('to', input.to.trim());
+        }
+      }
+
+      const response = await fetch(`${apiBase}/self-heal/requeue-audit?${params.toString()}`);
       const body = await response.json();
       assertOk(response, body, 'getSelfHealRequeueAudit');
       return body;

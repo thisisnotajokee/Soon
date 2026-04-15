@@ -537,9 +537,22 @@ export function createInMemoryStore() {
     };
   }
 
-  async function listSelfHealRequeueAudit(limit = 20) {
+  async function listSelfHealRequeueAudit(limit = 20, filters = {}) {
     const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
-    return selfHealRequeueAudit.slice(0, safeLimit);
+    const reason = typeof filters?.reason === 'string' ? filters.reason.trim() : '';
+    const fromMs = Number.isFinite(Number(filters?.fromMs)) ? Number(filters.fromMs) : null;
+    const toMs = Number.isFinite(Number(filters?.toMs)) ? Number(filters.toMs) : null;
+
+    const filtered = selfHealRequeueAudit.filter((item) => {
+      if (reason && item.reason !== reason) return false;
+      const createdMs = Date.parse(item.createdAt);
+      if (!Number.isFinite(createdMs)) return false;
+      if (fromMs !== null && createdMs < fromMs) return false;
+      if (toMs !== null && createdMs > toMs) return false;
+      return true;
+    });
+
+    return filtered.slice(0, safeLimit);
   }
 
   async function requeueSelfHealDeadLetters({ limit = 20, deadLetterIds, now = Date.now() } = {}) {

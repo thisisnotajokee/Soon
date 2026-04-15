@@ -207,6 +207,28 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 1. `npm run check` -> PASS.
 
+### Update (2026-04-15, requeue-audit filters reason/from/to)
+
+1. Rozszerzono `GET /self-heal/requeue-audit` o filtry query:
+   - `reason`
+   - `from` (ISO timestamp)
+   - `to` (ISO timestamp)
+2. Dodano walidację API:
+   - błędny `from` -> `400 invalid_from_timestamp`,
+   - błędny `to` -> `400 invalid_to_timestamp`.
+3. Rozszerzono implementację store (memory/postgres) o filtrowanie audit entries po `reason` i zakresie czasu.
+4. Rozszerzono web API client:
+   - `getSelfHealRequeueAudit({ limit, reason, from, to })`.
+5. Rozszerzono kontrakty HTTP:
+   - walidacja błędnego `from`,
+   - filtrowanie po `reason`,
+   - filtrowanie po przyszłym `from` (wynik pusty).
+6. Zaktualizowano `packages/api/README.md` o nowe parametry endpointu.
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS.
+
 ### Update (2026-04-15, bulk requeue conflicts telemetry)
 
 1. Rozszerzono wynik `POST /self-heal/dead-letter/requeue-bulk` o pole `conflicts`.

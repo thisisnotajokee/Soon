@@ -562,12 +562,28 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
       if (method === 'GET' && pathname === '/self-heal/requeue-audit') {
         const rawLimit = Number(url.searchParams.get('limit') ?? 20);
         const limit = Math.max(1, Math.min(100, Number.isFinite(rawLimit) ? rawLimit : 20));
+        const reason = (url.searchParams.get('reason') ?? '').trim();
+        const from = url.searchParams.get('from');
+        const to = url.searchParams.get('to');
+        const fromMs = from ? Date.parse(from) : null;
+        const toMs = to ? Date.parse(to) : null;
+
+        if (from && !Number.isFinite(fromMs)) {
+          return sendJson(res, 400, { error: 'invalid_from_timestamp' });
+        }
+        if (to && !Number.isFinite(toMs)) {
+          return sendJson(res, 400, { error: 'invalid_to_timestamp' });
+        }
 
         if (!store.listSelfHealRequeueAudit) {
           return sendJson(res, 501, { error: 'not_implemented' });
         }
 
-        const items = await store.listSelfHealRequeueAudit(limit);
+        const items = await store.listSelfHealRequeueAudit(limit, {
+          reason: reason || undefined,
+          fromMs: fromMs ?? undefined,
+          toMs: toMs ?? undefined,
+        });
         return sendJson(res, 200, { items, count: items.length });
       }
 

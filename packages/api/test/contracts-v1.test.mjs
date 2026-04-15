@@ -363,6 +363,10 @@ test('POST /self-heal/dead-letter/requeue validates input and handles missing it
     );
     assert.equal(invalidBulk.status, 400);
     assert.equal(invalidBulk.body.error, 'dead_letter_ids_invalid');
+
+    const invalidFrom = await readJson(await fetch(`${baseUrl}/self-heal/requeue-audit?from=invalid-date`));
+    assert.equal(invalidFrom.status, 400);
+    assert.equal(invalidFrom.body.error, 'invalid_from_timestamp');
   });
 });
 
@@ -506,6 +510,23 @@ test('POST /self-heal/dead-letter/requeue-bulk requeues latest dead-letter entri
       assert.ok(Array.isArray(audit.body.items));
       assert.ok(audit.body.items.length >= 2);
       assert.equal(audit.body.items[0].reason, 'manual_requeue');
+
+      const filteredByReason = await readJson(
+        await fetch(`${baseUrl}/self-heal/requeue-audit?limit=5&reason=manual_requeue`),
+      );
+      assert.equal(filteredByReason.status, 200);
+      assert.ok(filteredByReason.body.count >= 2);
+
+      const filteredMissingReason = await readJson(
+        await fetch(`${baseUrl}/self-heal/requeue-audit?limit=5&reason=unknown_reason`),
+      );
+      assert.equal(filteredMissingReason.status, 200);
+      assert.equal(filteredMissingReason.body.count, 0);
+
+      const futureFrom = encodeURIComponent(new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
+      const filteredFuture = await readJson(await fetch(`${baseUrl}/self-heal/requeue-audit?limit=5&from=${futureFrom}`));
+      assert.equal(filteredFuture.status, 200);
+      assert.equal(filteredFuture.body.count, 0);
     },
     { store },
   );

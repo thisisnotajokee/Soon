@@ -1379,9 +1379,34 @@ export function createPostgresStore({
     };
   }
 
-  async function listSelfHealRequeueAudit(limit = 20) {
+  async function listSelfHealRequeueAudit(limit = 20, filters = {}) {
     await ensureInit();
     const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+    const whereClauses = [];
+    const params = [];
+
+    const reason = typeof filters?.reason === 'string' ? filters.reason.trim() : '';
+    if (reason) {
+      params.push(reason);
+      whereClauses.push(`reason = $${params.length}`);
+    }
+
+    const fromMs = Number.isFinite(Number(filters?.fromMs)) ? Number(filters.fromMs) : null;
+    if (fromMs !== null) {
+      params.push(new Date(fromMs).toISOString());
+      whereClauses.push(`created_at >= $${params.length}::timestamptz`);
+    }
+
+    const toMs = Number.isFinite(Number(filters?.toMs)) ? Number(filters.toMs) : null;
+    if (toMs !== null) {
+      params.push(new Date(toMs).toISOString());
+      whereClauses.push(`created_at <= $${params.length}::timestamptz`);
+    }
+
+    params.push(safeLimit);
+    const limitPos = params.length;
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
     const res = await pool.query(
       `
       SELECT
@@ -1394,10 +1419,11 @@ export function createPostgresStore({
         reason,
         created_at
       FROM soon_self_heal_requeue_audit
+      ${whereSql}
       ORDER BY created_at DESC
-      LIMIT $1
+      LIMIT $${limitPos}
     `,
-      [safeLimit],
+      params,
     );
 
     return res.rows.map((row) => ({
