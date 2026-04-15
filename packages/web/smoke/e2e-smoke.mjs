@@ -61,6 +61,12 @@ async function run() {
     assert.ok(readModelStatus.pendingCount >= 0);
     assert.ok(readModelStatus.totalErrors >= 0);
 
+    const alertRoutingStatus = await client.getAlertRoutingStatus(5);
+    assert.equal(alertRoutingStatus.status, 'ok');
+    assert.equal(alertRoutingStatus.policy.purchase, 'telegram');
+    assert.equal(alertRoutingStatus.policy.technical, 'discord');
+    assert.equal(alertRoutingStatus.violations.total, 0);
+
     const selfHeal = await client.runSelfHealCycle();
     assert.equal(selfHeal.status, 'ok');
     assert.equal(selfHeal.worker, 'self-heal');
@@ -84,6 +90,12 @@ async function run() {
     assert.ok(['success', 'rollback', 'failed'].includes(selfHealRuns.items[0].executedPlaybooks[0].status));
     assert.ok(Number.isFinite(selfHealRuns.items[0].executedPlaybooks[0].attempts));
 
+    const runtimeSelfHealStatus = await client.getRuntimeSelfHealStatus();
+    assert.equal(runtimeSelfHealStatus.status, 'ok');
+    assert.ok(['PASS', 'WARN', 'CRIT'].includes(runtimeSelfHealStatus.overall));
+    assert.ok(Number.isFinite(runtimeSelfHealStatus.retryQueue.queuePending));
+    assert.ok(Number.isFinite(runtimeSelfHealStatus.retryQueue.deadLetterCount));
+
     const metrics = await client.getPrometheusMetrics();
     assert.ok(metrics.includes('soon_read_model_refresh_pending_count'));
     assert.ok(metrics.includes('soon_read_model_refresh_total_runs'));
@@ -98,6 +110,8 @@ async function run() {
       dailyItems: daily.items.length,
       selfHealRuns: selfHealRuns.count,
       readModelMode: readModelStatus.mode,
+      runtimeSelfHealOverall: runtimeSelfHealStatus.overall,
+      alertRoutingOverall: alertRoutingStatus.overall,
       metricsExported: true,
     });
   } finally {

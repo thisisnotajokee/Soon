@@ -820,3 +820,34 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 2. Lokalnie: `npm run check` -> PASS.
 3. GitHub Actions (`quality-gate`, `main`, push):
    - run `24474747799` (2026-04-15T19:44:54Z) -> SUCCESS.
+
+### Update (2026-04-15, runtime health parity: alert/self-heal status endpoints)
+
+1. Dodano endpoint operacyjny:
+   - `GET /api/runtime-self-heal-status` (plus alias bez prefiksu `/runtime-self-heal-status`).
+2. Endpoint zwraca:
+   - `retryQueue` (pending/done/dead-letter/manual requeue),
+   - `latestRun` self-heal,
+   - `overall` (`PASS|WARN|CRIT`) i `signals` z progów operacyjnych.
+3. Dodano endpoint kontroli separacji kanałów:
+   - `GET /api/check-alert-status?limit=20` (plus alias `/check-alert-status`).
+4. Endpoint routingu alertów zwraca:
+   - politykę (`purchase -> telegram`, `technical -> discord`),
+   - agregację `alertsByChannel`,
+   - `violations` i `overall` (`PASS/WARN`) dla ostatnich runów.
+5. Rozszerzono klienta web API (`packages/web/src/api-client.mjs`) i smoke E2E o oba endpointy.
+6. Uzupełniono dokumentację endpointów i inwentarze (`packages/api/README.md`, `docs/API_ENDPOINT_INVENTORY.md`, `docs/FULL_MECHANICS_INVENTORY.md`).
+
+### Testy / weryfikacja
+
+1. `npm run test:contracts` -> PASS (18/18; nowe testy dla obu endpointów).
+2. `npm run smoke:e2e` -> PASS (`runtimeSelfHealOverall=PASS`, `alertRoutingOverall=PASS`).
+3. `npm run check` -> PASS.
+
+### Ryzyka
+
+1. Progi `PASS/WARN/CRIT` dla runtime self-heal są na razie baseline; mogą wymagać kalibracji po dłuższym okresie telemetrycznym.
+
+### Następny krok
+
+1. Dodać alerty Prometheus dla `overall!=PASS` (self-heal status) i `violations.total>0` (alert routing status) oraz podpiąć je do operacyjnego kanału Discord.

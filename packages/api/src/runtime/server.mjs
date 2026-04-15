@@ -141,6 +141,83 @@ function buildBulkRequeueOperationalAlert(summary) {
   };
 }
 
+function evaluateSelfHealOperationalStatus(retryStatus) {
+  const pending = Number(retryStatus?.queuePending ?? 0);
+  const deadLetter = Number(retryStatus?.deadLetterCount ?? 0);
+  const queueDeadLetter = Number(retryStatus?.queueDeadLetter ?? 0);
+  const signals = [];
+
+  if (pending >= 200) signals.push({ level: 'crit', code: 'retry_queue_pending_critical', value: pending });
+  else if (pending >= 50) signals.push({ level: 'warn', code: 'retry_queue_pending_high', value: pending });
+
+  if (deadLetter >= 20) signals.push({ level: 'crit', code: 'dead_letter_count_critical', value: deadLetter });
+  else if (deadLetter > 0) signals.push({ level: 'warn', code: 'dead_letter_count_nonzero', value: deadLetter });
+
+  if (queueDeadLetter > 0) {
+    signals.push({ level: 'warn', code: 'retry_queue_dead_letter_nonzero', value: queueDeadLetter });
+  }
+
+  const hasCrit = signals.some((item) => item.level === 'crit');
+  const hasWarn = signals.some((item) => item.level === 'warn');
+  return {
+    overall: hasCrit ? 'CRIT' : hasWarn ? 'WARN' : 'PASS',
+    signals,
+  };
+}
+
+function summarizeAlertRouting(items, limit) {
+  const metrics = {
+    purchaseToNonTelegram: 0,
+    purchaseToDiscord: 0,
+    technicalToNonDiscord: 0,
+    technicalToTelegram: 0,
+    unknownKind: 0,
+    unknownChannel: 0,
+  };
+  const alertsByChannel = { telegram: 0, discord: 0, other: 0 };
+
+  for (const run of items) {
+    for (const alert of run.alerts ?? []) {
+      const kind = alert?.kind;
+      const channel = alert?.channel;
+
+      if (channel === 'telegram') alertsByChannel.telegram += 1;
+      else if (channel === 'discord') alertsByChannel.discord += 1;
+      else alertsByChannel.other += 1;
+
+      if (!kind || (kind !== 'purchase' && kind !== 'technical')) {
+        metrics.unknownKind += 1;
+      } else if (kind === 'purchase' && channel !== 'telegram') {
+        metrics.purchaseToNonTelegram += 1;
+        if (channel === 'discord') metrics.purchaseToDiscord += 1;
+      } else if (kind === 'technical' && channel !== 'discord') {
+        metrics.technicalToNonDiscord += 1;
+        if (channel === 'telegram') metrics.technicalToTelegram += 1;
+      }
+
+      if (!channel || (channel !== 'telegram' && channel !== 'discord')) {
+        metrics.unknownChannel += 1;
+      }
+    }
+  }
+
+  const totalViolations =
+    metrics.purchaseToNonTelegram +
+    metrics.technicalToNonDiscord +
+    metrics.unknownKind +
+    metrics.unknownChannel;
+
+  return {
+    status: 'ok',
+    overall: totalViolations > 0 ? 'WARN' : 'PASS',
+    checkedAt: new Date().toISOString(),
+    policy: { purchase: 'telegram', technical: 'discord' },
+    window: { limit, runs: items.length },
+    violations: { total: totalViolations, ...metrics },
+    alertsByChannel,
+  };
+}
+
 function aggregateTrendWindowFromDaily(items) {
   const totals = items.reduce(
     (acc, item) => {
@@ -620,6 +697,55 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         const days = Math.max(1, Math.min(365, Number.isFinite(rawDays) ? rawDays : 7));
         const summary = await store.getSelfHealRequeueAuditSummary(days, { now: Date.now() });
         return sendJson(res, 200, summary);
+      }
+
+      if (
+        method === 'GET' &&
+        (pathname === '/runtime-self-heal-status' || pathname === '/api/runtime-self-heal-status')
+      ) {
+        if (!store.getSelfHealRetryStatus) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const retryStatus = await store.getSelfHealRetryStatus();
+        const latest = store.listLatestSelfHealRuns ? await store.listLatestSelfHealRuns(1) : [];
+        const latestRun = latest[0] ?? null;
+        const evaluation = evaluateSelfHealOperationalStatus(retryStatus);
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          overall: evaluation.overall,
+          checkedAt: new Date().toISOString(),
+          retryQueue: {
+            scheduler: retryStatus.scheduler,
+            queuePending: retryStatus.queuePending,
+            queueDone: retryStatus.queueDone,
+            queueDeadLetter: retryStatus.queueDeadLetter,
+            deadLetterCount: retryStatus.deadLetterCount,
+            manualRequeueTotal: retryStatus.manualRequeueTotal,
+          },
+          latestRun: latestRun
+            ? {
+                runId: latestRun.runId ?? null,
+                startedAt: latestRun.startedAt ?? null,
+                finishedAt: latestRun.finishedAt ?? null,
+                anomalyCount: latestRun.anomalyCount ?? null,
+                playbookCount: latestRun.playbookCount ?? null,
+              }
+            : null,
+          signals: evaluation.signals,
+        });
+      }
+
+      if (method === 'GET' && (pathname === '/check-alert-status' || pathname === '/api/check-alert-status')) {
+        if (!store.listLatestAutomationRuns) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const rawLimit = Number(url.searchParams.get('limit') ?? 20);
+        const limit = Math.max(1, Math.min(100, Number.isFinite(rawLimit) ? rawLimit : 20));
+        const items = await store.listLatestAutomationRuns(limit);
+        return sendJson(res, 200, summarizeAlertRouting(items, limit));
       }
 
       if (method === 'GET' && pathname === '/metrics') {

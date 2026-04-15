@@ -94,6 +94,21 @@ export function createApiClient(baseUrl) {
       return body;
     },
 
+    async getRuntimeSelfHealStatus() {
+      const response = await fetch(`${apiBase}/api/runtime-self-heal-status`);
+      const body = await response.json();
+      assertOk(response, body, 'getRuntimeSelfHealStatus');
+      return body;
+    },
+
+    async getAlertRoutingStatus(limit = 20) {
+      const safeLimit = Number.isFinite(Number(limit)) ? Number(limit) : 20;
+      const response = await fetch(`${apiBase}/api/check-alert-status?limit=${encodeURIComponent(String(safeLimit))}`);
+      const body = await response.json();
+      assertOk(response, body, 'getAlertRoutingStatus');
+      return body;
+    },
+
     async runSelfHealCycle() {
       const response = await fetch(`${apiBase}/self-heal/run`, { method: 'POST' });
       const body = await response.json();
