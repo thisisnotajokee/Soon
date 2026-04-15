@@ -302,3 +302,9 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 2. Job `memory`: `npm ci` + `make smoke`.
 3. Job `postgres`: service Postgres + migracje + contracts + workers + smoke + checker.
 4. Cel: automatyczna walidacja obu ścieżek storage na każdym push/PR.
+
+### Update (2026-04-15, CI fix checker fetch)
+
+1. Naprawiono job `postgres` w workflow `quality-gate`.
+2. `Read-model checker` uruchamia teraz API przez `make up`, odpala `make check`, a następnie zawsze robi cleanup `make down` (trap EXIT).
+3. Przyczyna błędu: checker był odpalany bez aktywnego API (`fetch failed`).

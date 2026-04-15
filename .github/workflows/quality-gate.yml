@@ -76,5 +76,9 @@ jobs:
       - name: Web smoke (postgres path)
         run: npm run smoke:e2e
 
-      - name: Read-model checker
-        run: npm run obs:read-model:alert:check
+      - name: Read-model checker (with running API)
+        run: |
+          set -euo pipefail
+          make up
+          trap 'make down' EXIT
+          make check
