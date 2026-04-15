@@ -555,6 +555,40 @@ export function createInMemoryStore() {
     return filtered.slice(0, safeLimit);
   }
 
+  async function getSelfHealRequeueAuditSummary(days = 7, { now = Date.now() } = {}) {
+    const safeDays = Math.max(1, Math.min(365, Number(days) || 7));
+    const nowMs = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+    const cutoffMs = nowMs - safeDays * 24 * 60 * 60 * 1000;
+
+    const filtered = selfHealRequeueAudit.filter((item) => {
+      const createdMs = Date.parse(item.createdAt);
+      return Number.isFinite(createdMs) && createdMs >= cutoffMs;
+    });
+
+    const byReasonMap = new Map();
+    const byPlaybookMap = new Map();
+    const dailyMap = new Map();
+
+    for (const item of filtered) {
+      byReasonMap.set(item.reason, (byReasonMap.get(item.reason) ?? 0) + 1);
+      byPlaybookMap.set(item.playbookId, (byPlaybookMap.get(item.playbookId) ?? 0) + 1);
+      const day = item.createdAt.slice(0, 10);
+      dailyMap.set(day, (dailyMap.get(day) ?? 0) + 1);
+    }
+
+    return {
+      days: safeDays,
+      total: filtered.length,
+      byReason: [...byReasonMap.entries()].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count),
+      byPlaybook: [...byPlaybookMap.entries()]
+        .map(([playbookId, count]) => ({ playbookId, count }))
+        .sort((a, b) => b.count - a.count),
+      daily: [...dailyMap.entries()]
+        .map(([day, count]) => ({ day, count }))
+        .sort((a, b) => a.day.localeCompare(b.day)),
+    };
+  }
+
   async function requeueSelfHealDeadLetters({ limit = 20, deadLetterIds, now = Date.now() } = {}) {
     const hasIdList = Array.isArray(deadLetterIds) && deadLetterIds.length > 0;
     const normalizedIds = hasIdList
@@ -605,6 +639,7 @@ export function createInMemoryStore() {
     requeueSelfHealDeadLetter,
     requeueSelfHealDeadLetters,
     listSelfHealRequeueAudit,
+    getSelfHealRequeueAuditSummary,
     async close() {
       // no-op
     },

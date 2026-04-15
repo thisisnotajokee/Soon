@@ -1438,6 +1438,63 @@ export function createPostgresStore({
     }));
   }
 
+  async function getSelfHealRequeueAuditSummary(days = 7, { now = Date.now() } = {}) {
+    await ensureInit();
+    const safeDays = Math.max(1, Math.min(365, Number(days) || 7));
+    const nowMs = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+    const cutoffIso = new Date(nowMs - safeDays * 24 * 60 * 60 * 1000).toISOString();
+
+    const totalRes = await pool.query(
+      `
+      SELECT COUNT(*)::int AS count
+      FROM soon_self_heal_requeue_audit
+      WHERE created_at >= $1::timestamptz
+    `,
+      [cutoffIso],
+    );
+
+    const reasonRes = await pool.query(
+      `
+      SELECT reason, COUNT(*)::int AS count
+      FROM soon_self_heal_requeue_audit
+      WHERE created_at >= $1::timestamptz
+      GROUP BY reason
+      ORDER BY count DESC, reason ASC
+    `,
+      [cutoffIso],
+    );
+
+    const playbookRes = await pool.query(
+      `
+      SELECT playbook_id, COUNT(*)::int AS count
+      FROM soon_self_heal_requeue_audit
+      WHERE created_at >= $1::timestamptz
+      GROUP BY playbook_id
+      ORDER BY count DESC, playbook_id ASC
+    `,
+      [cutoffIso],
+    );
+
+    const dailyRes = await pool.query(
+      `
+      SELECT to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day, COUNT(*)::int AS count
+      FROM soon_self_heal_requeue_audit
+      WHERE created_at >= $1::timestamptz
+      GROUP BY day
+      ORDER BY day ASC
+    `,
+      [cutoffIso],
+    );
+
+    return {
+      days: safeDays,
+      total: Number(totalRes.rows[0]?.count ?? 0),
+      byReason: reasonRes.rows.map((row) => ({ reason: row.reason, count: Number(row.count) })),
+      byPlaybook: playbookRes.rows.map((row) => ({ playbookId: row.playbook_id, count: Number(row.count) })),
+      daily: dailyRes.rows.map((row) => ({ day: row.day, count: Number(row.count) })),
+    };
+  }
+
   async function requeueSelfHealDeadLetters({ limit = 20, deadLetterIds, now = Date.now() } = {}) {
     await ensureInit();
     const hasIdList = Array.isArray(deadLetterIds) && deadLetterIds.length > 0;
@@ -1508,6 +1565,7 @@ export function createPostgresStore({
     requeueSelfHealDeadLetter,
     requeueSelfHealDeadLetters,
     listSelfHealRequeueAudit,
+    getSelfHealRequeueAuditSummary,
     async close() {
       await flushDailyReadModelRefresh();
       await pool.end();

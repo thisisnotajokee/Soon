@@ -200,6 +200,16 @@ export function createApiClient(baseUrl) {
       return body;
     },
 
+    async getSelfHealRequeueAuditSummary(days = 7) {
+      const safeDays = Number.isFinite(Number(days)) ? Number(days) : 7;
+      const response = await fetch(
+        `${apiBase}/self-heal/requeue-audit/summary?days=${encodeURIComponent(String(safeDays))}`,
+      );
+      const body = await response.json();
+      assertOk(response, body, 'getSelfHealRequeueAuditSummary');
+      return body;
+    },
+
     async getPrometheusMetrics() {
       const response = await fetch(`${apiBase}/metrics`);
       const body = await response.text();

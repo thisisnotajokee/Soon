@@ -207,6 +207,28 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 1. `npm run check` -> PASS.
 
+### Update (2026-04-15, requeue-audit summary endpoint)
+
+1. Dodano endpoint:
+   - `GET /self-heal/requeue-audit/summary?days=7`.
+2. Endpoint zwraca agregaty:
+   - `total`
+   - `byReason[]`
+   - `byPlaybook[]`
+   - `daily[]`
+3. Implementacja w store:
+   - memory: agregacja in-process,
+   - postgres: agregacje SQL (GROUP BY reason/playbook/day).
+4. Rozszerzono web API client:
+   - `getSelfHealRequeueAuditSummary(days)`.
+5. Rozszerzono kontrakty HTTP:
+   - walidacja `summary` po realnych requeue (`manual_requeue` obecny, `count >= 2`).
+6. Zaktualizowano `packages/api/README.md` o endpoint `summary`.
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS.
+
 ### Update (2026-04-15, requeue-audit filters reason/from/to)
 
 1. Rozszerzono `GET /self-heal/requeue-audit` o filtry query:

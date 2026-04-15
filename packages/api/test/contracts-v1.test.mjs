@@ -527,6 +527,16 @@ test('POST /self-heal/dead-letter/requeue-bulk requeues latest dead-letter entri
       const filteredFuture = await readJson(await fetch(`${baseUrl}/self-heal/requeue-audit?limit=5&from=${futureFrom}`));
       assert.equal(filteredFuture.status, 200);
       assert.equal(filteredFuture.body.count, 0);
+
+      const summary = await readJson(await fetch(`${baseUrl}/self-heal/requeue-audit/summary?days=30`));
+      assert.equal(summary.status, 200);
+      assert.ok(Number.isFinite(summary.body.total));
+      assert.ok(Array.isArray(summary.body.byReason));
+      assert.ok(summary.body.byReason.every((item) => typeof item.reason === 'string' && Number.isFinite(item.count)));
+      assert.ok(Array.isArray(summary.body.byPlaybook));
+      assert.ok(summary.body.byPlaybook.every((item) => typeof item.playbookId === 'string' && Number.isFinite(item.count)));
+      assert.ok(Array.isArray(summary.body.daily));
+      assert.ok(summary.body.daily.every((item) => typeof item.day === 'string' && Number.isFinite(item.count)));
     },
     { store },
   );

@@ -587,6 +587,17 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         return sendJson(res, 200, { items, count: items.length });
       }
 
+      if (method === 'GET' && pathname === '/self-heal/requeue-audit/summary') {
+        if (!store.getSelfHealRequeueAuditSummary) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const rawDays = Number(url.searchParams.get('days') ?? 7);
+        const days = Math.max(1, Math.min(365, Number.isFinite(rawDays) ? rawDays : 7));
+        const summary = await store.getSelfHealRequeueAuditSummary(days, { now: Date.now() });
+        return sendJson(res, 200, summary);
+      }
+
       if (method === 'GET' && pathname === '/metrics') {
         if (!store.getReadModelRefreshStatus) {
           res.writeHead(501, { 'content-type': 'text/plain; charset=utf-8' });
