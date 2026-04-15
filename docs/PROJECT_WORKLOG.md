@@ -951,3 +951,26 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Dodać snapshot expected-output dla strict check (stabilna kontrola zmian tooling output).
+
+### Update (2026-04-15, PR #19 merged + sanity on main)
+
+1. Zmergowano PR `#19` do `main`:
+   - commit na `main`: `6f16af4`
+   - zakres: strict monitoring validation (`promtool` + `amtool`) w quality-gate.
+2. Potwierdzono spójny stan lokalnego `main` z `origin/main` (fast-forward wykonany).
+3. Wykonano sanity po merge na `main`:
+   - `npm run check` -> PASS
+   - `npm run obs:monitoring:strict` -> PASS.
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS (contracts, workers, scripts, smoke).
+2. `npm run obs:monitoring:strict` -> PASS (`promtool` i `amtool` + rendered-config path).
+
+### Ryzyka
+
+1. Brak nowych CRIT po merge; obserwować tylko stabilność środowiska Docker w CI.
+
+### Następny krok
+
+1. Dodać snapshot expected-output dla strict check oraz test regresji dla rendered Alertmanager config.

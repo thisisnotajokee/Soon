@@ -173,3 +173,130 @@ test('self-heal-triage-validate fails when required fields are missing', async (
     /policy must be an object|bulk.summary must be an object/,
   );
 });
+
+const MONITORING_STRICT_SCRIPT = resolve(__dirname, '../scripts/monitoring-config-strict.mjs');
+const REPO_ROOT = resolve(__dirname, '../../..');
+const STRICT_RENDERED_PATH = 'tmp/monitoring/alertmanager.strict.rendered.yml';
+const STRICT_FALLBACK_WEBHOOK = 'https://example.invalid/soon-discord-webhook';
+
+async function createStrictMockTools(tmpDir) {
+  const { chmod } = await import('node:fs/promises');
+  const promtoolPath = join(tmpDir, 'promtool');
+  const amtoolPath = join(tmpDir, 'amtool');
+
+  await writeFile(
+    promtoolPath,
+    `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "\${1:-}" != "check" || "\${2:-}" != "rules" ]]; then
+  echo "promtool bad args" >&2
+  exit 91
+fi
+exit 0
+`,
+    'utf8',
+  );
+
+  await writeFile(
+    amtoolPath,
+    `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "\${1:-}" != "check-config" ]]; then
+  echo "amtool bad args" >&2
+  exit 92
+fi
+config_path="\${2:-}"
+if [[ -n "\${STRICT_OBS_BASE:-}" ]]; then
+  printf "%s" "$config_path" > "\${STRICT_OBS_BASE}.path"
+  cat "$config_path" > "\${STRICT_OBS_BASE}.config"
+fi
+if grep -q '\${SOON_OPS_DISCORD_WEBHOOK_URL}' "$config_path"; then
+  echo "placeholder not rendered" >&2
+  exit 93
+fi
+if [[ -n "\${STRICT_EXPECTED_WEBHOOK:-}" ]] && ! grep -Fq "$STRICT_EXPECTED_WEBHOOK" "$config_path"; then
+  echo "expected webhook missing" >&2
+  exit 94
+fi
+exit 0
+`,
+    'utf8',
+  );
+
+  await chmod(promtoolPath, 0o755);
+  await chmod(amtoolPath, 0o755);
+}
+
+test('monitoring-config-strict json output matches snapshot with rendered-config details', async () => {
+  const { access } = await import('node:fs/promises');
+  const tmpDir = await mkdtemp(join(os.tmpdir(), 'soon-monitoring-strict-snapshot-'));
+  const obsBase = join(tmpDir, 'amtool-observed');
+  await createStrictMockTools(tmpDir);
+
+  const { stdout } = await execFileAsync(process.execPath, [MONITORING_STRICT_SCRIPT, '--json'], {
+    cwd: REPO_ROOT,
+    env: {
+      ...process.env,
+      PATH: `${tmpDir}:${process.env.PATH ?? ''}`,
+      STRICT_OBS_BASE: obsBase,
+      STRICT_EXPECTED_WEBHOOK: STRICT_FALLBACK_WEBHOOK,
+    },
+  });
+
+  const parsed = JSON.parse(stdout);
+  assert.match(parsed.checkedAt, /^\d{4}-\d{2}-\d{2}T/);
+
+  const normalized = { ...parsed, checkedAt: '<ISO>' };
+  assert.deepEqual(normalized, {
+    checkedAt: '<ISO>',
+    paths: {
+      prometheusRules: 'ops/monitoring/prometheus/soon-read-model-alerts.yml',
+      alertmanager: 'ops/monitoring/alertmanager/soon-alertmanager-discord.example.yml',
+    },
+    overall: 'PASS',
+    details: [
+      { mode: 'local-binary', tool: 'promtool' },
+      { mode: 'local-binary', tool: 'amtool' },
+      {
+        mode: 'rendered-config',
+        tool: 'amtool',
+        source: 'ops/monitoring/alertmanager/soon-alertmanager-discord.example.yml',
+        renderedPath: STRICT_RENDERED_PATH,
+      },
+    ],
+    findings: [],
+  });
+
+  await assert.rejects(access(resolve(REPO_ROOT, STRICT_RENDERED_PATH)), /ENOENT/);
+});
+
+test('monitoring-config-strict renders custom webhook into temporary alertmanager config and cleans up', async () => {
+  const { access, readFile } = await import('node:fs/promises');
+  const tmpDir = await mkdtemp(join(os.tmpdir(), 'soon-monitoring-strict-regression-'));
+  const obsBase = join(tmpDir, 'amtool-observed');
+  const expectedWebhook = 'https://hooks.example.invalid/soon-test-webhook';
+  await createStrictMockTools(tmpDir);
+
+  const { stdout } = await execFileAsync(process.execPath, [MONITORING_STRICT_SCRIPT, '--json'], {
+    cwd: REPO_ROOT,
+    env: {
+      ...process.env,
+      PATH: `${tmpDir}:${process.env.PATH ?? ''}`,
+      STRICT_OBS_BASE: obsBase,
+      STRICT_EXPECTED_WEBHOOK: expectedWebhook,
+      SOON_OPS_DISCORD_WEBHOOK_URL: expectedWebhook,
+    },
+  });
+
+  const parsed = JSON.parse(stdout);
+  assert.equal(parsed.overall, 'PASS');
+
+  const observedPath = (await readFile(`${obsBase}.path`, 'utf8')).trim();
+  const observedConfig = await readFile(`${obsBase}.config`, 'utf8');
+
+  assert.equal(observedPath, STRICT_RENDERED_PATH);
+  assert.match(observedConfig, new RegExp(expectedWebhook.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.doesNotMatch(observedConfig, /\$\{SOON_OPS_DISCORD_WEBHOOK_URL\}/);
+
+  await assert.rejects(access(resolve(REPO_ROOT, STRICT_RENDERED_PATH)), /ENOENT/);
+});
