@@ -429,3 +429,31 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 2. `npm run test:workers` -> PASS.
 3. `npm run smoke:e2e` -> PASS.
 4. `npm run check` -> PASS.
+
+### Update (2026-04-15, self-heal priority scoring + retry policy)
+
+1. Rozszerzono `self-heal` o scoring priorytetów playbooków na podstawie:
+   - `basePriority` playbooka
+   - severity anomalii (`CRIT`/`WARN`)
+   - liczby dopasowanych anomalii
+2. Dodano retry policy per playbook:
+   - `maxRetries`
+   - `retryBackoffSec`
+   - runtime metadata (`attempts`, `retriesUsed`)
+3. Rozszerzono wynik wykonania playbooków:
+   - `playbookId`
+   - `status` (`success|rollback|failed`)
+   - `attempts`, `maxRetries`, `retriesUsed`
+   - `priorityScore`
+   - `matchedAnomalyCodes`
+4. Dodano migrację `007_self_heal_execution_metadata.sql` i utrwalanie metadanych retry/scoring w `soon_self_heal_playbook_execution`.
+5. Rozszerzono testy:
+   - worker test scenariusza anomalii (w tym retry + rollback)
+   - contracts/smoke o nowe pola self-heal.
+
+### Testy / weryfikacja
+
+1. `npm run test:contracts` -> PASS.
+2. `npm run test:workers` -> PASS.
+3. `npm run smoke:e2e` -> PASS.
+4. `npm run check` -> PASS.

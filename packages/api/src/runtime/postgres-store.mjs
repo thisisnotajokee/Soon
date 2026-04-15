@@ -92,7 +92,16 @@ function normalizeExecutedPlaybooks(items) {
   return items
     .map((item) => {
       if (typeof item === 'string') {
-        return { playbookId: item, status: 'success' };
+        return {
+          playbookId: item,
+          status: 'success',
+          attempts: 1,
+          maxRetries: 0,
+          retriesUsed: 0,
+          retryBackoffSec: 0,
+          priorityScore: 0,
+          matchedAnomalyCodes: [],
+        };
       }
 
       const playbookId = item?.playbookId ?? item?.id;
@@ -103,7 +112,20 @@ function normalizeExecutedPlaybooks(items) {
         status === 'failed' || status === 'rollback' || status === 'success'
           ? status
           : 'success';
-      return { playbookId, status: safeStatus };
+      return {
+        playbookId,
+        status: safeStatus,
+        attempts: Number.isFinite(Number(item?.attempts)) ? Number(item.attempts) : 1,
+        maxRetries: Number.isFinite(Number(item?.maxRetries)) ? Number(item.maxRetries) : 0,
+        retriesUsed: Number.isFinite(Number(item?.retriesUsed)) ? Number(item.retriesUsed) : 0,
+        retryBackoffSec: Number.isFinite(Number(item?.retryBackoffSec))
+          ? Number(item.retryBackoffSec)
+          : 0,
+        priorityScore: Number.isFinite(Number(item?.priorityScore)) ? Number(item.priorityScore) : 0,
+        matchedAnomalyCodes: Array.isArray(item?.matchedAnomalyCodes)
+          ? item.matchedAnomalyCodes.filter((code) => typeof code === 'string')
+          : [],
+      };
     })
     .filter(Boolean);
 }
@@ -900,10 +922,26 @@ export function createPostgresStore({
         INSERT INTO soon_self_heal_playbook_execution (
           run_id,
           playbook_id,
-          status
-        ) VALUES ($1, $2, $3)
+          status,
+          attempt_count,
+          max_retries,
+          retries_used,
+          priority_score,
+          retry_backoff_sec,
+          matched_anomaly_codes
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text[])
       `,
-        [runId, playbook.playbookId, playbook.status],
+        [
+          runId,
+          playbook.playbookId,
+          playbook.status,
+          playbook.attempts ?? 1,
+          playbook.maxRetries ?? 0,
+          playbook.retriesUsed ?? 0,
+          playbook.priorityScore ?? 0,
+          playbook.retryBackoffSec ?? 0,
+          playbook.matchedAnomalyCodes ?? [],
+        ],
       );
     }
 
@@ -939,7 +977,17 @@ export function createPostgresStore({
     const runIds = runRes.rows.map((row) => row.run_id);
     const playbookRes = await pool.query(
       `
-      SELECT run_id, playbook_id, status, created_at
+      SELECT
+        run_id,
+        playbook_id,
+        status,
+        attempt_count,
+        max_retries,
+        retries_used,
+        priority_score,
+        retry_backoff_sec,
+        matched_anomaly_codes,
+        created_at
       FROM soon_self_heal_playbook_execution
       WHERE run_id = ANY($1::text[])
       ORDER BY created_at DESC
@@ -955,6 +1003,14 @@ export function createPostgresStore({
       playbooksByRun.get(row.run_id).push({
         playbookId: row.playbook_id,
         status: row.status,
+        attempts: Number(row.attempt_count ?? 1),
+        maxRetries: Number(row.max_retries ?? 0),
+        retriesUsed: Number(row.retries_used ?? 0),
+        priorityScore: toNumber(row.priority_score) ?? 0,
+        retryBackoffSec: Number(row.retry_backoff_sec ?? 0),
+        matchedAnomalyCodes: Array.isArray(row.matched_anomaly_codes)
+          ? row.matched_anomaly_codes.filter((code) => typeof code === 'string')
+          : [],
       });
     }
 
