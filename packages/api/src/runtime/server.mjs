@@ -274,6 +274,28 @@ function renderReadModelPrometheusMetrics(status) {
   return `${lines.join('\n')}\n`;
 }
 
+function renderSelfHealRetryPrometheusMetrics(status) {
+  const scheduler = escapePromLabel(status?.scheduler ?? 'unknown');
+  const lines = [
+    '# HELP soon_self_heal_retry_queue_info Self-heal retry queue metadata.',
+    '# TYPE soon_self_heal_retry_queue_info gauge',
+    `soon_self_heal_retry_queue_info{scheduler="${scheduler}"} 1`,
+    '# HELP soon_self_heal_retry_queue_pending Number of queued self-heal retry jobs.',
+    '# TYPE soon_self_heal_retry_queue_pending gauge',
+    `soon_self_heal_retry_queue_pending ${toPromNumber(status?.queuePending)}`,
+    '# HELP soon_self_heal_retry_queue_done Number of completed self-heal retry jobs.',
+    '# TYPE soon_self_heal_retry_queue_done counter',
+    `soon_self_heal_retry_queue_done ${toPromNumber(status?.queueDone)}`,
+    '# HELP soon_self_heal_retry_queue_dead_letter Number of retry jobs moved to dead-letter.',
+    '# TYPE soon_self_heal_retry_queue_dead_letter counter',
+    `soon_self_heal_retry_queue_dead_letter ${toPromNumber(status?.queueDeadLetter)}`,
+    '# HELP soon_self_heal_dead_letter_total Number of dead-letter records.',
+    '# TYPE soon_self_heal_dead_letter_total gauge',
+    `soon_self_heal_dead_letter_total ${toPromNumber(status?.deadLetterCount)}`,
+  ];
+  return `${lines.join('\n')}\n`;
+}
+
 export function createSoonApiServer({ store = resolveStore() } = {}) {
   return http.createServer(async (req, res) => {
     try {
@@ -491,7 +513,10 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         }
 
         const status = await store.getReadModelRefreshStatus();
-        const payload = renderReadModelPrometheusMetrics(status);
+        const retryStatus = store.getSelfHealRetryStatus ? await store.getSelfHealRetryStatus() : null;
+        const payload = retryStatus
+          ? `${renderReadModelPrometheusMetrics(status)}${renderSelfHealRetryPrometheusMetrics(retryStatus)}`
+          : renderReadModelPrometheusMetrics(status);
         res.writeHead(200, {
           'content-type': 'text/plain; version=0.0.4; charset=utf-8',
           'cache-control': 'no-store',

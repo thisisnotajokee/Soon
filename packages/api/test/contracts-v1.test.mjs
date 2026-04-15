@@ -226,6 +226,10 @@ test('GET /metrics exports read-model Prometheus metrics', async () => {
     assert.match(body, /soon_read_model_refresh_total_runs/);
     assert.match(body, /soon_read_model_refresh_total_errors/);
     assert.match(body, /soon_read_model_refresh_info\{mode="/);
+    assert.match(body, /soon_self_heal_retry_queue_pending/);
+    assert.match(body, /soon_self_heal_retry_queue_done/);
+    assert.match(body, /soon_self_heal_retry_queue_dead_letter/);
+    assert.match(body, /soon_self_heal_dead_letter_total/);
   });
 });
 

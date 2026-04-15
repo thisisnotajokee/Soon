@@ -465,6 +465,21 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 1. `npm run check` -> PASS (contracts + workers + smoke).
 
+### Update (2026-04-15, self-heal retry metrics in Prometheus)
+
+1. Rozszerzono `GET /metrics` o metryki kolejki retry self-heal:
+   - `soon_self_heal_retry_queue_pending`
+   - `soon_self_heal_retry_queue_done`
+   - `soon_self_heal_retry_queue_dead_letter`
+   - `soon_self_heal_dead_letter_total`
+2. Implementacja wykorzystuje `store.getSelfHealRetryStatus()` i dołącza payload retry metrics do istniejących read-model metrics.
+3. Rozszerzono kontrakty HTTP (`contracts-v1`) o asercje obecności nowych metryk.
+4. Zaktualizowano `packages/api/README.md` (sekcja Observability).
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS.
+
 ### Update (2026-04-15, self-heal priority scoring + retry policy)
 
 1. Rozszerzono `self-heal` o scoring priorytetów playbooków na podstawie:
