@@ -8,6 +8,7 @@ node_modules/
 # runtime artifacts
 *.log
 /tmp/
+ops/reports/doctor/*.json
 
 # editors / OS
 .DS_Store

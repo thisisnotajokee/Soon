@@ -315,3 +315,20 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
    - `actions/checkout@v6`
    - `actions/setup-node@v6`
 2. Cel: usunięcie ostrzeżeń o deprecacji Node 20 na runnerach GitHub Actions.
+
+### Update (2026-04-15, doctor v2 JSON artifact)
+
+1. Dodano `packages/api/scripts/doctor-report.mjs` (diagnostyka v2).
+2. `make doctor` korzysta teraz z nowego raportu i zapisuje artefakt JSON do `ops/reports/doctor/latest.json`.
+3. Dodano `make doctor-json` oraz skrypty npm:
+   - `obs:doctor:report`
+   - `obs:doctor:report:json`
+4. Raport zawiera: health, read-model status, kluczowe metryki, wynik alert checker i `overall` (PASS/WARN/CRIT).
+5. Dodano ignore dla artefaktów: `ops/reports/doctor/*.json`.
+
+### Testy / weryfikacja
+
+1. `make up` -> PASS.
+2. `make doctor` -> PASS + zapis artefaktu.
+3. `make doctor-json` -> PASS.
+4. `make down` -> PASS.
