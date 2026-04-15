@@ -231,6 +231,7 @@ test('GET /metrics exports read-model Prometheus metrics', async () => {
     assert.match(body, /soon_self_heal_retry_queue_done/);
     assert.match(body, /soon_self_heal_retry_queue_dead_letter/);
     assert.match(body, /soon_self_heal_dead_letter_total/);
+    assert.match(body, /soon_self_heal_manual_requeue_total/);
   });
 });
 
@@ -390,6 +391,7 @@ test('POST /self-heal/dead-letter/requeue restores dead-letter item back to queu
       assert.equal(requeue.body.status, 'ok');
       assert.equal(requeue.body.requeue.status, 'queued');
       assert.ok(requeue.body.retryStatus.queuePending >= 1);
+      assert.ok(requeue.body.retryStatus.manualRequeueTotal >= 1);
 
       const process = await readJson(
         await fetch(`${baseUrl}/self-heal/retry/process`, {

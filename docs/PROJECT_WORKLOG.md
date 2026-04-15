@@ -447,6 +447,26 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 3. `npm run smoke:e2e` -> PASS.
 4. `npm run check` -> PASS.
 
+### Update (2026-04-15, manual requeue counter + Prometheus metric)
+
+1. Dodano licznik operacji ręcznego requeue dead-letter:
+   - pole `manualRequeueTotal` w `getSelfHealRetryStatus()` (memory/postgres).
+2. Dodano migrację `009_self_heal_manual_requeue_audit.sql`:
+   - tabela `soon_self_heal_requeue_audit` do trwałego audytu requeue w trybie postgres.
+3. Endpoint `POST /self-heal/dead-letter/requeue` zapisuje teraz audit:
+   - memory: inkrementacja licznika runtime,
+   - postgres: insert do `soon_self_heal_requeue_audit`.
+4. Rozszerzono `GET /metrics` o nową metrykę:
+   - `soon_self_heal_manual_requeue_total`.
+5. Rozszerzono kontrakty HTTP:
+   - asercja obecności `soon_self_heal_manual_requeue_total` w payload `/metrics`,
+   - asercja `manualRequeueTotal >= 1` w happy-path requeue.
+6. Zaktualizowano `packages/api/README.md` (metryka + model DB).
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS.
+
 ### Update (2026-04-15, self-heal dead-letter requeue happy-path contract)
 
 1. Rozszerzono `contracts-v1` o pełny scenariusz happy-path dla `POST /self-heal/dead-letter/requeue`:

@@ -43,7 +43,7 @@ Minimalny runtime API v1 dla projektu `Soon`.
 1. Prometheus scrape: `GET /metrics`
 2. `GET /metrics` zawiera metryki:
    - read-model refresh (`soon_read_model_refresh_*`)
-   - self-heal retry queue (`soon_self_heal_retry_queue_*`, `soon_self_heal_dead_letter_total`)
+   - self-heal retry queue (`soon_self_heal_retry_queue_*`, `soon_self_heal_dead_letter_total`, `soon_self_heal_manual_requeue_total`)
 3. OpenTelemetry: użyj `prometheus receiver` w OTel Collector i scrape `GET /metrics`.
 4. Reguły alertów: `ops/monitoring/prometheus/soon-read-model-alerts.yml`
 5. Local checker (threshold gates): `npm run obs:read-model:alert:check`
@@ -74,6 +74,7 @@ Minimalny runtime API v1 dla projektu `Soon`.
 - `soon_self_heal_playbook_execution`
 - `soon_self_heal_retry_queue`
 - `soon_self_heal_dead_letter`
+- `soon_self_heal_requeue_audit`
 - `soon_maintenance_event`
 
 ## Legacy backup retention

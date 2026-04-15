@@ -222,6 +222,7 @@ export function createInMemoryStore() {
   const selfHealRuns = [];
   const selfHealRetryQueue = [];
   const selfHealDeadLetters = [];
+  let selfHealManualRequeueTotal = 0;
 
   async function listTrackings() {
     return [...byAsin.values()].map(({ historyPoints, ...rest }) => rest);
@@ -476,6 +477,7 @@ export function createInMemoryStore() {
       queueDone: done,
       queueDeadLetter: deadLetter,
       deadLetterCount: selfHealDeadLetters.length,
+      manualRequeueTotal: selfHealManualRequeueTotal,
       scheduler: 'memory-interval',
     };
   }
@@ -501,6 +503,7 @@ export function createInMemoryStore() {
     queueEntry.nextRetryAt = new Date(nowMs).toISOString();
     queueEntry.lastError = 'manual_requeue';
     queueEntry.updatedAt = new Date(nowMs).toISOString();
+    selfHealManualRequeueTotal += 1;
 
     return {
       deadLetterId: deadLetter.deadLetterId,

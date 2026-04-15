@@ -1259,12 +1259,14 @@ export function createPostgresStore({
     `,
     );
     const dlqRes = await pool.query('SELECT COUNT(*)::int AS count FROM soon_self_heal_dead_letter');
+    const requeueRes = await pool.query('SELECT COUNT(*)::int AS count FROM soon_self_heal_requeue_audit');
 
     return {
       queuePending: Number(countsRes.rows[0]?.pending ?? 0),
       queueDone: Number(countsRes.rows[0]?.done ?? 0),
       queueDeadLetter: Number(countsRes.rows[0]?.dead_letter ?? 0),
       deadLetterCount: Number(dlqRes.rows[0]?.count ?? 0),
+      manualRequeueTotal: Number(requeueRes.rows[0]?.count ?? 0),
       scheduler: 'postgres-interval',
     };
   }
@@ -1335,13 +1337,27 @@ export function createPostgresStore({
         last_error = 'manual_requeue',
         updated_at = now()
       WHERE id = $1
-      RETURNING id, status, max_retries, retries_used, next_retry_at
+      RETURNING id, run_id, source, playbook_id, status, max_retries, retries_used, next_retry_at
     `,
       [queueId, nowIso],
     );
     if (updateRes.rowCount === 0) return null;
 
     const row = updateRes.rows[0];
+    await pool.query(
+      `
+      INSERT INTO soon_self_heal_requeue_audit (
+        dead_letter_id,
+        queue_id,
+        run_id,
+        source,
+        playbook_id,
+        reason
+      ) VALUES ($1, $2, $3, $4, $5, 'manual_requeue')
+    `,
+      [id, row.id, row.run_id, row.source, row.playbook_id],
+    );
+
     return {
       deadLetterId: String(id),
       queueJobId: String(row.id),

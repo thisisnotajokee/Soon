@@ -292,6 +292,9 @@ function renderSelfHealRetryPrometheusMetrics(status) {
     '# HELP soon_self_heal_dead_letter_total Number of dead-letter records.',
     '# TYPE soon_self_heal_dead_letter_total gauge',
     `soon_self_heal_dead_letter_total ${toPromNumber(status?.deadLetterCount)}`,
+    '# HELP soon_self_heal_manual_requeue_total Number of manual dead-letter requeue operations.',
+    '# TYPE soon_self_heal_manual_requeue_total counter',
+    `soon_self_heal_manual_requeue_total ${toPromNumber(status?.manualRequeueTotal)}`,
   ];
   return `${lines.join('\n')}\n`;
 }
