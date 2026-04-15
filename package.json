@@ -16,6 +16,8 @@
     "obs:read-model:alert:check:json": "bash -lc \"set -a; [ -f .env.local ] && source .env.local; set +a; node packages/api/scripts/read-model-alert-check.mjs --json\"",
     "obs:runtime:alert:check": "bash -lc \"set -a; [ -f .env.local ] && source .env.local; set +a; node packages/api/scripts/runtime-alert-check.mjs\"",
     "obs:runtime:alert:check:json": "bash -lc \"set -a; [ -f .env.local ] && source .env.local; set +a; node packages/api/scripts/runtime-alert-check.mjs --json\"",
+    "obs:monitoring:check": "node packages/api/scripts/monitoring-config-check.mjs",
+    "obs:monitoring:check:json": "node packages/api/scripts/monitoring-config-check.mjs --json",
     "obs:doctor:report": "bash -lc \"set -a; [ -f .env.local ] && source .env.local; set +a; node packages/api/scripts/doctor-report.mjs\"",
     "obs:doctor:report:json": "bash -lc \"set -a; [ -f .env.local ] && source .env.local; set +a; node packages/api/scripts/doctor-report.mjs --json-only\"",
     "obs:doctor:summary": "node packages/api/scripts/doctor-summary.mjs",
@@ -26,7 +28,7 @@
     "test:workers": "node --test packages/api/test/workers-v1.test.mjs",
     "test:scripts": "node --test packages/api/test/scripts-v1.test.mjs",
     "smoke:e2e": "bash -lc \"set -a; [ -f .env.local ] && source .env.local; set +a; node packages/web/smoke/e2e-smoke.mjs\"",
-    "check": "npm run test:contracts && npm run test:workers && npm run test:scripts && npm run smoke:e2e"
+    "check": "npm run obs:monitoring:check && npm run test:contracts && npm run test:workers && npm run test:scripts && npm run smoke:e2e"
   },
   "dependencies": {
     "pg": "^8.16.3"

@@ -892,3 +892,33 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Dodać test integracyjny Alertmanager config (lint + syntactic check) i pipeline smoke dla monitoringu.
+
+### Update (2026-04-15, monitoring-smoke CI + config validator)
+
+1. Dodano walidator konfiguracji monitoringu:
+   - `packages/api/scripts/monitoring-config-check.mjs`
+   - waliduje obecność wymaganych tokenów w:
+     - `ops/monitoring/prometheus/soon-read-model-alerts.yml`
+     - `ops/monitoring/alertmanager/soon-alertmanager-discord.example.yml`
+2. Dodano npm skrypty:
+   - `obs:monitoring:check`
+   - `obs:monitoring:check:json`
+3. Rozszerzono `npm run check`, aby zaczynał od `obs:monitoring:check` (fail-fast na błędnej konfiguracji monitoringu).
+4. Workflow `quality-gate`:
+   - dodano nowy job `monitoring-smoke` uruchamiający `npm run obs:monitoring:check`.
+5. Zaktualizowano dokumentację:
+   - `README.md`
+   - `ops/monitoring/README.md`.
+
+### Testy / weryfikacja
+
+1. `npm run obs:monitoring:check` -> PASS.
+2. `npm run check` -> PASS.
+
+### Ryzyka
+
+1. Walidator jest obecnie token-based (szybki smoke), nie pełny parser semantyczny YAML.
+
+### Następny krok
+
+1. Dodać pełną walidację składni YAML (`promtool` / `amtool`) jako optional strict stage w CI.

@@ -4,6 +4,7 @@
 
 1. Załaduj reguły: `ops/monitoring/prometheus/soon-read-model-alerts.yml`.
 2. Scrape target: `GET /metrics` z API Soon.
+3. Walidacja configu lokalnie/CI: `npm run obs:monitoring:check`.
 
 Nowe metryki runtime/ops:
 
