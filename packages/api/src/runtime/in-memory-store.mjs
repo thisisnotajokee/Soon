@@ -497,6 +497,14 @@ export function createInMemoryStore() {
 
     const queueEntry = selfHealRetryQueue.find((item) => item.jobId === deadLetter.jobId);
     if (!queueEntry) return null;
+    if (queueEntry.status !== 'dead_letter') {
+      return {
+        error: 'not_dead_letter',
+        deadLetterId: deadLetter.deadLetterId,
+        queueJobId: queueEntry.jobId,
+        currentStatus: queueEntry.status,
+      };
+    }
 
     const nowMs = Number.isFinite(Number(now)) ? Number(now) : Date.now();
     queueEntry.status = 'queued';
@@ -546,8 +554,10 @@ export function createInMemoryStore() {
 
     for (const item of candidates) {
       const requeued = await requeueSelfHealDeadLetter(item.deadLetterId, { now });
-      if (requeued) {
+      if (requeued && !requeued.error) {
         requeuedItems.push(requeued);
+      } else if (requeued?.error === 'not_dead_letter') {
+        missing += 1;
       } else {
         missing += 1;
       }

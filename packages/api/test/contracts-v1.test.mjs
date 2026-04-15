@@ -403,6 +403,17 @@ test('POST /self-heal/dead-letter/requeue restores dead-letter item back to queu
       assert.ok(requeue.body.retryStatus.queuePending >= 1);
       assert.ok(requeue.body.retryStatus.manualRequeueTotal >= 1);
 
+      const secondRequeue = await readJson(
+        await fetch(`${baseUrl}/self-heal/dead-letter/requeue`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ deadLetterId: deadLetters[0].deadLetterId }),
+        }),
+      );
+      assert.equal(secondRequeue.status, 409);
+      assert.equal(secondRequeue.body.error, 'dead_letter_not_pending');
+      assert.equal(secondRequeue.body.currentStatus, 'queued');
+
       const audit = await readJson(await fetch(`${baseUrl}/self-heal/requeue-audit?limit=5`));
       assert.equal(audit.status, 200);
       assert.ok(Array.isArray(audit.body.items));

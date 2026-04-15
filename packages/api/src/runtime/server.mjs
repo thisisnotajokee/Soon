@@ -523,6 +523,13 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         if (!result) {
           return sendJson(res, 404, { error: 'dead_letter_not_found', deadLetterId: String(deadLetterId) });
         }
+        if (result.error === 'not_dead_letter') {
+          return sendJson(res, 409, {
+            error: 'dead_letter_not_pending',
+            deadLetterId: String(deadLetterId),
+            currentStatus: result.currentStatus ?? 'unknown',
+          });
+        }
 
         const retryStatus = store.getSelfHealRetryStatus ? await store.getSelfHealRetryStatus() : null;
         return sendJson(res, 200, { status: 'ok', requeue: result, retryStatus });

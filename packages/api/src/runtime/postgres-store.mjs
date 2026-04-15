@@ -1336,12 +1336,23 @@ export function createPostgresStore({
         next_retry_at = $2::timestamptz,
         last_error = 'manual_requeue',
         updated_at = now()
-      WHERE id = $1
+      WHERE id = $1 AND status = 'dead_letter'
       RETURNING id, run_id, source, playbook_id, status, max_retries, retries_used, next_retry_at
     `,
       [queueId, nowIso],
     );
-    if (updateRes.rowCount === 0) return null;
+    if (updateRes.rowCount === 0) {
+      const queueRes = await pool.query('SELECT status FROM soon_self_heal_retry_queue WHERE id = $1', [queueId]);
+      if (queueRes.rowCount > 0) {
+        return {
+          error: 'not_dead_letter',
+          deadLetterId: String(id),
+          queueJobId: String(queueId),
+          currentStatus: queueRes.rows[0].status,
+        };
+      }
+      return null;
+    }
 
     const row = updateRes.rows[0];
     await pool.query(
@@ -1433,8 +1444,10 @@ export function createPostgresStore({
     const items = [];
     for (const deadLetterId of candidateIds) {
       const requeued = await requeueSelfHealDeadLetter(deadLetterId, { now });
-      if (requeued) {
+      if (requeued && !requeued.error) {
         items.push(requeued);
+      } else if (requeued?.error === 'not_dead_letter') {
+        missing += 1;
       } else {
         missing += 1;
       }

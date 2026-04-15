@@ -207,6 +207,22 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 1. `npm run check` -> PASS.
 
+### Update (2026-04-15, dead-letter requeue idempotency hardening)
+
+1. Dodano guard na `POST /self-heal/dead-letter/requeue`:
+   - requeue działa tylko gdy queue status to `dead_letter`,
+   - ponowna próba requeue tego samego wpisu zwraca `409 dead_letter_not_pending`.
+2. Hardening wdrożony w obu store:
+   - memory/postgres `requeueSelfHealDeadLetter(...)` zwraca błąd domenowy `not_dead_letter` przy statusie innym niż `dead_letter`.
+3. Endpoint API mapuje ten błąd do odpowiedzi 409 z `currentStatus`.
+4. Rozszerzono kontrakt HTTP:
+   - testuje drugi requeue tego samego dead-letter (`409`, `currentStatus=queued`).
+5. Zaktualizowano `packages/api/README.md` o semantykę 409.
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS.
+
 ### Update (2026-04-15, bulk requeue by explicit deadLetterIds)
 
 1. Rozszerzono `POST /self-heal/dead-letter/requeue-bulk`:
