@@ -709,3 +709,27 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 2. `npm run test:workers` -> PASS.
 3. `npm run smoke:e2e` -> PASS.
 4. `npm run check` -> PASS.
+
+### Update (2026-04-15, self-heal requeue triage automation)
+
+1. Dodano skrypt operacyjny `packages/api/scripts/self-heal-requeue-triage.mjs`.
+2. Skrypt wykonuje runbook flow:
+   - `GET /self-heal/retry/status`
+   - `GET /self-heal/dead-letter`
+   - `POST /self-heal/dead-letter/requeue-bulk`
+   - `GET /self-heal/requeue-audit`
+   - `GET /self-heal/requeue-audit/summary`
+3. Dodano oceny wyniku:
+   - `PASS` gdy brak `operationalAlert` i brak `conflicts/missing`,
+   - `WARN` gdy wystąpią sygnały partial requeue,
+   - `CRIT` przy błędach endpointów/transportu.
+4. Dodano nowe komendy npm:
+   - `npm run ops:self-heal:requeue:triage`
+   - `npm run ops:self-heal:requeue:triage:json`
+5. Podłączono triage do `make doctor`, aby każdy cykl diagnostyczny od razu łapał regresje flow requeue.
+6. Zaktualizowano dokumentację (`README.md`, `packages/api/README.md`).
+
+### Testy / weryfikacja
+
+1. `node --check packages/api/scripts/self-heal-requeue-triage.mjs` -> PASS.
+2. `make up && make doctor && make down` -> PASS (`doctor=PASS`, `self-heal-triage=PASS`).

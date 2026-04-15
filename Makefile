@@ -13,7 +13,7 @@ help:
 	@echo "  make up      - run db migrations, start API in background, wait for health"
 	@echo "  make status  - print health + read-model status"
 	@echo "  make check   - run read-model alert checker"
-	@echo "  make doctor  - full diagnostics + JSON artifact at ops/reports/doctor/latest.json"
+	@echo "  make doctor  - diagnostics + self-heal dead-letter requeue triage"
 	@echo "  make doctor-json - print full doctor report JSON"
 	@echo "  make smoke   - run full quality gate (contracts+workers+smoke)"
 	@echo "  make down    - stop background API"
@@ -52,6 +52,7 @@ check:
 
 doctor:
 	@npm run -s obs:doctor:report
+	@npm run -s ops:self-heal:requeue:triage
 
 doctor-json:
 	@npm run -s obs:doctor:report:json
