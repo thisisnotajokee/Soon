@@ -757,3 +757,21 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 1. `node --check packages/api/scripts/self-heal-requeue-triage.mjs` -> PASS.
 2. `node --check packages/api/scripts/doctor-summary.mjs` -> PASS.
 3. `make up && make doctor && make down` -> PASS (artefakty: `latest.json`, `self-heal-triage.json`).
+
+### Update (2026-04-15, regression tests for triage warn policy)
+
+1. Dodano nowy zestaw testów skryptowych:
+   - `packages/api/test/scripts-v1.test.mjs`.
+2. Pokryte scenariusze:
+   - `SOON_SELF_HEAL_TRIAGE_WARN_AS_ERROR=0`: triage kończy się `WARN`, ale exit code `0`.
+   - `SOON_SELF_HEAL_TRIAGE_WARN_AS_ERROR=1`: triage kończy się `WARN`, a exit code `2`.
+   - `doctor-summary` renderuje sekcję **Self-heal Requeue Triage** na podstawie artefaktu triage.
+3. Dodano skrypt npm:
+   - `npm run test:scripts`.
+4. Rozszerzono quality gate lokalny:
+   - `npm run check` uruchamia teraz `test:contracts + test:workers + test:scripts + smoke:e2e`.
+
+### Testy / weryfikacja
+
+1. `npm run test:scripts` -> PASS (3/3).
+2. `npm run check` -> PASS.
