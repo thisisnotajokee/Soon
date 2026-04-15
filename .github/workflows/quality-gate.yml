@@ -86,7 +86,23 @@ jobs:
           trap 'make down' EXIT
           make doctor
 
+      - name: Ensure self-heal triage artifact (postgres)
+        if: always()
+        run: |
+          set -euo pipefail
+          TRIAGE_PATH="ops/reports/doctor/self-heal-triage.json"
+          if [ -s "$TRIAGE_PATH" ]; then
+            echo "[CI] triage artifact present: $TRIAGE_PATH"
+            exit 0
+          fi
+
+          echo "[CI] triage artifact missing after doctor; running fallback triage generation"
+          make up
+          trap 'make down' EXIT
+          SOON_SELF_HEAL_TRIAGE_OUT="$TRIAGE_PATH" npm run -s ops:self-heal:requeue:triage
+
       - name: Validate self-heal triage artifact (postgres)
+        if: always()
         run: npm run -s ops:self-heal:triage:validate -- ops/reports/doctor/self-heal-triage.json
 
       - name: Publish doctor summary (postgres)
