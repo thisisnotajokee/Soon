@@ -47,6 +47,8 @@ Skrypty pomocnicze:
 2. `npm run ops:self-heal:requeue:triage:json`
 3. `npm run obs:runtime:alert:check`
 4. `npm run obs:runtime:alert:check:json`
+5. `npm run obs:monitoring:check`
+6. `npm run obs:monitoring:check:json`
 
 Polityka triage:
 

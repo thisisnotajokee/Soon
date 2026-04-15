@@ -6,6 +6,26 @@ on:
   pull_request:
 
 jobs:
+  monitoring-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate monitoring config
+        run: npm run obs:monitoring:check
+
   memory:
     runs-on: ubuntu-latest
     timeout-minutes: 20
