@@ -29,6 +29,9 @@ function resolveStore() {
   return createInMemoryStore();
 }
 
+const ALERT_ROUTING_REMEDIATION_STATE_KEY = 'alert_routing_last_remediation_at';
+const RUNTIME_STATE_ALLOWLIST = new Set([ALERT_ROUTING_REMEDIATION_STATE_KEY]);
+
 function aggregateRunMetrics(items) {
   const runs = items.length;
   const totals = items.reduce(
@@ -239,6 +242,26 @@ function resolveAlertRoutingRemediationConfig(rawConfig) {
   };
 }
 
+function deriveAlertRoutingCooldownFromRuntimeState(runtimeState, { fallbackCooldownSec = 0, nowMs = Date.now() } = {}) {
+  const stateValue = runtimeState?.stateValue ?? {};
+  const rawTimestamp = stateValue?.timestamp ?? stateValue?.at ?? null;
+  const lastRemediationAtMs = Number.isFinite(Date.parse(rawTimestamp ?? '')) ? Date.parse(rawTimestamp) : 0;
+  const cooldownSec = clampInt(stateValue?.cooldownSec, fallbackCooldownSec, 0, 86400);
+  const cooldownRemainingMs =
+    cooldownSec > 0 && lastRemediationAtMs > 0
+      ? Math.max(0, lastRemediationAtMs + cooldownSec * 1000 - nowMs)
+      : 0;
+
+  return {
+    lastRemediationAtMs,
+    lastRemediationAt: lastRemediationAtMs > 0 ? new Date(lastRemediationAtMs).toISOString() : null,
+    cooldownSec,
+    cooldownActive: cooldownRemainingMs > 0,
+    cooldownRemainingMs,
+    cooldownRemainingSec: Math.ceil(cooldownRemainingMs / 1000),
+  };
+}
+
 function aggregateTrendWindowFromDaily(items) {
   const totals = items.reduce(
     (acc, item) => {
@@ -429,7 +452,7 @@ function overallToScore(overall) {
   return 0;
 }
 
-function renderRuntimeOperationalPrometheusMetrics({ selfHeal, alertRouting }) {
+function renderRuntimeOperationalPrometheusMetrics({ selfHeal, alertRouting, alertRoutingCooldownRemainingSec = 0 }) {
   const selfHealOverall = String(selfHeal?.overall ?? 'PASS');
   const selfHealSignals = Array.isArray(selfHeal?.signals) ? selfHeal.signals.length : 0;
   const violations = alertRouting?.violations ?? {};
@@ -460,6 +483,9 @@ function renderRuntimeOperationalPrometheusMetrics({ selfHeal, alertRouting }) {
     '# HELP soon_alert_routing_unknown_channel_total Alerts with unknown/unexpected channel.',
     '# TYPE soon_alert_routing_unknown_channel_total gauge',
     `soon_alert_routing_unknown_channel_total ${toPromNumber(violations.unknownChannel)}`,
+    '# HELP soon_alert_routing_remediation_cooldown_remaining_seconds Remaining seconds for alert-routing remediation cooldown.',
+    '# TYPE soon_alert_routing_remediation_cooldown_remaining_seconds gauge',
+    `soon_alert_routing_remediation_cooldown_remaining_seconds ${toPromNumber(alertRoutingCooldownRemainingSec)}`,
   ];
 
   return `${lines.join('\n')}\n`;
@@ -606,7 +632,7 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         const body = await readJsonBody(req).catch(() => ({}));
         const override = body?.readModelStatusOverride ?? null;
         const remediationConfig = resolveAlertRoutingRemediationConfig(body?.alertRoutingRemediation ?? null);
-        const remediationStateKey = 'alert_routing_last_remediation_at';
+        const remediationStateKey = ALERT_ROUTING_REMEDIATION_STATE_KEY;
         const cycle = await runSelfHealWorker({
           readModelStatusProvider: store.getReadModelRefreshStatus
             ? async () => (override ?? store.getReadModelRefreshStatus())
@@ -636,24 +662,35 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
 
           if (remediationConfig.mode !== 'off' && before.violations.total > 0) {
             const nowMs = Date.now();
-            let persistedLastRemediationAtMs = 0;
+            let cooldownState = {
+              lastRemediationAtMs: 0,
+              cooldownRemainingMs: 0,
+              cooldownRemainingSec: 0,
+              cooldownActive: false,
+            };
             if (store.getRuntimeState) {
               const runtimeState = await store.getRuntimeState(remediationStateKey);
-              const rawTimestamp = runtimeState?.stateValue?.timestamp ?? runtimeState?.stateValue?.at ?? null;
-              const parsedTimestamp = Date.parse(rawTimestamp ?? '');
-              persistedLastRemediationAtMs = Number.isFinite(parsedTimestamp) ? parsedTimestamp : 0;
+              cooldownState = deriveAlertRoutingCooldownFromRuntimeState(runtimeState, {
+                fallbackCooldownSec: remediationConfig.cooldownSec,
+                nowMs,
+              });
             } else {
-              persistedLastRemediationAtMs = lastAlertRoutingRemediationAtMs;
+              const cooldownRemainingMs =
+                remediationConfig.cooldownSec > 0
+                  ? Math.max(0, lastAlertRoutingRemediationAtMs + remediationConfig.cooldownSec * 1000 - nowMs)
+                  : 0;
+              cooldownState = {
+                lastRemediationAtMs: lastAlertRoutingRemediationAtMs,
+                cooldownRemainingMs,
+                cooldownRemainingSec: Math.ceil(cooldownRemainingMs / 1000),
+                cooldownActive: cooldownRemainingMs > 0,
+              };
             }
-            const cooldownRemainingMs =
-              remediationConfig.cooldownSec > 0
-                ? Math.max(0, persistedLastRemediationAtMs + remediationConfig.cooldownSec * 1000 - nowMs)
-                : 0;
 
-            if (cooldownRemainingMs > 0) {
+            if (cooldownState.cooldownActive) {
               alertRoutingAutoRemediation.reason = 'cooldown_active';
               alertRoutingAutoRemediation.cooldownActive = true;
-              alertRoutingAutoRemediation.cooldownRemainingSec = Math.ceil(cooldownRemainingMs / 1000);
+              alertRoutingAutoRemediation.cooldownRemainingSec = cooldownState.cooldownRemainingSec;
             } else {
               const startedAt = new Date().toISOString();
               const trackings = await store.listTrackings();
@@ -671,6 +708,7 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
               if (store.setRuntimeState) {
                 await store.setRuntimeState(remediationStateKey, {
                   timestamp: new Date(nowMs).toISOString(),
+                  cooldownSec: remediationConfig.cooldownSec,
                   remediationRunId: remediationPersisted?.runId ?? null,
                   mode: remediationConfig.mode,
                 });
@@ -863,6 +901,45 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
 
       if (
         method === 'GET' &&
+        (pathname === '/self-heal/runtime-state' || pathname === '/api/self-heal/runtime-state')
+      ) {
+        if (!store.getRuntimeState) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const key = String(url.searchParams.get('key') ?? '').trim();
+        if (!key) {
+          return sendJson(res, 400, {
+            error: 'key_required',
+            allowedKeys: [...RUNTIME_STATE_ALLOWLIST],
+          });
+        }
+        if (!RUNTIME_STATE_ALLOWLIST.has(key)) {
+          return sendJson(res, 400, {
+            error: 'key_not_allowed',
+            key,
+            allowedKeys: [...RUNTIME_STATE_ALLOWLIST],
+          });
+        }
+
+        const runtimeState = await store.getRuntimeState(key);
+        const fallbackCooldownSec = clampInt(process.env.SOON_ALERT_ROUTING_REMEDIATION_COOLDOWN_SEC, 120, 0, 86400);
+        const cooldown =
+          key === ALERT_ROUTING_REMEDIATION_STATE_KEY
+            ? deriveAlertRoutingCooldownFromRuntimeState(runtimeState, { fallbackCooldownSec, nowMs: Date.now() })
+            : null;
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          key,
+          found: Boolean(runtimeState),
+          runtimeState,
+          cooldown,
+        });
+      }
+
+      if (
+        method === 'GET' &&
         (pathname === '/runtime-self-heal-status' || pathname === '/api/runtime-self-heal-status')
       ) {
         if (!store.getSelfHealRetryStatus) {
@@ -929,9 +1006,20 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           const selfHealEval = evaluateSelfHealOperationalStatus(retryStatus ?? {});
           const latestRuns = await store.listLatestAutomationRuns(20);
           const alertRouting = summarizeAlertRouting(latestRuns, 20);
+          let alertRoutingCooldownRemainingSec = 0;
+          if (store.getRuntimeState) {
+            const runtimeState = await store.getRuntimeState(ALERT_ROUTING_REMEDIATION_STATE_KEY);
+            const fallbackCooldownSec = clampInt(process.env.SOON_ALERT_ROUTING_REMEDIATION_COOLDOWN_SEC, 120, 0, 86400);
+            const cooldown = deriveAlertRoutingCooldownFromRuntimeState(runtimeState, {
+              fallbackCooldownSec,
+              nowMs: Date.now(),
+            });
+            alertRoutingCooldownRemainingSec = cooldown.cooldownRemainingSec;
+          }
           payload += renderRuntimeOperationalPrometheusMetrics({
             selfHeal: selfHealEval,
             alertRouting,
+            alertRoutingCooldownRemainingSec,
           });
         }
         res.writeHead(200, {

@@ -232,6 +232,72 @@ test('GET /api/runtime-self-heal-status returns retry queue operational view', a
   });
 });
 
+test('GET /self-heal/runtime-state exposes allowlisted remediation state and cooldown snapshot', async () => {
+  const store = createInMemoryStore();
+  const now = new Date().toISOString();
+
+  await store.recordAutomationCycle({
+    cycle: {
+      executedSteps: ['test-runtime-state-drift'],
+      tokenPlan: [],
+      decisions: [
+        {
+          asin: 'B0BYW7MMBR',
+          score: 81,
+          confidence: 0.8,
+          shouldAlert: true,
+          reason: 'runtime-state-drift-injected-for-test',
+        },
+      ],
+      alerts: [
+        {
+          asin: 'B0BYW7MMBR',
+          kind: 'purchase',
+          channel: 'discord',
+          reason: 'runtime-state-drift-injected-for-test',
+        },
+      ],
+    },
+    trackingCount: 1,
+    startedAt: now,
+    finishedAt: now,
+  });
+
+  await withServer(async (baseUrl) => {
+    const missingKey = await readJson(await fetch(`${baseUrl}/self-heal/runtime-state`));
+    assert.equal(missingKey.status, 400);
+    assert.equal(missingKey.body.error, 'key_required');
+
+    const invalidKey = await readJson(await fetch(`${baseUrl}/self-heal/runtime-state?key=unknown_key`));
+    assert.equal(invalidKey.status, 400);
+    assert.equal(invalidKey.body.error, 'key_not_allowed');
+
+    const heal = await readJson(
+      await fetch(`${baseUrl}/self-heal/run`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          alertRoutingRemediation: { mode: 'window', limit: 5, cooldownSec: 3600 },
+        }),
+      }),
+    );
+    assert.equal(heal.status, 200);
+    assert.equal(heal.body.alertRoutingAutoRemediation.triggered, true);
+
+    const runtimeState = await readJson(
+      await fetch(`${baseUrl}/api/self-heal/runtime-state?key=alert_routing_last_remediation_at`),
+    );
+    assert.equal(runtimeState.status, 200);
+    assert.equal(runtimeState.body.status, 'ok');
+    assert.equal(runtimeState.body.key, 'alert_routing_last_remediation_at');
+    assert.equal(runtimeState.body.found, true);
+    assert.ok(runtimeState.body.runtimeState?.stateValue?.timestamp);
+    assert.equal(runtimeState.body.runtimeState?.stateValue?.cooldownSec, 3600);
+    assert.equal(runtimeState.body.cooldown?.cooldownActive, true);
+    assert.ok(runtimeState.body.cooldown?.cooldownRemainingSec > 0);
+  }, { store });
+});
+
 test('GET /api/check-alert-status enforces channel policy telemetry', async () => {
   await withServer(async (baseUrl) => {
     await readJson(
@@ -281,6 +347,7 @@ test('GET /metrics exports read-model Prometheus metrics', async () => {
     assert.match(body, /soon_alert_routing_violations_total/);
     assert.match(body, /soon_alert_routing_purchase_non_telegram_total/);
     assert.match(body, /soon_alert_routing_technical_non_discord_total/);
+    assert.match(body, /soon_alert_routing_remediation_cooldown_remaining_seconds/);
   });
 });
 
