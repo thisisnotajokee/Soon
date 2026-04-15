@@ -26,7 +26,7 @@
     "ops:self-heal:triage:validate": "node packages/api/scripts/self-heal-triage-validate.mjs",
     "ops:self-heal:requeue:triage": "bash -lc \"set -a; [ -f .env.local ] && source .env.local; set +a; node packages/api/scripts/self-heal-requeue-triage.mjs\"",
     "ops:self-heal:requeue:triage:json": "bash -lc \"set -a; [ -f .env.local ] && source .env.local; set +a; node packages/api/scripts/self-heal-requeue-triage.mjs --json\"",
-    "test:contracts": "node --test packages/api/test/contracts-v1.test.mjs",
+    "test:contracts": "node --test packages/api/test/contracts-v1.test.mjs packages/api/test/self-heal-alert-routing-v1.test.mjs",
     "test:workers": "node --test packages/api/test/workers-v1.test.mjs",
     "test:scripts": "node --test packages/api/test/scripts-v1.test.mjs",
     "smoke:e2e": "bash -lc \"set -a; [ -f .env.local ] && source .env.local; set +a; node packages/web/smoke/e2e-smoke.mjs\"",

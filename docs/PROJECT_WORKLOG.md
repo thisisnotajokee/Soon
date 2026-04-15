@@ -999,3 +999,30 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Zamienić `test.todo` na aktywne testy kontraktowe i dodać je do ścieżki CI.
+
+### Update (2026-04-16, self-heal alert routing v1 test activation)
+
+1. Zamieniono szkielety `test.todo` na aktywne testy:
+   - `packages/api/test/self-heal-alert-routing-v1.test.mjs`.
+2. Dodane scenariusze:
+   - routing policy: `purchase -> telegram`, `technical -> discord`,
+   - dead-letter reason `retry_budget_exhausted` + metryki:
+     - `soon_self_heal_retry_exhausted_total`,
+     - `soon_self_heal_retry_backoff_seconds`.
+3. Podpięto nowy plik do głównego kontraktowego przebiegu:
+   - `package.json` -> `test:contracts` uruchamia teraz oba pliki:
+     - `contracts-v1.test.mjs`,
+     - `self-heal-alert-routing-v1.test.mjs`.
+
+### Testy / weryfikacja
+
+1. `npm run test:contracts` -> PASS (21/21).
+2. `npm run check` -> PASS.
+
+### Ryzyka
+
+1. Brak nowych ryzyk funkcjonalnych; coverage kontraktowa wzrosła dla ścieżki routing/self-heal.
+
+### Następny krok
+
+1. Dodać scenariusz regresji „policy drift -> auto-remediation -> recovery w kolejnym cyklu”.
