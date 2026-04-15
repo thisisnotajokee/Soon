@@ -206,6 +206,23 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Testy / weryfikacja
 
 1. `npm run check` -> PASS.
+
+### Update (2026-04-15, dead-letter manual requeue endpoint)
+
+1. Dodano operacyjny endpoint:
+   - `POST /self-heal/dead-letter/requeue` (`deadLetterId` w body).
+2. Rozszerzono store `memory` i `postgres` o:
+   - `requeueSelfHealDeadLetter(deadLetterId, { now })`.
+3. Requeue ustawia job z powrotem na `queued`, wymusza co najmniej jeden dodatkowy retry budget i ustawia `last_error='manual_requeue'`.
+4. Rozszerzono web API client o metodę `requeueSelfHealDeadLetter(...)`.
+5. Rozszerzono kontrakty HTTP o walidację:
+   - `400 dead_letter_id_required`,
+   - `404 dead_letter_not_found`.
+6. Zaktualizowano `packages/api/README.md` o nowy endpoint.
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS.
 2. `npm run db:migrate` -> PASS.
 3. `npm run test:contracts` na `SOON_DB_MODE=postgres` -> PASS.
 4. `npm run smoke:e2e` na `SOON_DB_MODE=postgres` -> PASS.

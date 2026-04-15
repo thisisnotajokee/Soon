@@ -1306,6 +1306,52 @@ export function createPostgresStore({
     }));
   }
 
+  async function requeueSelfHealDeadLetter(deadLetterId, { now = Date.now() } = {}) {
+    await ensureInit();
+    const id = Number(deadLetterId);
+    if (!Number.isInteger(id) || id <= 0) return null;
+
+    const nowIso = new Date(Number.isFinite(Number(now)) ? Number(now) : Date.now()).toISOString();
+    const deadLetterRes = await pool.query(
+      `
+      SELECT id, queue_id
+      FROM soon_self_heal_dead_letter
+      WHERE id = $1
+    `,
+      [id],
+    );
+    if (deadLetterRes.rowCount === 0) return null;
+
+    const queueId = deadLetterRes.rows[0].queue_id;
+    if (queueId === null) return null;
+
+    const updateRes = await pool.query(
+      `
+      UPDATE soon_self_heal_retry_queue
+      SET
+        status = 'queued',
+        max_retries = GREATEST(max_retries, retries_used + 1),
+        next_retry_at = $2::timestamptz,
+        last_error = 'manual_requeue',
+        updated_at = now()
+      WHERE id = $1
+      RETURNING id, status, max_retries, retries_used, next_retry_at
+    `,
+      [queueId, nowIso],
+    );
+    if (updateRes.rowCount === 0) return null;
+
+    const row = updateRes.rows[0];
+    return {
+      deadLetterId: String(id),
+      queueJobId: String(row.id),
+      status: row.status,
+      nextRetryAt: row.next_retry_at.toISOString(),
+      maxRetries: Number(row.max_retries),
+      retriesUsed: Number(row.retries_used),
+    };
+  }
+
   return {
     mode: 'postgres',
     listTrackings,
@@ -1322,6 +1368,7 @@ export function createPostgresStore({
     processSelfHealRetryQueue,
     getSelfHealRetryStatus,
     listSelfHealDeadLetters,
+    requeueSelfHealDeadLetter,
     async close() {
       await flushDailyReadModelRefresh();
       await pool.end();

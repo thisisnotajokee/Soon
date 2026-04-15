@@ -505,6 +505,26 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         return sendJson(res, 200, { items, count: items.length });
       }
 
+      if (method === 'POST' && pathname === '/self-heal/dead-letter/requeue') {
+        if (!store.requeueSelfHealDeadLetter) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const body = await readJsonBody(req).catch(() => ({}));
+        const deadLetterId = body?.deadLetterId;
+        if (!deadLetterId) {
+          return sendJson(res, 400, { error: 'dead_letter_id_required' });
+        }
+
+        const result = await store.requeueSelfHealDeadLetter(deadLetterId, { now: Date.now() });
+        if (!result) {
+          return sendJson(res, 404, { error: 'dead_letter_not_found', deadLetterId: String(deadLetterId) });
+        }
+
+        const retryStatus = store.getSelfHealRetryStatus ? await store.getSelfHealRetryStatus() : null;
+        return sendJson(res, 200, { status: 'ok', requeue: result, retryStatus });
+      }
+
       if (method === 'GET' && pathname === '/metrics') {
         if (!store.getReadModelRefreshStatus) {
           res.writeHead(501, { 'content-type': 'text/plain; charset=utf-8' });

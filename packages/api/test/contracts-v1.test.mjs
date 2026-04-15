@@ -330,6 +330,30 @@ test('POST /self-heal/retry/process drains queued retries created from anomaly r
   });
 });
 
+test('POST /self-heal/dead-letter/requeue validates input and handles missing item', async () => {
+  await withServer(async (baseUrl) => {
+    const missingId = await readJson(
+      await fetch(`${baseUrl}/self-heal/dead-letter/requeue`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      }),
+    );
+    assert.equal(missingId.status, 400);
+    assert.equal(missingId.body.error, 'dead_letter_id_required');
+
+    const notFound = await readJson(
+      await fetch(`${baseUrl}/self-heal/dead-letter/requeue`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ deadLetterId: '999999' }),
+      }),
+    );
+    assert.equal(notFound.status, 404);
+    assert.equal(notFound.body.error, 'dead_letter_not_found');
+  });
+});
+
 test('GET /products/:asin/detail returns 404 for unknown ASIN', async () => {
   await withServer(async (baseUrl) => {
     const { status, body } = await readJson(await fetch(`${baseUrl}/products/UNKNOWN_ASIN/detail`));

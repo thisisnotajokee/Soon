@@ -485,6 +485,33 @@ export function createInMemoryStore() {
     return selfHealDeadLetters.slice(0, safeLimit);
   }
 
+  async function requeueSelfHealDeadLetter(deadLetterId, { now = Date.now() } = {}) {
+    const id = String(deadLetterId ?? '').trim();
+    if (!id) return null;
+
+    const deadLetter = selfHealDeadLetters.find((item) => item.deadLetterId === id);
+    if (!deadLetter) return null;
+
+    const queueEntry = selfHealRetryQueue.find((item) => item.jobId === deadLetter.jobId);
+    if (!queueEntry) return null;
+
+    const nowMs = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+    queueEntry.status = 'queued';
+    queueEntry.maxRetries = Math.max(queueEntry.maxRetries, queueEntry.retriesUsed + 1);
+    queueEntry.nextRetryAt = new Date(nowMs).toISOString();
+    queueEntry.lastError = 'manual_requeue';
+    queueEntry.updatedAt = new Date(nowMs).toISOString();
+
+    return {
+      deadLetterId: deadLetter.deadLetterId,
+      queueJobId: queueEntry.jobId,
+      status: queueEntry.status,
+      nextRetryAt: queueEntry.nextRetryAt,
+      maxRetries: queueEntry.maxRetries,
+      retriesUsed: queueEntry.retriesUsed,
+    };
+  }
+
   return {
     mode: 'in-memory',
     listTrackings,
@@ -501,6 +528,7 @@ export function createInMemoryStore() {
     processSelfHealRetryQueue,
     getSelfHealRetryStatus,
     listSelfHealDeadLetters,
+    requeueSelfHealDeadLetter,
     async close() {
       // no-op
     },

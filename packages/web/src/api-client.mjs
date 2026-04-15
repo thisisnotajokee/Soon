@@ -140,6 +140,17 @@ export function createApiClient(baseUrl) {
       return body;
     },
 
+    async requeueSelfHealDeadLetter(deadLetterId) {
+      const response = await fetch(`${apiBase}/self-heal/dead-letter/requeue`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ deadLetterId }),
+      });
+      const body = await response.json();
+      assertOk(response, body, 'requeueSelfHealDeadLetter');
+      return body;
+    },
+
     async getPrometheusMetrics() {
       const response = await fetch(`${apiBase}/metrics`);
       const body = await response.text();
