@@ -67,15 +67,45 @@ function summarizeRun({ runId, startedAt, finishedAt, trackingCount, decisions, 
 }
 
 function summarizeSelfHealRun({ runId, source, status, startedAt, finishedAt, executedPlaybooks }) {
+  const normalizedPlaybooks = normalizeExecutedPlaybooks(executedPlaybooks);
+  const resolvedStatus = status ?? resolveSelfHealStatus(normalizedPlaybooks);
   return {
     runId,
     source: source ?? 'self-heal-worker-v1',
-    status: status ?? 'ok',
+    status: resolvedStatus,
     startedAt,
     finishedAt,
-    playbookCount: executedPlaybooks.length,
-    executedPlaybooks,
+    playbookCount: normalizedPlaybooks.length,
+    executedPlaybooks: normalizedPlaybooks,
   };
+}
+
+function normalizeExecutedPlaybooks(items) {
+  if (!Array.isArray(items)) return [];
+
+  return items
+    .map((item) => {
+      if (typeof item === 'string') {
+        return { playbookId: item, status: 'success' };
+      }
+
+      const playbookId = item?.playbookId ?? item?.id;
+      if (!playbookId) return null;
+
+      const status = item?.status;
+      const safeStatus =
+        status === 'failed' || status === 'rollback' || status === 'success'
+          ? status
+          : 'success';
+      return { playbookId, status: safeStatus };
+    })
+    .filter(Boolean);
+}
+
+function resolveSelfHealStatus(executedPlaybooks) {
+  if (executedPlaybooks.some((item) => item.status === 'failed')) return 'failed';
+  if (executedPlaybooks.some((item) => item.status === 'rollback')) return 'rollback';
+  return 'ok';
 }
 
 function toDayKey(value) {
@@ -276,13 +306,14 @@ export function createInMemoryStore() {
   }
 
   async function recordSelfHealRun(payload) {
+    const normalizedPlaybooks = normalizeExecutedPlaybooks(payload?.executedPlaybooks);
     const run = summarizeSelfHealRun({
       runId: randomUUID(),
       source: payload?.source,
       status: payload?.status,
       startedAt: payload?.startedAt ?? new Date().toISOString(),
       finishedAt: payload?.finishedAt ?? new Date().toISOString(),
-      executedPlaybooks: [...(payload?.executedPlaybooks ?? [])],
+      executedPlaybooks: normalizedPlaybooks,
     });
 
     selfHealRuns.unshift(run);

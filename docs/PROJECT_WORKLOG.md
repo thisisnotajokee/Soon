@@ -405,3 +405,27 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 2. `npm run test:contracts` -> PASS (12/12, w tym self-heal).
 3. `npm run test:workers` -> PASS.
 4. `npm run smoke:e2e` -> PASS (`selfHealRuns: 1`).
+
+### Update (2026-04-15, self-heal anomaly detector + playbook status)
+
+1. Przebudowano `self-heal-playbooks` z prostego stubu na runtime detector anomalii:
+   - backlog (`PENDING_BACKLOG_*`)
+   - spike czasu refresh (`REFRESH_DURATION_*`)
+   - error refresh (`LAST_REFRESH_ERROR`)
+   - stuck in-flight (`REFRESH_STUCK`)
+2. Dodano baseline playbook `system-health-check` uruchamiany zawsze.
+3. `self-heal` zwraca i utrwala statusy per playbook (`success|rollback|failed`) zamiast samej listy ID.
+4. `scanner-timeout` przechodzi w `rollback` przy anomalii `LAST_REFRESH_ERROR`.
+5. `POST /self-heal/run` zasila detector statusem read-modelu z runtime store.
+6. `self-heal` contracts/smoke/workers testy sprawdzają już strukturę:
+   - `anomalyCount`
+   - `anomalies[]`
+   - `playbookCount`
+   - `executedPlaybooks[{ playbookId, status }]`
+
+### Testy / weryfikacja
+
+1. `npm run test:contracts` -> PASS.
+2. `npm run test:workers` -> PASS.
+3. `npm run smoke:e2e` -> PASS.
+4. `npm run check` -> PASS.

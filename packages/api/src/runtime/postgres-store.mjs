@@ -70,15 +70,48 @@ function summarizeRun(base, decisions, alerts) {
 }
 
 function summarizeSelfHealRun(base, executedPlaybooks) {
+  const normalizedPlaybooks = normalizeExecutedPlaybooks(executedPlaybooks);
+  const playbookCount =
+    Number.isFinite(Number(base.playbook_count)) && Number(base.playbook_count) > 0
+      ? Number(base.playbook_count)
+      : normalizedPlaybooks.length;
   return {
     runId: base.run_id,
     source: base.source,
     status: base.status,
     startedAt: base.started_at.toISOString(),
     finishedAt: base.finished_at.toISOString(),
-    playbookCount: base.playbook_count,
-    executedPlaybooks,
+    playbookCount,
+    executedPlaybooks: normalizedPlaybooks,
   };
+}
+
+function normalizeExecutedPlaybooks(items) {
+  if (!Array.isArray(items)) return [];
+
+  return items
+    .map((item) => {
+      if (typeof item === 'string') {
+        return { playbookId: item, status: 'success' };
+      }
+
+      const playbookId = item?.playbookId ?? item?.id;
+      if (!playbookId) return null;
+
+      const status = item?.status;
+      const safeStatus =
+        status === 'failed' || status === 'rollback' || status === 'success'
+          ? status
+          : 'success';
+      return { playbookId, status: safeStatus };
+    })
+    .filter(Boolean);
+}
+
+function resolveSelfHealStatus(executedPlaybooks) {
+  if (executedPlaybooks.some((item) => item.status === 'failed')) return 'failed';
+  if (executedPlaybooks.some((item) => item.status === 'rollback')) return 'rollback';
+  return 'ok';
 }
 
 function toDayKey(value) {
@@ -841,9 +874,9 @@ export function createPostgresStore({
     await ensureInit();
 
     const runId = randomUUID();
-    const executedPlaybooks = [...(payload?.executedPlaybooks ?? [])];
+    const executedPlaybooks = normalizeExecutedPlaybooks(payload?.executedPlaybooks);
     const source = payload?.source ?? 'self-heal-worker-v1';
-    const status = payload?.status ?? 'ok';
+    const status = payload?.status ?? resolveSelfHealStatus(executedPlaybooks);
     const startedAt = payload?.startedAt ?? new Date().toISOString();
     const finishedAt = payload?.finishedAt ?? new Date().toISOString();
 
@@ -861,16 +894,16 @@ export function createPostgresStore({
       [runId, source, status, executedPlaybooks.length, startedAt, finishedAt],
     );
 
-    for (const playbookId of executedPlaybooks) {
+    for (const playbook of executedPlaybooks) {
       await pool.query(
         `
         INSERT INTO soon_self_heal_playbook_execution (
           run_id,
           playbook_id,
           status
-        ) VALUES ($1, $2, 'success')
+        ) VALUES ($1, $2, $3)
       `,
-        [runId, playbookId],
+        [runId, playbook.playbookId, playbook.status],
       );
     }
 
@@ -919,7 +952,10 @@ export function createPostgresStore({
       if (!playbooksByRun.has(row.run_id)) {
         playbooksByRun.set(row.run_id, []);
       }
-      playbooksByRun.get(row.run_id).push(row.playbook_id);
+      playbooksByRun.get(row.run_id).push({
+        playbookId: row.playbook_id,
+        status: row.status,
+      });
     }
 
     return runRes.rows.map((row) => summarizeSelfHealRun(row, playbooksByRun.get(row.run_id) ?? []));

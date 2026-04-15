@@ -410,7 +410,11 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
       }
 
       if (method === 'POST' && pathname === '/self-heal/run') {
-        const cycle = await runSelfHealWorker();
+        const cycle = await runSelfHealWorker({
+          readModelStatusProvider: store.getReadModelRefreshStatus
+            ? async () => store.getReadModelRefreshStatus()
+            : undefined,
+        });
         const persisted = store.recordSelfHealRun ? await store.recordSelfHealRun(cycle) : null;
 
         return sendJson(res, 200, {

@@ -240,8 +240,13 @@ test('POST /self-heal/run persists self-heal run and playbooks', async () => {
     assert.equal(run.status, 200);
     assert.equal(run.body.status, 'ok');
     assert.equal(run.body.worker, 'self-heal');
+    assert.ok(typeof run.body.anomalyCount === 'number');
+    assert.ok(Array.isArray(run.body.anomalies));
+    assert.ok(typeof run.body.playbookCount === 'number');
     assert.ok(Array.isArray(run.body.executedPlaybooks));
     assert.ok(run.body.executedPlaybooks.length >= 1);
+    assert.ok(typeof run.body.executedPlaybooks[0].playbookId === 'string');
+    assert.ok(['success', 'rollback', 'failed'].includes(run.body.executedPlaybooks[0].status));
     assert.ok(run.body.runId);
 
     const latest = await readJson(await fetch(`${baseUrl}/self-heal/runs/latest?limit=5`));
@@ -251,6 +256,8 @@ test('POST /self-heal/run persists self-heal run and playbooks', async () => {
     assert.ok(latest.body.items[0].runId);
     assert.ok(Array.isArray(latest.body.items[0].executedPlaybooks));
     assert.ok(latest.body.items[0].executedPlaybooks.length >= 1);
+    assert.ok(typeof latest.body.items[0].executedPlaybooks[0].playbookId === 'string');
+    assert.ok(['success', 'rollback', 'failed'].includes(latest.body.items[0].executedPlaybooks[0].status));
   });
 });
 

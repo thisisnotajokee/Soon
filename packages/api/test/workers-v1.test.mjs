@@ -42,6 +42,14 @@ test('self-heal worker returns executed remediation playbooks', async () => {
 
   assert.equal(result.worker, 'self-heal');
   assert.equal(result.status, 'ok');
+  assert.ok(typeof result.anomalyCount === 'number');
+  assert.ok(Array.isArray(result.anomalies));
+  assert.ok(typeof result.playbookCount === 'number');
   assert.ok(Array.isArray(result.executedPlaybooks));
-  assert.ok(result.executedPlaybooks.includes('scanner-timeout'));
+  assert.ok(result.executedPlaybooks.length >= 1);
+
+  for (const playbook of result.executedPlaybooks) {
+    assert.ok(typeof playbook.playbookId === 'string');
+    assert.ok(['success', 'rollback', 'failed'].includes(playbook.status));
+  }
 });
