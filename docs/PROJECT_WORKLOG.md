@@ -800,3 +800,23 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 1. `npm run test:scripts` -> PASS (5/5).
 2. `npm run check` -> PASS.
+
+### Update (2026-04-15, CI stabilization: triage fallback before strict doctor-summary)
+
+1. Workflow `quality-gate` (`postgres`) rozszerzono o krok:
+   - `Ensure self-heal triage artifact (postgres)` z `if: always()`.
+2. Nowy krok:
+   - sprawdza obecność `ops/reports/doctor/self-heal-triage.json`,
+   - jeśli brak, uruchamia fallback: `make up` + `ops:self-heal:requeue:triage` z zapisem artefaktu.
+3. Krok walidacji triage:
+   - `Validate self-heal triage artifact (postgres)` uruchamiany z `if: always()`,
+   - daje deterministyczny fail i czytelny powód przy realnym problemie.
+4. Merge przez PR:
+   - PR `#14`: `ci: add fallback triage generation before strict doctor-summary`.
+
+### Testy / weryfikacja
+
+1. Lokalnie: `npm run test:scripts` -> PASS (5/5).
+2. Lokalnie: `npm run check` -> PASS.
+3. GitHub Actions (`quality-gate`, `main`, push):
+   - run `24474747799` (2026-04-15T19:44:54Z) -> SUCCESS.
