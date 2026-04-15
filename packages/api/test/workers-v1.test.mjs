@@ -116,16 +116,30 @@ test('self-heal worker scores and schedules retries for anomaly-driven playbooks
 
 test('evaluateSelfHealRetryAttempt resolves retry workflow and terminal states', async () => {
   const firstRetry = evaluateSelfHealRetryAttempt({
-    playbookId: 'alert-router-backlog',
+    playbookId: 'read-model-slow-path',
     attempts: 1,
     retriesUsed: 0,
-    maxRetries: 1,
-    retryBackoffSec: 20,
-    matchedAnomalyCodes: ['PENDING_BACKLOG_CRIT'],
+    maxRetries: 2,
+    retryBackoffSec: 30,
+    matchedAnomalyCodes: ['REFRESH_DURATION_CRIT'],
   });
-  assert.equal(firstRetry.outcome, 'done');
-  assert.equal(firstRetry.status, 'success');
+  assert.equal(firstRetry.outcome, 'retry');
+  assert.equal(firstRetry.status, 'failed');
   assert.equal(firstRetry.attempts, 2);
+  assert.equal(firstRetry.retriesUsed, 1);
+  assert.equal(firstRetry.retryBackoffSec, 60);
+
+  const secondRetry = evaluateSelfHealRetryAttempt({
+    playbookId: 'read-model-slow-path',
+    attempts: firstRetry.attempts,
+    retriesUsed: firstRetry.retriesUsed,
+    maxRetries: 2,
+    retryBackoffSec: 30,
+    matchedAnomalyCodes: ['REFRESH_DURATION_CRIT'],
+  });
+  assert.equal(secondRetry.outcome, 'done');
+  assert.equal(secondRetry.status, 'success');
+  assert.equal(secondRetry.attempts, 3);
 
   const exhausted = evaluateSelfHealRetryAttempt({
     playbookId: 'read-model-slow-path',

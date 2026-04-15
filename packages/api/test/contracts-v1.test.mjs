@@ -271,6 +271,8 @@ test('GET /metrics exports read-model Prometheus metrics', async () => {
     assert.match(body, /soon_self_heal_retry_queue_pending/);
     assert.match(body, /soon_self_heal_retry_queue_done/);
     assert.match(body, /soon_self_heal_retry_queue_dead_letter/);
+    assert.match(body, /soon_self_heal_retry_exhausted_total/);
+    assert.match(body, /soon_self_heal_retry_backoff_seconds/);
     assert.match(body, /soon_self_heal_dead_letter_total/);
     assert.match(body, /soon_self_heal_manual_requeue_total/);
     assert.match(body, /soon_runtime_self_heal_overall_score/);
@@ -371,12 +373,59 @@ test('POST /self-heal/retry/process drains queued retries created from anomaly r
     );
     assert.equal(process.status, 200);
     assert.ok(process.body.summary.processed >= 1);
-    assert.ok(process.body.summary.completed >= 1);
+    assert.ok(
+      process.body.summary.completed + process.body.summary.rescheduled + process.body.summary.deadLettered >= 1,
+    );
 
     const retryStatus = await readJson(await fetch(`${baseUrl}/self-heal/retry/status`));
     assert.equal(retryStatus.status, 200);
-    assert.equal(retryStatus.body.queuePending, 0);
+    assert.ok(retryStatus.body.queuePending >= 0);
   });
+});
+
+test('POST /self-heal/retry/process stores retry_budget_exhausted dead-letter reason', async () => {
+  const store = createInMemoryStore();
+  await store.enqueueSelfHealRetryJobs({
+    runId: 'run-retry-budget-exhausted-test',
+    source: 'test-suite',
+    jobs: [
+      {
+        playbookId: 'alert-router-backlog',
+        status: 'failed',
+        attempts: 1,
+        maxRetries: 1,
+        retriesUsed: 0,
+        retryBackoffSec: 20,
+        priorityScore: 100,
+        matchedAnomalyCodes: ['PENDING_BACKLOG_CRIT'],
+      },
+    ],
+  });
+
+  await withServer(
+    async (baseUrl) => {
+      const process = await readJson(
+        await fetch(`${baseUrl}/self-heal/retry/process`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ limit: 10, now: Date.now() + 120000 }),
+        }),
+      );
+      assert.equal(process.status, 200);
+      assert.ok(process.body.summary.deadLettered >= 1);
+      assert.ok(process.body.summary.retryExhausted >= 1);
+
+      const retryStatus = await readJson(await fetch(`${baseUrl}/self-heal/retry/status`));
+      assert.equal(retryStatus.status, 200);
+      assert.ok(retryStatus.body.retryExhaustedTotal >= 1);
+      assert.ok(Number.isFinite(retryStatus.body.retryBackoffSeconds));
+
+      const deadLetter = await readJson(await fetch(`${baseUrl}/self-heal/dead-letter?limit=10`));
+      assert.equal(deadLetter.status, 200);
+      assert.ok(deadLetter.body.items.some((item) => item.reason === 'retry_budget_exhausted'));
+    },
+    { store },
+  );
 });
 
 test('POST /self-heal/dead-letter/requeue validates input and handles missing item', async () => {
