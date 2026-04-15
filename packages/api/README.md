@@ -52,6 +52,8 @@ Minimalny runtime API v1 dla projektu `Soon`.
 4. Reguły alertów: `ops/monitoring/prometheus/soon-read-model-alerts.yml`
 5. Local checker (threshold gates): `npm run obs:read-model:alert:check`
 6. JSON checker output: `npm run obs:read-model:alert:check:json`
+7. Self-heal runbook checker: `npm run ops:self-heal:requeue:triage`
+8. Self-heal runbook checker JSON: `npm run ops:self-heal:requeue:triage:json`
 
 ## Runbook: dead-letter bulk requeue
 

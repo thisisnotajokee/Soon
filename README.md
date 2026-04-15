@@ -34,12 +34,17 @@ Status: scaffold architektury v1 + działający runtime API MVP.
 1. `make up` — migracje + start API w tle + wait for health.
 2. `make status` — szybki podgląd `health` i `read-model status`.
 3. `make check` — local checker progów alertów read-modelu.
-4. `make doctor` — pełny raport diagnostyczny + zapis JSON artefaktu do `ops/reports/doctor/latest.json`.
+4. `make doctor` — pełny raport diagnostyczny + triage self-heal requeue (flow status -> dead-letter -> requeue-bulk -> audit -> summary).
 5. `make doctor-json` — pełny raport JSON na stdout.
 6. `make smoke` — pełny quality gate (`contracts + workers + smoke:e2e`).
 7. `make down` — stop API uruchomionego przez `make up`.
 8. `make restart` — restart API.
 9. `make logs` — podgląd logów API (`/tmp/soon-api.log`).
+
+Skrypty pomocnicze:
+
+1. `npm run ops:self-heal:requeue:triage`
+2. `npm run ops:self-heal:requeue:triage:json`
 
 ## Runbook self-heal (dead-letter)
 
