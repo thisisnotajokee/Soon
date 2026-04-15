@@ -46,6 +46,11 @@ Skrypty pomocnicze:
 1. `npm run ops:self-heal:requeue:triage`
 2. `npm run ops:self-heal:requeue:triage:json`
 
+Polityka triage:
+
+1. Lokalnie domyślnie `SOON_SELF_HEAL_TRIAGE_WARN_AS_ERROR=0` (WARN nie przerywa `make doctor`).
+2. W CI ustawiamy `SOON_SELF_HEAL_TRIAGE_WARN_AS_ERROR=1` (WARN traktowany jako błąd quality gate).
+
 ## Runbook self-heal (dead-letter)
 
 1. `curl -fsS http://127.0.0.1:3100/self-heal/retry/status`

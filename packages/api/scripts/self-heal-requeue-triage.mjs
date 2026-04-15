@@ -1,8 +1,12 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+
 const DEFAULTS = {
   baseUrl: 'http://127.0.0.1:3100',
   requestTimeoutMs: 8000,
   limit: 20,
   days: 7,
+  outPath: null,
 };
 
 function toNumber(value, fallback) {
@@ -13,10 +17,12 @@ function toNumber(value, fallback) {
 function parseArgs(argv) {
   const limitIndex = argv.indexOf('--limit');
   const daysIndex = argv.indexOf('--days');
+  const outIndex = argv.indexOf('--out');
   return {
     json: argv.includes('--json'),
     limit: limitIndex >= 0 ? toNumber(argv[limitIndex + 1], DEFAULTS.limit) : null,
     days: daysIndex >= 0 ? toNumber(argv[daysIndex + 1], DEFAULTS.days) : null,
+    outPath: outIndex >= 0 ? String(argv[outIndex + 1] ?? '').trim() || null : null,
     skipRequeue: argv.includes('--skip-requeue'),
   };
 }
@@ -27,6 +33,14 @@ function pickBaseUrl() {
 
 function pickTimeoutMs() {
   return toNumber(process.env.SOON_ALERT_REQUEST_TIMEOUT_MS || process.env.SOON_DOCTOR_REQUEST_TIMEOUT_MS, DEFAULTS.requestTimeoutMs);
+}
+
+function parseBoolean(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const normalized = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'y', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'n', 'off'].includes(normalized)) return false;
+  return fallback;
 }
 
 async function fetchJson(baseUrl, path, timeoutMs, init) {
@@ -44,7 +58,7 @@ async function fetchJson(baseUrl, path, timeoutMs, init) {
   }
 }
 
-function evaluate(result) {
+function evaluate(result, { warnAsError = false } = {}) {
   const findings = [];
   const bulkSummary = result.bulk?.summary ?? null;
   const operationalAlert = result.bulk?.operationalAlert ?? null;
@@ -76,7 +90,7 @@ function evaluate(result) {
   const hasWarn = findings.some((item) => item.severity === 'WARN');
   return {
     overall: hasWarn ? 'WARN' : 'PASS',
-    exitCode: hasWarn ? 1 : 0,
+    exitCode: hasWarn ? (warnAsError ? 2 : 0) : 0,
     findings,
   };
 }
@@ -84,6 +98,7 @@ function evaluate(result) {
 function printHuman(result) {
   console.log(`[Soon/self-heal-triage] ${result.overall}`);
   console.log(`[Soon/self-heal-triage] baseUrl=${result.baseUrl} checkedAt=${result.checkedAt}`);
+  console.log(`[Soon/self-heal-triage] policy warnAsError=${result.policy?.warnAsError ? '1' : '0'}`);
   console.log(
     `[Soon/self-heal-triage] retryStatus pending=${result.retryStatus?.queuePending ?? 0} deadLetter=${result.retryStatus?.deadLetterCount ?? 0}`,
   );
@@ -104,14 +119,20 @@ function printHuman(result) {
   for (const finding of result.findings) {
     console.log(`[Soon/self-heal-triage] ${finding.severity} ${finding.code}: ${finding.message}`);
   }
+  if (result.artifactPath) {
+    console.log(`[Soon/self-heal-triage] artifact=${result.artifactPath}`);
+  }
 }
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const baseUrl = pickBaseUrl();
   const timeoutMs = pickTimeoutMs();
+  const warnAsError = parseBoolean(process.env.SOON_SELF_HEAL_TRIAGE_WARN_AS_ERROR, false);
   const limit = Math.max(1, Math.min(100, toNumber(args.limit ?? process.env.SOON_SELF_HEAL_TRIAGE_LIMIT, DEFAULTS.limit)));
   const days = Math.max(1, Math.min(365, toNumber(args.days ?? process.env.SOON_SELF_HEAL_TRIAGE_DAYS, DEFAULTS.days)));
+  const outPath = args.outPath || process.env.SOON_SELF_HEAL_TRIAGE_OUT || DEFAULTS.outPath;
+  const resolvedOutPath = outPath ? resolve(outPath) : null;
 
   const retryStatus = await fetchJson(baseUrl, '/self-heal/retry/status', timeoutMs);
   const deadLetter = await fetchJson(baseUrl, `/self-heal/dead-letter?limit=${limit}`, timeoutMs);
@@ -125,12 +146,15 @@ async function main() {
   const audit = await fetchJson(baseUrl, `/self-heal/requeue-audit?limit=${limit}`, timeoutMs);
   const auditSummary = await fetchJson(baseUrl, `/self-heal/requeue-audit/summary?days=${days}`, timeoutMs);
 
-  const evaluated = evaluate({ bulk });
+  const evaluated = evaluate({ bulk }, { warnAsError });
   const result = {
     checkedAt: new Date().toISOString(),
     baseUrl,
     limit,
     days,
+    policy: {
+      warnAsError,
+    },
     retryStatus,
     deadLetter,
     bulk,
@@ -138,7 +162,13 @@ async function main() {
     auditSummary,
     overall: evaluated.overall,
     findings: evaluated.findings,
+    artifactPath: resolvedOutPath,
   };
+
+  if (resolvedOutPath) {
+    await mkdir(dirname(resolvedOutPath), { recursive: true });
+    await writeFile(resolvedOutPath, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
+  }
 
   if (args.json) {
     console.log(JSON.stringify(result, null, 2));

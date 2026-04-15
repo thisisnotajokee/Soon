@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const DEFAULT_PATH = 'ops/reports/doctor/latest.json';
+const DEFAULT_TRIAGE_PATH = 'ops/reports/doctor/self-heal-triage.json';
 
 function formatList(items) {
   if (!Array.isArray(items) || items.length === 0) return '_none_';
@@ -55,12 +56,49 @@ function buildMarkdown(report, path) {
   ].join('\n');
 }
 
+function buildTriageMarkdown(triage, triagePathArg) {
+  if (!triage) {
+    return [
+      '',
+      '### Self-heal Requeue Triage',
+      '- Status: `n/a`',
+      `- Artifact: \`${triagePathArg}\` (missing)`,
+    ].join('\n');
+  }
+
+  const summary = triage.bulk?.summary ?? {};
+  const findings = Array.isArray(triage.findings) ? triage.findings : [];
+
+  return [
+    '',
+    '### Self-heal Requeue Triage',
+    `- Overall: \`${triage.overall ?? 'unknown'}\``,
+    `- Warn as error: \`${triage.policy?.warnAsError ?? 'n/a'}\``,
+    `- Findings: \`${findings.length}\``,
+    `- Bulk requested/requeued: \`${summary.requested ?? 0}/${summary.requeued ?? 0}\``,
+    `- Bulk conflicts/missing: \`${summary.conflicts ?? 0}/${summary.missing ?? 0}\``,
+    `- Artifact: \`${triagePathArg}\``,
+  ].join('\n');
+}
+
+async function readJsonOrNull(path) {
+  try {
+    const raw = await readFile(path, 'utf8');
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 async function main() {
   const pathArg = process.argv[2] || DEFAULT_PATH;
+  const triagePathArg = process.argv[3] || DEFAULT_TRIAGE_PATH;
   const path = resolve(pathArg);
+  const triagePath = resolve(triagePathArg);
   const raw = await readFile(path, 'utf8');
   const report = JSON.parse(raw);
-  const markdown = buildMarkdown(report, pathArg);
+  const triage = await readJsonOrNull(triagePath);
+  const markdown = `${buildMarkdown(report, pathArg)}\n${buildTriageMarkdown(triage, triagePathArg)}`;
   process.stdout.write(`${markdown}\n`);
 }
 
