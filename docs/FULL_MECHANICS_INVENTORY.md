@@ -217,8 +217,8 @@ Uwaga:
 
 - [ ] O001. `/api/system-health`.
 - [ ] O002. `/api/system-health/history`.
-- [ ] O003. `/api/runtime-self-heal-status`.
-- [ ] O004. `/api/check-alert-status`.
+- [x] O003. `/api/runtime-self-heal-status`.
+- [x] O004. `/api/check-alert-status`.
 - [ ] O005. `/api/ops/metrics`.
 - [ ] O006. `/api/ops/keepa-history-bootstrap`.
 - [ ] O007. scan stop / scan run-now.

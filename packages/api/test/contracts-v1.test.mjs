@@ -212,6 +212,47 @@ test('GET /automation/read-model/status returns refresh queue metrics', async ()
   });
 });
 
+test('GET /api/runtime-self-heal-status returns retry queue operational view', async () => {
+  await withServer(async (baseUrl) => {
+    await readJson(
+      await fetch(`${baseUrl}/self-heal/run`, {
+        method: 'POST',
+      }),
+    );
+
+    const status = await readJson(await fetch(`${baseUrl}/api/runtime-self-heal-status`));
+    assert.equal(status.status, 200);
+    assert.equal(status.body.status, 'ok');
+    assert.ok(['PASS', 'WARN', 'CRIT'].includes(status.body.overall));
+    assert.ok(status.body.retryQueue);
+    assert.ok(typeof status.body.retryQueue.scheduler === 'string');
+    assert.ok(Number.isFinite(status.body.retryQueue.queuePending));
+    assert.ok(Number.isFinite(status.body.retryQueue.deadLetterCount));
+    assert.ok(Array.isArray(status.body.signals));
+  });
+});
+
+test('GET /api/check-alert-status enforces channel policy telemetry', async () => {
+  await withServer(async (baseUrl) => {
+    await readJson(
+      await fetch(`${baseUrl}/automation/cycle`, {
+        method: 'POST',
+      }),
+    );
+
+    const status = await readJson(await fetch(`${baseUrl}/api/check-alert-status?limit=5`));
+    assert.equal(status.status, 200);
+    assert.equal(status.body.status, 'ok');
+    assert.equal(status.body.policy.purchase, 'telegram');
+    assert.equal(status.body.policy.technical, 'discord');
+    assert.ok(status.body.window.runs >= 1);
+    assert.equal(status.body.violations.total, 0);
+    assert.equal(status.body.overall, 'PASS');
+    assert.ok(Number.isFinite(status.body.alertsByChannel.telegram));
+    assert.ok(Number.isFinite(status.body.alertsByChannel.discord));
+  });
+});
+
 test('GET /metrics exports read-model Prometheus metrics', async () => {
   await withServer(async (baseUrl) => {
     await readJson(

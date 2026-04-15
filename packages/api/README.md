@@ -32,6 +32,8 @@ Minimalny runtime API v1 dla projektu `Soon`.
 18. `POST /self-heal/dead-letter/requeue-bulk` (hurtowe requeue: `deadLetterIds[]` albo fallback do najnowszych `limit`; opcjonalnie `now`; summary: `requested|requeued|conflicts|missing`; gdy `conflicts>0` lub `missing>0` odpowiedź zawiera `operationalAlert`)
 19. `GET /self-heal/requeue-audit?limit=20&reason=manual_requeue&from=<iso>&to=<iso>` (historia manualnych requeue z filtrami)
 20. `GET /self-heal/requeue-audit/summary?days=7` (agregaty audit: `total`, `byReason`, `byPlaybook`, `daily`)
+21. `GET /api/runtime-self-heal-status` (operacyjny status runtime self-heal: retry queue, dead-letter, latest run, signals)
+22. `GET /api/check-alert-status?limit=20` (kontrola separacji kanałów alertów: purchase->Telegram, technical->Discord)
 
 ## Storage mode
 

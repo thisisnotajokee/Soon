@@ -36,7 +36,7 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `GET /api/auth/whoami` — `src/routes/api/core/routes/basic.js`
 - [ ] `GET /api/buybox/:asin` — `src/routes/api/analytics/misc-routes.js`
 - [ ] `GET /api/categories/:chatId` — `src/routes/api/analytics/misc-routes.js`
-- [ ] `GET /api/check-alert-status` — `src/routes/api/core/routes/health.js`
+- [x] `GET /api/check-alert-status` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/config` — `src/routes/api/analytics/system-routes.js`
 - [ ] `GET /api/dashboard/:chatId` — `src/routes/api/trackings/routes/read.js`
 - [ ] `GET /api/deals/comments` — `src/routes/api/deals-feedback.js`
@@ -120,7 +120,7 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `GET /api/refresh-all/:chatId/status/:jobId` — `src/routes/api/trackings/routes/read.js`
 - [ ] `GET /api/refresh-budget/:chatId` — `src/routes/api/trackings/routes/read.js`
 - [ ] `POST /api/refresh/:asin` — `src/routes/api/trackings/routes/mutate.js`
-- [ ] `GET /api/runtime-self-heal-status` — `src/routes/api/core/routes/health.js`
+- [x] `GET /api/runtime-self-heal-status` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/scan-kpi` — `src/routes/api/analytics/system-routes.js`
 - [ ] `GET /api/scan-plan/:chatId` — `src/routes/api/analytics/misc-routes.js`
 - [ ] `POST /api/scan/run-now` — `src/routes/api/core/routes/scan.js`
