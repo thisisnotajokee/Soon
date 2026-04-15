@@ -1,0 +1,53 @@
+groups:
+  - name: soon-read-model-alerts
+    interval: 30s
+    rules:
+      - alert: SoonReadModelRefreshBacklogWarn
+        expr: soon_read_model_refresh_pending_count > 3
+        for: 5m
+        labels:
+          severity: warning
+          team: soon-platform
+        annotations:
+          summary: "Soon read-model refresh backlog warning"
+          description: "Pending refresh days > 3 for over 5 minutes."
+
+      - alert: SoonReadModelRefreshBacklogCritical
+        expr: soon_read_model_refresh_pending_count > 10
+        for: 2m
+        labels:
+          severity: critical
+          team: soon-platform
+        annotations:
+          summary: "Soon read-model refresh backlog critical"
+          description: "Pending refresh days > 10 for over 2 minutes."
+
+      - alert: SoonReadModelRefreshErrors
+        expr: increase(soon_read_model_refresh_total_errors[15m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          team: soon-platform
+        annotations:
+          summary: "Soon read-model refresh errors detected"
+          description: "Refresh error counter increased during last 15 minutes."
+
+      - alert: SoonReadModelRefreshDurationWarn
+        expr: soon_read_model_refresh_last_duration_ms > 5000
+        for: 10m
+        labels:
+          severity: warning
+          team: soon-platform
+        annotations:
+          summary: "Soon read-model refresh duration warning"
+          description: "Last refresh duration above 5s for over 10 minutes."
+
+      - alert: SoonReadModelRefreshStuck
+        expr: soon_read_model_refresh_in_flight == 1 and (time() - soon_read_model_refresh_last_started_unixtime) > 300
+        for: 1m
+        labels:
+          severity: critical
+          team: soon-platform
+        annotations:
+          summary: "Soon read-model refresh appears stuck"
+          description: "Refresh stayed in-flight longer than 5 minutes."

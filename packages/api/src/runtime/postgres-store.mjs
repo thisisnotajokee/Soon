@@ -1,0 +1,843 @@
+import { randomUUID } from 'node:crypto';
+import { Pool } from 'pg';
+
+import { SEEDED_TRACKINGS } from './in-memory-store.mjs';
+import { applyRuntimeMigrations } from './db-migrations.mjs';
+
+function toNumber(value) {
+  if (value === null || value === undefined) return null;
+  return Number(value);
+}
+
+function sampleHistory(base) {
+  const now = Date.now();
+  return Array.from({ length: 12 }, (_, idx) => ({
+    ts: new Date(now - (11 - idx) * 24 * 60 * 60 * 1000).toISOString(),
+    value: Number((base * (0.9 + (idx % 5) * 0.03)).toFixed(2)),
+  }));
+}
+
+function groupPriceRows(rows, condition) {
+  return rows
+    .filter((row) => row.condition === condition)
+    .reduce((acc, row) => {
+      acc[row.market] = toNumber(row.price);
+      return acc;
+    }, {});
+}
+
+function toSummary(pricesNew) {
+  const values = Object.values(pricesNew);
+  if (!values.length) {
+    return { min: null, max: null, avg: null };
+  }
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const avg = Number((values.reduce((acc, v) => acc + v, 0) / values.length).toFixed(2));
+  return { min, max, avg };
+}
+
+function buildTrackingRow(baseRow, thresholdRow, priceRows) {
+  return {
+    asin: baseRow.asin,
+    title: baseRow.title,
+    pricesNew: groupPriceRows(priceRows, 'new'),
+    pricesUsed: groupPriceRows(priceRows, 'used'),
+    thresholdDropPct: toNumber(thresholdRow?.threshold_drop_pct),
+    thresholdRisePct: toNumber(thresholdRow?.threshold_rise_pct),
+    targetPriceNew: toNumber(thresholdRow?.target_price_new),
+    targetPriceUsed: toNumber(thresholdRow?.target_price_used),
+    updatedAt: (thresholdRow?.updated_at ?? baseRow.updated_at ?? new Date()).toISOString(),
+  };
+}
+
+function summarizeRun(base, decisions, alerts) {
+  return {
+    runId: base.run_id,
+    source: base.source,
+    status: base.status,
+    startedAt: base.started_at.toISOString(),
+    finishedAt: base.finished_at.toISOString(),
+    trackingCount: base.tracking_count,
+    decisionCount: base.decision_count,
+    alertCount: base.alert_count,
+    purchaseAlertCount: base.purchase_alert_count,
+    technicalAlertCount: base.technical_alert_count,
+    decisions,
+    alerts,
+  };
+}
+
+function toDayKey(value) {
+  const parsed = Date.parse(String(value));
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Invalid day value: ${value}`);
+  }
+  return new Date(parsed).toISOString().slice(0, 10);
+}
+
+export function createPostgresStore({
+  connectionString = process.env.SOON_DATABASE_URL,
+  ssl = process.env.SOON_DATABASE_SSL === '1' ? { rejectUnauthorized: false } : undefined,
+  readModelRefreshMode = process.env.SOON_READ_MODEL_REFRESH_MODE ?? 'async',
+} = {}) {
+  if (!connectionString) {
+    throw new Error('SOON_DATABASE_URL is required for postgres mode');
+  }
+
+  const refreshMode = String(readModelRefreshMode).toLowerCase() === 'sync' ? 'sync' : 'async';
+  const pool = new Pool({ connectionString, ssl });
+  let initialized = false;
+  let refreshQueue = Promise.resolve();
+  const pendingRefreshDays = new Set();
+  let refreshLastError = null;
+  let refreshLastErrorAt = null;
+  let refreshLastQueuedAt = null;
+  let refreshLastStartedAt = null;
+  let refreshLastFinishedAt = null;
+  let refreshLastDurationMs = null;
+  let refreshLastBatchDays = 0;
+  let refreshInFlight = false;
+  let refreshTotalRuns = 0;
+  let refreshTotalErrors = 0;
+
+  async function seedIfEmpty() {
+    const countRes = await pool.query('SELECT COUNT(*)::int AS count FROM soon_tracking');
+    if (countRes.rows[0].count > 0) {
+      return;
+    }
+
+    for (const item of SEEDED_TRACKINGS) {
+      await pool.query(
+        `
+        INSERT INTO soon_tracking (asin, title, created_at, updated_at)
+        VALUES ($1, $2, now(), now())
+        ON CONFLICT (asin) DO UPDATE SET title = EXCLUDED.title, updated_at = now()
+      `,
+        [item.asin, item.title],
+      );
+
+      await pool.query(
+        `
+        INSERT INTO soon_tracking_threshold (
+          asin,
+          threshold_drop_pct,
+          threshold_rise_pct,
+          target_price_new,
+          target_price_used,
+          updated_at
+        ) VALUES ($1, $2, $3, $4, $5, now())
+        ON CONFLICT (asin) DO UPDATE SET
+          threshold_drop_pct = EXCLUDED.threshold_drop_pct,
+          threshold_rise_pct = EXCLUDED.threshold_rise_pct,
+          target_price_new = EXCLUDED.target_price_new,
+          target_price_used = EXCLUDED.target_price_used,
+          updated_at = now()
+      `,
+        [
+          item.asin,
+          item.thresholdDropPct ?? null,
+          item.thresholdRisePct ?? null,
+          item.targetPriceNew ?? null,
+          item.targetPriceUsed ?? null,
+        ],
+      );
+
+      for (const [market, price] of Object.entries(item.pricesNew ?? {})) {
+        await pool.query(
+          `
+          INSERT INTO soon_tracking_price (asin, market, condition, price, currency, updated_at)
+          VALUES ($1, $2, 'new', $3, 'EUR', now())
+          ON CONFLICT (asin, market, condition) DO UPDATE SET
+            price = EXCLUDED.price,
+            currency = EXCLUDED.currency,
+            updated_at = now()
+        `,
+          [item.asin, market, price],
+        );
+      }
+
+      for (const [market, price] of Object.entries(item.pricesUsed ?? {})) {
+        await pool.query(
+          `
+          INSERT INTO soon_tracking_price (asin, market, condition, price, currency, updated_at)
+          VALUES ($1, $2, 'used', $3, 'EUR', now())
+          ON CONFLICT (asin, market, condition) DO UPDATE SET
+            price = EXCLUDED.price,
+            currency = EXCLUDED.currency,
+            updated_at = now()
+        `,
+          [item.asin, market, price],
+        );
+      }
+
+      const base = item.pricesNew?.de ?? Object.values(item.pricesNew ?? {})[0] ?? 100;
+      const history = sampleHistory(base);
+      for (const point of history) {
+        await pool.query(
+          `
+          INSERT INTO soon_price_history (asin, market, condition, price, currency, recorded_at)
+          VALUES ($1, 'de', 'new', $2, 'EUR', $3::timestamptz)
+        `,
+          [item.asin, point.value, point.ts],
+        );
+      }
+    }
+  }
+
+  async function ensureInit() {
+    if (initialized) return;
+
+    await applyRuntimeMigrations(pool);
+    await seedIfEmpty();
+    await refreshDailyReadModelRecent(30);
+
+    initialized = true;
+  }
+
+  async function refreshDailyReadModelDay(day) {
+    const dayKey = toDayKey(day);
+    const runCountRes = await pool.query(
+      `
+      SELECT COUNT(*)::int AS count
+      FROM soon_hunter_run
+      WHERE started_at::date = $1::date
+    `,
+      [dayKey],
+    );
+
+    if ((runCountRes.rows[0]?.count ?? 0) === 0) {
+      await pool.query('DELETE FROM soon_hunter_run_daily_asin WHERE day = $1::date', [dayKey]);
+      await pool.query('DELETE FROM soon_hunter_run_daily WHERE day = $1::date', [dayKey]);
+      return;
+    }
+
+    await pool.query(
+      `
+      WITH runs AS (
+        SELECT
+          COUNT(*)::int AS runs,
+          COALESCE(SUM(tracking_count), 0)::int AS tracking_count_sum,
+          COALESCE(SUM(decision_count), 0)::int AS decision_count_sum,
+          COALESCE(SUM(alert_count), 0)::int AS alert_count_sum,
+          COALESCE(SUM(purchase_alert_count), 0)::int AS purchase_alert_count_sum,
+          COALESCE(SUM(technical_alert_count), 0)::int AS technical_alert_count_sum
+        FROM soon_hunter_run
+        WHERE started_at::date = $1::date
+      ),
+      alerts AS (
+        SELECT
+          COALESCE(SUM(CASE WHEN a.channel = 'telegram' THEN 1 ELSE 0 END), 0)::int AS telegram_alert_count_sum,
+          COALESCE(SUM(CASE WHEN a.channel = 'discord' THEN 1 ELSE 0 END), 0)::int AS discord_alert_count_sum
+        FROM soon_hunter_run r
+        LEFT JOIN soon_alert_dispatch_audit a ON a.run_id = r.run_id
+        WHERE r.started_at::date = $1::date
+      )
+      INSERT INTO soon_hunter_run_daily (
+        day,
+        runs,
+        tracking_count_sum,
+        decision_count_sum,
+        alert_count_sum,
+        purchase_alert_count_sum,
+        technical_alert_count_sum,
+        telegram_alert_count_sum,
+        discord_alert_count_sum,
+        updated_at
+      )
+      SELECT
+        $1::date,
+        runs.runs,
+        runs.tracking_count_sum,
+        runs.decision_count_sum,
+        runs.alert_count_sum,
+        runs.purchase_alert_count_sum,
+        runs.technical_alert_count_sum,
+        alerts.telegram_alert_count_sum,
+        alerts.discord_alert_count_sum,
+        now()
+      FROM runs, alerts
+      ON CONFLICT (day) DO UPDATE SET
+        runs = EXCLUDED.runs,
+        tracking_count_sum = EXCLUDED.tracking_count_sum,
+        decision_count_sum = EXCLUDED.decision_count_sum,
+        alert_count_sum = EXCLUDED.alert_count_sum,
+        purchase_alert_count_sum = EXCLUDED.purchase_alert_count_sum,
+        technical_alert_count_sum = EXCLUDED.technical_alert_count_sum,
+        telegram_alert_count_sum = EXCLUDED.telegram_alert_count_sum,
+        discord_alert_count_sum = EXCLUDED.discord_alert_count_sum,
+        updated_at = now()
+    `,
+      [dayKey],
+    );
+
+    await pool.query('DELETE FROM soon_hunter_run_daily_asin WHERE day = $1::date', [dayKey]);
+    await pool.query(
+      `
+      INSERT INTO soon_hunter_run_daily_asin (day, asin, alert_count, updated_at)
+      SELECT
+        $1::date AS day,
+        a.asin,
+        COUNT(*)::int AS alert_count,
+        now()
+      FROM soon_hunter_run r
+      JOIN soon_alert_dispatch_audit a ON a.run_id = r.run_id
+      WHERE r.started_at::date = $1::date
+        AND a.asin <> 'system'
+      GROUP BY a.asin
+    `,
+      [dayKey],
+    );
+  }
+
+  async function refreshDailyReadModelRecent(days = 30) {
+    const safeDays = Math.max(1, Math.min(90, Number(days) || 30));
+    const daysRes = await pool.query(
+      `
+      SELECT DISTINCT started_at::date AS day
+      FROM soon_hunter_run
+      WHERE started_at >= (now() - make_interval(days => $1::int))
+      ORDER BY day DESC
+    `,
+      [safeDays],
+    );
+
+    for (const row of daysRes.rows) {
+      await refreshDailyReadModelDay(row.day);
+    }
+  }
+
+  function enqueueDailyReadModelRefresh(day) {
+    const dayKey = toDayKey(day);
+    pendingRefreshDays.add(dayKey);
+    refreshLastQueuedAt = new Date().toISOString();
+
+    refreshQueue = refreshQueue
+      .then(async () => {
+        if (!pendingRefreshDays.size) {
+          return;
+        }
+
+        const days = [...pendingRefreshDays];
+        pendingRefreshDays.clear();
+        refreshInFlight = true;
+        refreshLastStartedAt = new Date().toISOString();
+        refreshLastBatchDays = days.length;
+        const startedMs = Date.now();
+
+        try {
+          for (const nextDay of days) {
+            await refreshDailyReadModelDay(nextDay);
+          }
+          refreshLastError = null;
+          refreshLastErrorAt = null;
+          refreshTotalRuns += 1;
+        } catch (error) {
+          refreshLastError = error;
+          refreshLastErrorAt = new Date().toISOString();
+          refreshTotalErrors += 1;
+          throw error;
+        } finally {
+          refreshInFlight = false;
+          refreshLastFinishedAt = new Date().toISOString();
+          refreshLastDurationMs = Date.now() - startedMs;
+        }
+      })
+      .catch((error) => {
+        console.error('[Soon/api] read-model refresh failed', error);
+      });
+
+    return refreshQueue;
+  }
+
+  async function flushDailyReadModelRefresh() {
+    await refreshQueue;
+    if (refreshLastError) {
+      throw refreshLastError;
+    }
+  }
+
+  async function getReadModelRefreshStatus() {
+    await ensureInit();
+
+    return {
+      mode: refreshMode,
+      pendingCount: pendingRefreshDays.size,
+      pendingDays: [...pendingRefreshDays].sort(),
+      inFlight: refreshInFlight,
+      lastQueuedAt: refreshLastQueuedAt,
+      lastStartedAt: refreshLastStartedAt,
+      lastFinishedAt: refreshLastFinishedAt,
+      lastDurationMs: refreshLastDurationMs,
+      lastBatchDays: refreshLastBatchDays,
+      totalRuns: refreshTotalRuns,
+      totalErrors: refreshTotalErrors,
+      lastError: refreshLastError
+        ? {
+            message: refreshLastError instanceof Error ? refreshLastError.message : String(refreshLastError),
+            at: refreshLastErrorAt,
+          }
+        : null,
+    };
+  }
+
+  async function fetchThresholdMap(asins) {
+    if (!asins.length) return new Map();
+
+    const res = await pool.query(
+      `
+      SELECT asin, threshold_drop_pct, threshold_rise_pct, target_price_new, target_price_used, updated_at
+      FROM soon_tracking_threshold
+      WHERE asin = ANY($1::text[])
+    `,
+      [asins],
+    );
+
+    return new Map(res.rows.map((row) => [row.asin, row]));
+  }
+
+  async function fetchPriceRows(asins) {
+    if (!asins.length) return [];
+
+    const res = await pool.query(
+      `
+      SELECT asin, market, condition, price, updated_at
+      FROM soon_tracking_price
+      WHERE asin = ANY($1::text[])
+      ORDER BY asin ASC, condition ASC, market ASC
+    `,
+      [asins],
+    );
+
+    return res.rows;
+  }
+
+  async function listTrackings() {
+    await ensureInit();
+
+    const baseRes = await pool.query(
+      'SELECT asin, title, updated_at FROM soon_tracking ORDER BY updated_at DESC',
+    );
+
+    const asins = baseRes.rows.map((row) => row.asin);
+    const thresholdMap = await fetchThresholdMap(asins);
+    const priceRows = await fetchPriceRows(asins);
+
+    return baseRes.rows.map((baseRow) => {
+      const asinPriceRows = priceRows.filter((row) => row.asin === baseRow.asin);
+      return buildTrackingRow(baseRow, thresholdMap.get(baseRow.asin), asinPriceRows);
+    });
+  }
+
+  async function getTracking(asin) {
+    await ensureInit();
+
+    const baseRes = await pool.query('SELECT asin, title, updated_at FROM soon_tracking WHERE asin = $1', [asin]);
+    if (!baseRes.rowCount) return null;
+
+    const thresholdRes = await pool.query(
+      `
+      SELECT asin, threshold_drop_pct, threshold_rise_pct, target_price_new, target_price_used, updated_at
+      FROM soon_tracking_threshold
+      WHERE asin = $1
+    `,
+      [asin],
+    );
+
+    const priceRes = await pool.query(
+      `
+      SELECT asin, market, condition, price, updated_at
+      FROM soon_tracking_price
+      WHERE asin = $1
+      ORDER BY condition ASC, market ASC
+    `,
+      [asin],
+    );
+
+    return buildTrackingRow(baseRes.rows[0], thresholdRes.rows[0], priceRes.rows);
+  }
+
+  async function getProductDetail(asin) {
+    await ensureInit();
+
+    const tracking = await getTracking(asin);
+    if (!tracking) return null;
+
+    const historyRes = await pool.query(
+      `
+      SELECT market, condition, price, recorded_at
+      FROM soon_price_history
+      WHERE asin = $1
+      ORDER BY recorded_at DESC
+      LIMIT 180
+    `,
+      [asin],
+    );
+
+    const historyPoints = historyRes.rows
+      .filter((row) => row.condition === 'new')
+      .map((row) => ({
+        ts: row.recorded_at.toISOString(),
+        value: toNumber(row.price),
+      }))
+      .reverse();
+
+    return {
+      asin: tracking.asin,
+      title: tracking.title,
+      pricesNew: tracking.pricesNew,
+      pricesUsed: tracking.pricesUsed,
+      thresholds: {
+        thresholdDropPct: tracking.thresholdDropPct,
+        thresholdRisePct: tracking.thresholdRisePct,
+        targetPriceNew: tracking.targetPriceNew,
+        targetPriceUsed: tracking.targetPriceUsed,
+      },
+      summary: toSummary(tracking.pricesNew),
+      historyPoints,
+      updatedAt: tracking.updatedAt,
+    };
+  }
+
+  async function updateThresholds(asin, thresholdPayload) {
+    await ensureInit();
+
+    const exists = await pool.query('SELECT 1 FROM soon_tracking WHERE asin = $1', [asin]);
+    if (!exists.rowCount) return null;
+
+    await pool.query(
+      `
+      INSERT INTO soon_tracking_threshold (
+        asin,
+        threshold_drop_pct,
+        threshold_rise_pct,
+        target_price_new,
+        target_price_used,
+        updated_at
+      ) VALUES ($1, $2, $3, $4, $5, now())
+      ON CONFLICT (asin) DO UPDATE SET
+        threshold_drop_pct = COALESCE(EXCLUDED.threshold_drop_pct, soon_tracking_threshold.threshold_drop_pct),
+        threshold_rise_pct = COALESCE(EXCLUDED.threshold_rise_pct, soon_tracking_threshold.threshold_rise_pct),
+        target_price_new = COALESCE(EXCLUDED.target_price_new, soon_tracking_threshold.target_price_new),
+        target_price_used = COALESCE(EXCLUDED.target_price_used, soon_tracking_threshold.target_price_used),
+        updated_at = now()
+    `,
+      [
+        asin,
+        thresholdPayload.thresholdDropPct ?? null,
+        thresholdPayload.thresholdRisePct ?? null,
+        thresholdPayload.targetPriceNew ?? null,
+        thresholdPayload.targetPriceUsed ?? null,
+      ],
+    );
+
+    await pool.query('UPDATE soon_tracking SET updated_at = now() WHERE asin = $1', [asin]);
+
+    return getProductDetail(asin);
+  }
+
+  async function recordAutomationCycle({ cycle, trackingCount, startedAt, finishedAt }) {
+    await ensureInit();
+
+    const runId = randomUUID();
+    const purchaseAlertCount = cycle.alerts.filter((item) => item.kind === 'purchase').length;
+    const technicalAlertCount = cycle.alerts.filter((item) => item.kind === 'technical').length;
+
+    await pool.query(
+      `
+      INSERT INTO soon_hunter_run (
+        run_id,
+        source,
+        status,
+        tracking_count,
+        decision_count,
+        alert_count,
+        purchase_alert_count,
+        technical_alert_count,
+        started_at,
+        finished_at
+      ) VALUES ($1, 'automation-cycle-v1', 'ok', $2, $3, $4, $5, $6, $7::timestamptz, $8::timestamptz)
+    `,
+      [
+        runId,
+        trackingCount,
+        cycle.decisions.length,
+        cycle.alerts.length,
+        purchaseAlertCount,
+        technicalAlertCount,
+        startedAt,
+        finishedAt,
+      ],
+    );
+
+    const tokenByAsin = new Map(cycle.tokenPlan.map((item) => [item.asin, item]));
+
+    for (const decision of cycle.decisions) {
+      const tokenRow = tokenByAsin.get(decision.asin);
+      await pool.query(
+        `
+        INSERT INTO soon_hunter_decision (
+          run_id,
+          asin,
+          score,
+          confidence,
+          should_alert,
+          reason,
+          token_cost,
+          expected_value,
+          token_priority
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `,
+        [
+          runId,
+          decision.asin,
+          decision.score,
+          decision.confidence,
+          decision.shouldAlert,
+          decision.reason,
+          tokenRow?.tokenCost ?? null,
+          tokenRow?.expectedValue ?? null,
+          tokenRow?.priority ?? null,
+        ],
+      );
+    }
+
+    for (const alert of cycle.alerts) {
+      await pool.query(
+        `
+        INSERT INTO soon_alert_dispatch_audit (
+          run_id,
+          asin,
+          kind,
+          channel,
+          reason,
+          status
+        ) VALUES ($1, $2, $3, $4, $5, 'queued')
+      `,
+        [runId, alert.asin, alert.kind, alert.channel, alert.reason ?? null],
+      );
+    }
+
+    if (refreshMode === 'sync') {
+      await enqueueDailyReadModelRefresh(startedAt);
+      await flushDailyReadModelRefresh();
+    } else {
+      void enqueueDailyReadModelRefresh(startedAt);
+    }
+
+    return {
+      runId,
+      source: 'automation-cycle-v1',
+      status: 'ok',
+      startedAt,
+      finishedAt,
+      trackingCount,
+      decisionCount: cycle.decisions.length,
+      alertCount: cycle.alerts.length,
+      purchaseAlertCount,
+      technicalAlertCount,
+      decisions: cycle.decisions,
+      alerts: cycle.alerts,
+    };
+  }
+
+  async function listLatestAutomationRuns(limit = 20) {
+    await ensureInit();
+
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+
+    const runRes = await pool.query(
+      `
+      SELECT *
+      FROM soon_hunter_run
+      ORDER BY started_at DESC
+      LIMIT $1
+    `,
+      [safeLimit],
+    );
+
+    if (!runRes.rowCount) {
+      return [];
+    }
+
+    const runIds = runRes.rows.map((row) => row.run_id);
+
+    const decisionRes = await pool.query(
+      `
+      SELECT run_id, asin, score, confidence, should_alert, reason, token_cost, expected_value, token_priority, created_at
+      FROM soon_hunter_decision
+      WHERE run_id = ANY($1::text[])
+      ORDER BY created_at DESC
+    `,
+      [runIds],
+    );
+
+    const alertRes = await pool.query(
+      `
+      SELECT run_id, asin, kind, channel, reason, status, created_at
+      FROM soon_alert_dispatch_audit
+      WHERE run_id = ANY($1::text[])
+      ORDER BY created_at DESC
+    `,
+      [runIds],
+    );
+
+    const decisionsByRun = new Map();
+    for (const row of decisionRes.rows) {
+      const decision = {
+        asin: row.asin,
+        score: toNumber(row.score),
+        confidence: toNumber(row.confidence),
+        shouldAlert: row.should_alert,
+        reason: row.reason,
+        tokenCost: toNumber(row.token_cost),
+        expectedValue: toNumber(row.expected_value),
+        priority: toNumber(row.token_priority),
+      };
+
+      if (!decisionsByRun.has(row.run_id)) {
+        decisionsByRun.set(row.run_id, []);
+      }
+      decisionsByRun.get(row.run_id).push(decision);
+    }
+
+    const alertsByRun = new Map();
+    for (const row of alertRes.rows) {
+      const alert = {
+        asin: row.asin,
+        kind: row.kind,
+        channel: row.channel,
+        reason: row.reason,
+        status: row.status,
+      };
+
+      if (!alertsByRun.has(row.run_id)) {
+        alertsByRun.set(row.run_id, []);
+      }
+      alertsByRun.get(row.run_id).push(alert);
+    }
+
+    return runRes.rows.map((row) =>
+      summarizeRun(
+        row,
+        decisionsByRun.get(row.run_id) ?? [],
+        alertsByRun.get(row.run_id) ?? [],
+      ),
+    );
+  }
+
+  async function getAutomationDailyReadModel(days = 30) {
+    await ensureInit();
+    await flushDailyReadModelRefresh();
+
+    const safeDays = Math.max(1, Math.min(90, Number(days) || 30));
+    const dailyRes = await pool.query(
+      `
+      SELECT
+        day,
+        runs,
+        tracking_count_sum,
+        decision_count_sum,
+        alert_count_sum,
+        purchase_alert_count_sum,
+        technical_alert_count_sum,
+        telegram_alert_count_sum,
+        discord_alert_count_sum
+      FROM soon_hunter_run_daily
+      WHERE day >= (current_date - ($1::int - 1))
+      ORDER BY day DESC
+      LIMIT $1
+    `,
+      [safeDays],
+    );
+
+    if (!dailyRes.rowCount) {
+      return {
+        generatedAt: new Date().toISOString(),
+        days: safeDays,
+        items: [],
+      };
+    }
+
+    const daysList = dailyRes.rows.map((row) => toDayKey(row.day));
+    const asinRes = await pool.query(
+      `
+      SELECT day, asin, alert_count
+      FROM soon_hunter_run_daily_asin
+      WHERE day = ANY($1::date[])
+      ORDER BY day DESC, alert_count DESC, asin ASC
+    `,
+      [daysList],
+    );
+
+    const asinByDay = new Map();
+    for (const row of asinRes.rows) {
+      const dayKey = toDayKey(row.day);
+      if (!asinByDay.has(dayKey)) {
+        asinByDay.set(dayKey, []);
+      }
+      asinByDay.get(dayKey).push({
+        asin: row.asin,
+        alerts: Number(row.alert_count),
+      });
+    }
+
+    const items = dailyRes.rows.map((row) => {
+      const day = toDayKey(row.day);
+      const runs = Number(row.runs);
+      const trackingCountSum = Number(row.tracking_count_sum);
+      const decisionCountSum = Number(row.decision_count_sum);
+      const alertCountSum = Number(row.alert_count_sum);
+      const purchaseAlertCountSum = Number(row.purchase_alert_count_sum);
+      const technicalAlertCountSum = Number(row.technical_alert_count_sum);
+      return {
+        day,
+        runs,
+        sums: {
+          trackingCount: trackingCountSum,
+          decisionCount: decisionCountSum,
+          alertCount: alertCountSum,
+          purchaseAlertCount: purchaseAlertCountSum,
+          technicalAlertCount: technicalAlertCountSum,
+        },
+        kpi: {
+          avgTrackingCount: runs > 0 ? Number((trackingCountSum / runs).toFixed(2)) : 0,
+          avgDecisionCount: runs > 0 ? Number((decisionCountSum / runs).toFixed(2)) : 0,
+          avgAlertCount: runs > 0 ? Number((alertCountSum / runs).toFixed(2)) : 0,
+          purchaseAlertRatePct:
+            alertCountSum > 0 ? Number(((purchaseAlertCountSum / alertCountSum) * 100).toFixed(2)) : 0,
+          technicalAlertRatePct:
+            alertCountSum > 0 ? Number(((technicalAlertCountSum / alertCountSum) * 100).toFixed(2)) : 0,
+        },
+        alertsByChannel: {
+          telegram: Number(row.telegram_alert_count_sum),
+          discord: Number(row.discord_alert_count_sum),
+        },
+        topAlertedAsins: (asinByDay.get(day) ?? []).slice(0, 5),
+      };
+    });
+
+    return {
+      generatedAt: new Date().toISOString(),
+      days: safeDays,
+      items,
+    };
+  }
+
+  return {
+    mode: 'postgres',
+    listTrackings,
+    getTracking,
+    getProductDetail,
+    updateThresholds,
+    recordAutomationCycle,
+    listLatestAutomationRuns,
+    getAutomationDailyReadModel,
+    getReadModelRefreshStatus,
+    async close() {
+      await flushDailyReadModelRefresh();
+      await pool.end();
+    },
+  };
+}

@@ -1,0 +1,15 @@
+# local env / secrets
+.env.local
+.env
+
+# dependencies
+node_modules/
+
+# runtime artifacts
+*.log
+/tmp/
+
+# editors / OS
+.DS_Store
+.vscode/
+.idea/

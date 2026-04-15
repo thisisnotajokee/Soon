@@ -1,0 +1,467 @@
+import http from 'node:http';
+import { URL } from 'node:url';
+
+import { createInMemoryStore } from './in-memory-store.mjs';
+import { readJsonBody, sendJson } from './json.mjs';
+import { runAutomationCycle } from './automation-cycle.mjs';
+import { createPostgresStore } from './postgres-store.mjs';
+
+function modulesList() {
+  return [
+    'tracking-core',
+    'hunter-core',
+    'token-control-plane',
+    'autonomy-orchestrator',
+    'self-heal-controller',
+    'alert-router',
+    'ml-platform',
+  ];
+}
+
+function resolveStore() {
+  const mode = (process.env.SOON_DB_MODE ?? 'memory').toLowerCase();
+
+  if (mode === 'postgres') {
+    return createPostgresStore();
+  }
+
+  return createInMemoryStore();
+}
+
+function aggregateRunMetrics(items) {
+  const runs = items.length;
+  const totals = items.reduce(
+    (acc, item) => {
+      acc.trackingCount += item.trackingCount ?? 0;
+      acc.decisionCount += item.decisionCount ?? 0;
+      acc.alertCount += item.alertCount ?? 0;
+      acc.purchaseAlertCount += item.purchaseAlertCount ?? 0;
+      acc.technicalAlertCount += item.technicalAlertCount ?? 0;
+      return acc;
+    },
+    {
+      trackingCount: 0,
+      decisionCount: 0,
+      alertCount: 0,
+      purchaseAlertCount: 0,
+      technicalAlertCount: 0,
+    },
+  );
+
+  const alertsByChannel = { telegram: 0, discord: 0 };
+  const alertedAsins = new Map();
+
+  for (const run of items) {
+    for (const alert of run.alerts ?? []) {
+      if (alert.channel === 'telegram') alertsByChannel.telegram += 1;
+      if (alert.channel === 'discord') alertsByChannel.discord += 1;
+      if (alert.asin && alert.asin !== 'system') {
+        alertedAsins.set(alert.asin, (alertedAsins.get(alert.asin) ?? 0) + 1);
+      }
+    }
+  }
+
+  const topAlertedAsins = [...alertedAsins.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([asin, count]) => ({ asin, alerts: count }));
+
+  const kpi = runs
+    ? {
+        avgTrackingCount: Number((totals.trackingCount / runs).toFixed(2)),
+        avgDecisionCount: Number((totals.decisionCount / runs).toFixed(2)),
+        avgAlertCount: Number((totals.alertCount / runs).toFixed(2)),
+        purchaseAlertRatePct:
+          totals.alertCount > 0 ? Number(((totals.purchaseAlertCount / totals.alertCount) * 100).toFixed(2)) : 0,
+        technicalAlertRatePct:
+          totals.alertCount > 0 ? Number(((totals.technicalAlertCount / totals.alertCount) * 100).toFixed(2)) : 0,
+      }
+    : {
+        avgTrackingCount: 0,
+        avgDecisionCount: 0,
+        avgAlertCount: 0,
+        purchaseAlertRatePct: 0,
+        technicalAlertRatePct: 0,
+      };
+
+  return {
+    runs,
+    kpi,
+    alertsByChannel,
+    topAlertedAsins,
+  };
+}
+
+function summarizeAutomationRuns(items, limit) {
+  const metrics = aggregateRunMetrics(items);
+  return {
+    window: { limit, runs: metrics.runs },
+    kpi: metrics.kpi,
+    alertsByChannel: metrics.alertsByChannel,
+    topAlertedAsins: metrics.topAlertedAsins,
+  };
+}
+
+function dayKeyFromTimestamp(ts) {
+  return new Date(ts).toISOString().slice(0, 10);
+}
+
+function toPromNumber(value, fallback = 0) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+}
+
+function toPromUnixTs(value) {
+  const parsed = Date.parse(value ?? '');
+  return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : 0;
+}
+
+function escapePromLabel(value) {
+  return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+}
+
+function aggregateTrendWindowFromDaily(items) {
+  const totals = items.reduce(
+    (acc, item) => {
+      const runs = Number(item.runs ?? 0);
+      const sums = item.sums ?? {};
+      const trackingCount = Number(sums.trackingCount ?? Math.round((item.kpi?.avgTrackingCount ?? 0) * runs));
+      const decisionCount = Number(sums.decisionCount ?? Math.round((item.kpi?.avgDecisionCount ?? 0) * runs));
+      const alertCount = Number(sums.alertCount ?? Math.round((item.kpi?.avgAlertCount ?? 0) * runs));
+      const purchaseAlertCount = Number(
+        sums.purchaseAlertCount ??
+          Math.round(((item.kpi?.purchaseAlertRatePct ?? 0) / 100) * alertCount),
+      );
+      const technicalAlertCount = Number(
+        sums.technicalAlertCount ??
+          Math.round(((item.kpi?.technicalAlertRatePct ?? 0) / 100) * alertCount),
+      );
+
+      acc.runs += runs;
+      acc.trackingCount += trackingCount;
+      acc.decisionCount += decisionCount;
+      acc.alertCount += alertCount;
+      acc.purchaseAlertCount += purchaseAlertCount;
+      acc.technicalAlertCount += technicalAlertCount;
+      acc.telegram += Number(item.alertsByChannel?.telegram ?? 0);
+      acc.discord += Number(item.alertsByChannel?.discord ?? 0);
+      return acc;
+    },
+    {
+      runs: 0,
+      trackingCount: 0,
+      decisionCount: 0,
+      alertCount: 0,
+      purchaseAlertCount: 0,
+      technicalAlertCount: 0,
+      telegram: 0,
+      discord: 0,
+    },
+  );
+
+  const asinAlertMap = new Map();
+  for (const item of items) {
+    for (const top of item.topAlertedAsins ?? []) {
+      if (!top?.asin) continue;
+      asinAlertMap.set(top.asin, (asinAlertMap.get(top.asin) ?? 0) + Number(top.alerts ?? 0));
+    }
+  }
+
+  return {
+    runs: totals.runs,
+    kpi: {
+      avgTrackingCount: totals.runs > 0 ? Number((totals.trackingCount / totals.runs).toFixed(2)) : 0,
+      avgDecisionCount: totals.runs > 0 ? Number((totals.decisionCount / totals.runs).toFixed(2)) : 0,
+      avgAlertCount: totals.runs > 0 ? Number((totals.alertCount / totals.runs).toFixed(2)) : 0,
+      purchaseAlertRatePct:
+        totals.alertCount > 0 ? Number(((totals.purchaseAlertCount / totals.alertCount) * 100).toFixed(2)) : 0,
+      technicalAlertRatePct:
+        totals.alertCount > 0 ? Number(((totals.technicalAlertCount / totals.alertCount) * 100).toFixed(2)) : 0,
+    },
+    alertsByChannel: {
+      telegram: totals.telegram,
+      discord: totals.discord,
+    },
+    topAlertedAsins: [...asinAlertMap.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([asin, alerts]) => ({ asin, alerts })),
+  };
+}
+
+function summarizeAutomationRunTrendsFromDaily(dailyModel, days) {
+  const now = Date.now();
+  const dailyItems = dailyModel?.items ?? [];
+  const windows = [
+    ['24h', 1],
+    ['7d', 7],
+    ['30d', 30],
+  ];
+
+  const summary = windows.map(([label, windowDays]) => {
+    const cutoffDay = dayKeyFromTimestamp(now - (windowDays - 1) * 24 * 60 * 60 * 1000);
+    const filtered = dailyItems.filter((item) => item.day >= cutoffDay);
+    const aggregated = aggregateTrendWindowFromDaily(filtered);
+    return {
+      window: label,
+      runs: aggregated.runs,
+      kpi: aggregated.kpi,
+      alertsByChannel: aggregated.alertsByChannel,
+      topAlertedAsins: aggregated.topAlertedAsins,
+    };
+  });
+
+  return {
+    source: 'daily-read-model',
+    sourceDaysLimit: days,
+    generatedAt: new Date(now).toISOString(),
+    windows: summary,
+  };
+}
+
+function renderReadModelPrometheusMetrics(status) {
+  const pendingDays = Array.isArray(status?.pendingDays) ? status.pendingDays : [];
+  const hasError = status?.lastError ? 1 : 0;
+  const mode = escapePromLabel(status?.mode ?? 'unknown');
+
+  const lines = [
+    '# HELP soon_read_model_refresh_info Read-model refresh mode metadata.',
+    '# TYPE soon_read_model_refresh_info gauge',
+    `soon_read_model_refresh_info{mode="${mode}"} 1`,
+    '# HELP soon_read_model_refresh_pending_count Number of queued day refresh tasks.',
+    '# TYPE soon_read_model_refresh_pending_count gauge',
+    `soon_read_model_refresh_pending_count ${toPromNumber(status?.pendingCount)}`,
+    '# HELP soon_read_model_refresh_in_flight Whether refresh worker is currently running.',
+    '# TYPE soon_read_model_refresh_in_flight gauge',
+    `soon_read_model_refresh_in_flight ${status?.inFlight ? 1 : 0}`,
+    '# HELP soon_read_model_refresh_last_duration_ms Duration of last refresh batch in milliseconds.',
+    '# TYPE soon_read_model_refresh_last_duration_ms gauge',
+    `soon_read_model_refresh_last_duration_ms ${toPromNumber(status?.lastDurationMs)}`,
+    '# HELP soon_read_model_refresh_last_batch_days Number of distinct days in last refresh batch.',
+    '# TYPE soon_read_model_refresh_last_batch_days gauge',
+    `soon_read_model_refresh_last_batch_days ${toPromNumber(status?.lastBatchDays)}`,
+    '# HELP soon_read_model_refresh_total_runs Total successful refresh batches.',
+    '# TYPE soon_read_model_refresh_total_runs counter',
+    `soon_read_model_refresh_total_runs ${toPromNumber(status?.totalRuns)}`,
+    '# HELP soon_read_model_refresh_total_errors Total failed refresh batches.',
+    '# TYPE soon_read_model_refresh_total_errors counter',
+    `soon_read_model_refresh_total_errors ${toPromNumber(status?.totalErrors)}`,
+    '# HELP soon_read_model_refresh_last_error Whether last refresh ended with an error.',
+    '# TYPE soon_read_model_refresh_last_error gauge',
+    `soon_read_model_refresh_last_error ${hasError}`,
+    '# HELP soon_read_model_refresh_last_queued_unixtime Last queued timestamp (unix seconds).',
+    '# TYPE soon_read_model_refresh_last_queued_unixtime gauge',
+    `soon_read_model_refresh_last_queued_unixtime ${toPromUnixTs(status?.lastQueuedAt)}`,
+    '# HELP soon_read_model_refresh_last_started_unixtime Last started timestamp (unix seconds).',
+    '# TYPE soon_read_model_refresh_last_started_unixtime gauge',
+    `soon_read_model_refresh_last_started_unixtime ${toPromUnixTs(status?.lastStartedAt)}`,
+    '# HELP soon_read_model_refresh_last_finished_unixtime Last finished timestamp (unix seconds).',
+    '# TYPE soon_read_model_refresh_last_finished_unixtime gauge',
+    `soon_read_model_refresh_last_finished_unixtime ${toPromUnixTs(status?.lastFinishedAt)}`,
+    '# HELP soon_read_model_refresh_pending_day Pending day refresh marker.',
+    '# TYPE soon_read_model_refresh_pending_day gauge',
+  ];
+
+  if (pendingDays.length) {
+    for (const day of pendingDays) {
+      lines.push(`soon_read_model_refresh_pending_day{day="${escapePromLabel(day)}"} 1`);
+    }
+  } else {
+    lines.push('soon_read_model_refresh_pending_day{day="none"} 0');
+  }
+
+  return `${lines.join('\n')}\n`;
+}
+
+export function createSoonApiServer({ store = resolveStore() } = {}) {
+  return http.createServer(async (req, res) => {
+    try {
+      const method = req.method ?? 'GET';
+      const url = new URL(req.url ?? '/', 'http://localhost');
+      const pathname = url.pathname;
+
+      if (method === 'GET' && pathname === '/health') {
+        return sendJson(res, 200, {
+          status: 'ok',
+          service: 'soon-api',
+          modules: modulesList(),
+          storage: store.mode,
+          serverTime: new Date().toISOString(),
+        });
+      }
+
+      if (method === 'GET' && pathname === '/trackings') {
+        const items = await store.listTrackings();
+        return sendJson(res, 200, {
+          items,
+          count: items.length,
+        });
+      }
+
+      const detailMatch = pathname.match(/^\/products\/([^/]+)\/detail$/);
+      if (method === 'GET' && detailMatch) {
+        const asin = decodeURIComponent(detailMatch[1]);
+        const detail = await store.getProductDetail(asin);
+        if (!detail) {
+          return sendJson(res, 404, { error: 'not_found', asin });
+        }
+        return sendJson(res, 200, detail);
+      }
+
+      const thresholdMatch = pathname.match(/^\/trackings\/([^/]+)\/thresholds$/);
+      if (method === 'POST' && thresholdMatch) {
+        const asin = decodeURIComponent(thresholdMatch[1]);
+        const body = await readJsonBody(req);
+        const updated = await store.updateThresholds(asin, body);
+
+        if (!updated) {
+          return sendJson(res, 404, { error: 'not_found', asin });
+        }
+
+        return sendJson(res, 200, {
+          status: 'updated',
+          asin,
+          thresholds: updated.thresholds,
+          updatedAt: updated.updatedAt,
+        });
+      }
+
+      if (method === 'POST' && pathname === '/automation/cycle') {
+        const startedAt = new Date().toISOString();
+        const trackings = await store.listTrackings();
+        const cycle = runAutomationCycle(trackings);
+        const finishedAt = new Date().toISOString();
+
+        const persisted = store.recordAutomationCycle
+          ? await store.recordAutomationCycle({
+              cycle,
+              trackingCount: trackings.length,
+              startedAt,
+              finishedAt,
+            })
+          : null;
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          runId: persisted?.runId ?? null,
+          ...cycle,
+          persisted,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/automation/runs/latest') {
+        const rawLimit = Number(url.searchParams.get('limit') ?? 20);
+        const limit = Math.max(1, Math.min(100, Number.isFinite(rawLimit) ? rawLimit : 20));
+
+        if (!store.listLatestAutomationRuns) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const items = await store.listLatestAutomationRuns(limit);
+        return sendJson(res, 200, { items, count: items.length });
+      }
+
+      if (method === 'GET' && pathname === '/automation/runs/summary') {
+        const rawLimit = Number(url.searchParams.get('limit') ?? 20);
+        const limit = Math.max(1, Math.min(100, Number.isFinite(rawLimit) ? rawLimit : 20));
+
+        if (!store.listLatestAutomationRuns) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const items = await store.listLatestAutomationRuns(limit);
+        const summary = summarizeAutomationRuns(items, limit);
+        return sendJson(res, 200, summary);
+      }
+
+      if (method === 'GET' && pathname === '/automation/runs/trends') {
+        const rawDays = Number(url.searchParams.get('days') ?? url.searchParams.get('limit') ?? 30);
+        const days = Math.max(1, Math.min(90, Number.isFinite(rawDays) ? rawDays : 30));
+
+        if (!store.getAutomationDailyReadModel) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const dailyModel = await store.getAutomationDailyReadModel(days);
+        const trends = summarizeAutomationRunTrendsFromDaily(dailyModel, days);
+        return sendJson(res, 200, trends);
+      }
+
+      if (method === 'GET' && pathname === '/automation/runs/daily') {
+        const rawDays = Number(url.searchParams.get('days') ?? 30);
+        const days = Math.max(1, Math.min(90, Number.isFinite(rawDays) ? rawDays : 30));
+
+        if (!store.getAutomationDailyReadModel) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const daily = await store.getAutomationDailyReadModel(days);
+        return sendJson(res, 200, daily);
+      }
+
+      if (method === 'GET' && pathname === '/automation/read-model/status') {
+        if (!store.getReadModelRefreshStatus) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const status = await store.getReadModelRefreshStatus();
+        return sendJson(res, 200, status);
+      }
+
+      if (method === 'GET' && pathname === '/metrics') {
+        if (!store.getReadModelRefreshStatus) {
+          res.writeHead(501, { 'content-type': 'text/plain; charset=utf-8' });
+          res.end('soon_read_model_metrics_unavailable 1\n');
+          return;
+        }
+
+        const status = await store.getReadModelRefreshStatus();
+        const payload = renderReadModelPrometheusMetrics(status);
+        res.writeHead(200, {
+          'content-type': 'text/plain; version=0.0.4; charset=utf-8',
+          'cache-control': 'no-store',
+        });
+        res.end(payload);
+        return;
+      }
+
+      return sendJson(res, 404, { error: 'route_not_found', method, pathname });
+    } catch (error) {
+      return sendJson(res, 500, {
+        error: 'internal_error',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+}
+
+function startFromCli() {
+  const port = Number(process.env.PORT ?? 3100);
+  const host = process.env.HOST ?? '127.0.0.1';
+
+  const store = resolveStore();
+  const server = createSoonApiServer({ store });
+
+  const shutdown = async () => {
+    await new Promise((resolve) => server.close(resolve));
+    if (store?.close) {
+      await store.close();
+    }
+    process.exit(0);
+  };
+
+  process.on('SIGINT', () => {
+    shutdown().catch((err) => {
+      console.error('[Soon/api] shutdown error', err);
+      process.exit(1);
+    });
+  });
+
+  server.listen(port, host, () => {
+    console.log(`[Soon/api] runtime server listening on http://${host}:${port} (store=${store.mode})`);
+  });
+}
+
+if (import.meta.url === new URL(process.argv[1], 'file://').href) {
+  startFromCli();
+}
