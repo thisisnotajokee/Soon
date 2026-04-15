@@ -14,6 +14,8 @@
     "db:cleanup:legacy:execute": "node packages/api/scripts/cleanup-legacy-backup.mjs --retention-days=30 --execute",
     "obs:read-model:alert:check": "bash -lc \"set -a; [ -f .env.local ] && source .env.local; set +a; node packages/api/scripts/read-model-alert-check.mjs\"",
     "obs:read-model:alert:check:json": "bash -lc \"set -a; [ -f .env.local ] && source .env.local; set +a; node packages/api/scripts/read-model-alert-check.mjs --json\"",
+    "obs:runtime:alert:check": "bash -lc \"set -a; [ -f .env.local ] && source .env.local; set +a; node packages/api/scripts/runtime-alert-check.mjs\"",
+    "obs:runtime:alert:check:json": "bash -lc \"set -a; [ -f .env.local ] && source .env.local; set +a; node packages/api/scripts/runtime-alert-check.mjs --json\"",
     "obs:doctor:report": "bash -lc \"set -a; [ -f .env.local ] && source .env.local; set +a; node packages/api/scripts/doctor-report.mjs\"",
     "obs:doctor:report:json": "bash -lc \"set -a; [ -f .env.local ] && source .env.local; set +a; node packages/api/scripts/doctor-report.mjs --json-only\"",
     "obs:doctor:summary": "node packages/api/scripts/doctor-summary.mjs",

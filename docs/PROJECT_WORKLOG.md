@@ -851,3 +851,44 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Dodać alerty Prometheus dla `overall!=PASS` (self-heal status) i `violations.total>0` (alert routing status) oraz podpiąć je do operacyjnego kanału Discord.
+
+### Update (2026-04-15, Prometheus runtime ops alerts + Discord ops routing)
+
+1. Rozszerzono `GET /metrics` o metryki runtime/ops:
+   - `soon_runtime_self_heal_overall_score` (`0=PASS`, `1=WARN`, `2=CRIT`)
+   - `soon_runtime_self_heal_signals_total`
+   - `soon_alert_routing_overall_score`
+   - `soon_alert_routing_violations_total`
+   - `soon_alert_routing_purchase_non_telegram_total`
+   - `soon_alert_routing_technical_non_discord_total`
+   - `soon_alert_routing_unknown_kind_total`
+   - `soon_alert_routing_unknown_channel_total`
+2. Rozszerzono reguły Prometheus (`ops/monitoring/prometheus/soon-read-model-alerts.yml`) o alerty:
+   - `SoonRuntimeSelfHealWarn`
+   - `SoonRuntimeSelfHealCritical`
+   - `SoonAlertRoutingViolationWarn`
+   - `SoonAlertRoutingViolationCritical`
+3. Dodano szablon Alertmanager dla operacyjnego Discord:
+   - `ops/monitoring/alertmanager/soon-alertmanager-discord.example.yml`
+4. Dodano dokumentację monitoringu:
+   - `ops/monitoring/README.md` (Prometheus + Alertmanager -> Discord).
+5. Dodano runtime checker endpointów health:
+   - `packages/api/scripts/runtime-alert-check.mjs`
+   - npm scripts: `obs:runtime:alert:check`, `obs:runtime:alert:check:json`
+6. `make check` uruchamia teraz:
+   - read-model alert checker
+   - runtime alert checker.
+7. Uzupełniono dokumentację (`README.md`, `packages/api/README.md`).
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS.
+2. `test:contracts` potwierdza obecność nowych metryk runtime/ops w `GET /metrics`.
+
+### Ryzyka
+
+1. Progi ostrzegawcze/krytyczne dla routing violations są baseline i mogą wymagać kalibracji po kilku dniach telemetry.
+
+### Następny krok
+
+1. Dodać test integracyjny Alertmanager config (lint + syntactic check) i pipeline smoke dla monitoringu.

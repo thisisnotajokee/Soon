@@ -51,3 +51,47 @@ groups:
         annotations:
           summary: "Soon read-model refresh appears stuck"
           description: "Refresh stayed in-flight longer than 5 minutes."
+
+      - alert: SoonRuntimeSelfHealWarn
+        expr: soon_runtime_self_heal_overall_score >= 1
+        for: 2m
+        labels:
+          severity: warning
+          team: soon-platform
+          channel: discord-ops
+        annotations:
+          summary: "Soon runtime self-heal warning"
+          description: "Runtime self-heal overall score indicates WARN/CRIT state."
+
+      - alert: SoonRuntimeSelfHealCritical
+        expr: soon_runtime_self_heal_overall_score >= 2
+        for: 1m
+        labels:
+          severity: critical
+          team: soon-platform
+          channel: discord-ops
+        annotations:
+          summary: "Soon runtime self-heal critical"
+          description: "Runtime self-heal reached CRIT state."
+
+      - alert: SoonAlertRoutingViolationWarn
+        expr: soon_alert_routing_violations_total > 0
+        for: 2m
+        labels:
+          severity: warning
+          team: soon-platform
+          channel: discord-ops
+        annotations:
+          summary: "Soon alert routing policy violation"
+          description: "Detected alert routing violations against purchase->Telegram / technical->Discord policy."
+
+      - alert: SoonAlertRoutingViolationCritical
+        expr: soon_alert_routing_violations_total >= 5
+        for: 1m
+        labels:
+          severity: critical
+          team: soon-platform
+          channel: discord-ops
+        annotations:
+          summary: "Soon alert routing policy critical violation"
+          description: "High volume of alert routing policy violations detected."
