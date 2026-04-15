@@ -70,6 +70,9 @@ async function run() {
     assert.ok(typeof selfHeal.playbookCount === 'number');
     assert.ok(typeof selfHeal.executedPlaybooks[0].playbookId === 'string');
     assert.ok(['success', 'rollback', 'failed'].includes(selfHeal.executedPlaybooks[0].status));
+    assert.ok(Number.isFinite(selfHeal.executedPlaybooks[0].attempts));
+    assert.ok(Number.isFinite(selfHeal.executedPlaybooks[0].priorityScore));
+    assert.ok(Array.isArray(selfHeal.executedPlaybooks[0].matchedAnomalyCodes));
     assert.ok(selfHeal.runId);
 
     const selfHealRuns = await client.getLatestSelfHealRuns(5);
@@ -79,6 +82,7 @@ async function run() {
     assert.ok(Array.isArray(selfHealRuns.items[0].executedPlaybooks));
     assert.ok(typeof selfHealRuns.items[0].executedPlaybooks[0].playbookId === 'string');
     assert.ok(['success', 'rollback', 'failed'].includes(selfHealRuns.items[0].executedPlaybooks[0].status));
+    assert.ok(Number.isFinite(selfHealRuns.items[0].executedPlaybooks[0].attempts));
 
     const metrics = await client.getPrometheusMetrics();
     assert.ok(metrics.includes('soon_read_model_refresh_pending_count'));

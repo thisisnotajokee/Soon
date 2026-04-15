@@ -12,24 +12,32 @@ export const DEFAULT_PLAYBOOKS = [
     trigger: 'always-on heartbeat',
     actions: ['verify-runtime-health', 'verify-read-model-health'],
     triggerCodes: [],
+    basePriority: 10,
+    retryPolicy: { maxRetries: 0, backoffSec: 0 },
   },
   {
     id: 'scanner-timeout',
     trigger: 'scanner timeout spike',
     actions: ['restart-scanner-worker', 'requeue-batch', 'verify-health'],
     triggerCodes: ['REFRESH_STUCK', 'LAST_REFRESH_ERROR'],
+    basePriority: 90,
+    retryPolicy: { maxRetries: 0, backoffSec: 0 },
   },
   {
     id: 'alert-router-backlog',
     trigger: 'alert queue backlog',
     actions: ['scale-alert-consumers', 'drain-dlq', 'verify-routing-policy'],
     triggerCodes: ['PENDING_BACKLOG_WARN', 'PENDING_BACKLOG_CRIT'],
+    basePriority: 80,
+    retryPolicy: { maxRetries: 1, backoffSec: 20 },
   },
   {
     id: 'read-model-slow-path',
     trigger: 'read-model refresh duration spike',
     actions: ['throttle-refresh-jobs', 'enable-degraded-read-path', 'verify-refresh-latency'],
     triggerCodes: ['REFRESH_DURATION_WARN', 'REFRESH_DURATION_CRIT'],
+    basePriority: 70,
+    retryPolicy: { maxRetries: 1, backoffSec: 30 },
   },
 ];
 
@@ -123,17 +131,28 @@ export function detectSelfHealAnomalies({ readModelStatus, now = Date.now(), thr
 }
 
 function selectPlaybooks(findings) {
+  const severityWeight = { CRIT: 100, WARN: 40 };
   const anomalyCodes = new Set(findings.map((item) => item.code));
-  const selected = new Set(['system-health-check']);
+  const selected = [];
 
   for (const playbook of DEFAULT_PLAYBOOKS) {
-    if (playbook.id === 'system-health-check') continue;
-    if (playbook.triggerCodes.some((code) => anomalyCodes.has(code))) {
-      selected.add(playbook.id);
-    }
+    const matchedFindings = findings.filter((item) => playbook.triggerCodes.includes(item.code));
+    const alwaysOn = playbook.id === 'system-health-check';
+    if (!alwaysOn && matchedFindings.length === 0) continue;
+
+    const score =
+      (playbook.basePriority ?? 0) +
+      matchedFindings.reduce((acc, item) => acc + (severityWeight[item.severity] ?? 0), 0) +
+      matchedFindings.length * 5;
+
+    selected.push({
+      ...playbook,
+      matchedFindings,
+      priorityScore: score,
+    });
   }
 
-  return DEFAULT_PLAYBOOKS.filter((playbook) => selected.has(playbook.id));
+  return selected.sort((a, b) => b.priorityScore - a.priorityScore || a.id.localeCompare(b.id));
 }
 
 function resolvePlaybookStatus(playbook, findings) {
@@ -150,6 +169,48 @@ function resolvePlaybookStatus(playbook, findings) {
   return 'success';
 }
 
+function resolvePlaybookAttemptStatus(playbook, matchedFindings, attempt) {
+  const anomalyCodes = new Set(matchedFindings.map((item) => item.code));
+
+  if (playbook.id === 'scanner-timeout' && anomalyCodes.has('LAST_REFRESH_ERROR')) {
+    return 'rollback';
+  }
+
+  if (playbook.id === 'alert-router-backlog' && anomalyCodes.has('PENDING_BACKLOG_CRIT') && attempt === 1) {
+    return 'failed';
+  }
+
+  if (playbook.id === 'read-model-slow-path' && anomalyCodes.has('REFRESH_DURATION_CRIT') && attempt === 1) {
+    return 'failed';
+  }
+
+  return resolvePlaybookStatus(playbook, matchedFindings);
+}
+
+function executePlaybookWithRetry(playbook) {
+  const maxRetries = toNumber(playbook.retryPolicy?.maxRetries, 0);
+  const retryBackoffSec = toNumber(playbook.retryPolicy?.backoffSec, 0);
+  let attempts = 0;
+  let status = 'success';
+
+  while (attempts <= maxRetries) {
+    attempts += 1;
+    status = resolvePlaybookAttemptStatus(playbook, playbook.matchedFindings, attempts);
+    if (status !== 'failed') break;
+  }
+
+  return {
+    playbookId: playbook.id,
+    status,
+    attempts,
+    maxRetries,
+    retriesUsed: Math.max(0, attempts - 1),
+    retryBackoffSec,
+    priorityScore: Number(playbook.priorityScore.toFixed(2)),
+    matchedAnomalyCodes: playbook.matchedFindings.map((item) => item.code),
+  };
+}
+
 function resolveCycleStatus(executedPlaybooks) {
   if (executedPlaybooks.some((item) => item.status === 'failed')) return 'failed';
   if (executedPlaybooks.some((item) => item.status === 'rollback')) return 'rollback';
@@ -159,10 +220,7 @@ function resolveCycleStatus(executedPlaybooks) {
 export function remediationCycle({ readModelStatus, now = Date.now(), thresholds } = {}) {
   const anomalies = detectSelfHealAnomalies({ readModelStatus, now, thresholds });
   const plan = selectPlaybooks(anomalies);
-  const executedPlaybooks = plan.map((playbook) => ({
-    playbookId: playbook.id,
-    status: resolvePlaybookStatus(playbook, anomalies),
-  }));
+  const executedPlaybooks = plan.map((playbook) => executePlaybookWithRetry(playbook));
 
   return {
     status: resolveCycleStatus(executedPlaybooks),

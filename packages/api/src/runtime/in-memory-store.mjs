@@ -86,7 +86,16 @@ function normalizeExecutedPlaybooks(items) {
   return items
     .map((item) => {
       if (typeof item === 'string') {
-        return { playbookId: item, status: 'success' };
+        return {
+          playbookId: item,
+          status: 'success',
+          attempts: 1,
+          maxRetries: 0,
+          retriesUsed: 0,
+          retryBackoffSec: 0,
+          priorityScore: 0,
+          matchedAnomalyCodes: [],
+        };
       }
 
       const playbookId = item?.playbookId ?? item?.id;
@@ -97,7 +106,20 @@ function normalizeExecutedPlaybooks(items) {
         status === 'failed' || status === 'rollback' || status === 'success'
           ? status
           : 'success';
-      return { playbookId, status: safeStatus };
+      return {
+        playbookId,
+        status: safeStatus,
+        attempts: Number.isFinite(Number(item?.attempts)) ? Number(item.attempts) : 1,
+        maxRetries: Number.isFinite(Number(item?.maxRetries)) ? Number(item.maxRetries) : 0,
+        retriesUsed: Number.isFinite(Number(item?.retriesUsed)) ? Number(item.retriesUsed) : 0,
+        retryBackoffSec: Number.isFinite(Number(item?.retryBackoffSec))
+          ? Number(item.retryBackoffSec)
+          : 0,
+        priorityScore: Number.isFinite(Number(item?.priorityScore)) ? Number(item.priorityScore) : 0,
+        matchedAnomalyCodes: Array.isArray(item?.matchedAnomalyCodes)
+          ? item.matchedAnomalyCodes.filter((code) => typeof code === 'string')
+          : [],
+      };
     })
     .filter(Boolean);
 }
