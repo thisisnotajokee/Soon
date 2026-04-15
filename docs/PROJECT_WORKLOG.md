@@ -207,6 +207,22 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 1. `npm run check` -> PASS.
 
+### Update (2026-04-15, bulk requeue conflicts telemetry)
+
+1. Rozszerzono wynik `POST /self-heal/dead-letter/requeue-bulk` o pole `conflicts`.
+2. Semantyka:
+   - `conflicts`: wpisy odrzucone, bo nie są już w statusie `dead_letter`,
+   - `missing`: wpisy nieistniejące/nieprawidłowe.
+3. Rozszerzono implementację memory/postgres, aby rozdzielać `conflicts` i `missing`.
+4. Rozszerzono kontrakty HTTP:
+   - pierwszy bulk: `requeued=2, conflicts=0`,
+   - drugi bulk na tych samych ID: `requeued=0, conflicts=2`.
+5. Zaktualizowano `packages/api/README.md` o nowy format summary.
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS.
+
 ### Update (2026-04-15, dead-letter requeue idempotency hardening)
 
 1. Dodano guard na `POST /self-heal/dead-letter/requeue`:

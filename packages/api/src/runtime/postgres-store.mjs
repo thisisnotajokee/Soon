@@ -1442,12 +1442,13 @@ export function createPostgresStore({
     }
 
     const items = [];
+    let conflicts = 0;
     for (const deadLetterId of candidateIds) {
       const requeued = await requeueSelfHealDeadLetter(deadLetterId, { now });
       if (requeued && !requeued.error) {
         items.push(requeued);
       } else if (requeued?.error === 'not_dead_letter') {
-        missing += 1;
+        conflicts += 1;
       } else {
         missing += 1;
       }
@@ -1456,6 +1457,7 @@ export function createPostgresStore({
     return {
       requested: requestedCount,
       requeued: items.length,
+      conflicts,
       missing,
       items,
     };

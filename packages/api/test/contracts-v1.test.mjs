@@ -481,10 +481,25 @@ test('POST /self-heal/dead-letter/requeue-bulk requeues latest dead-letter entri
       assert.equal(bulk.body.status, 'ok');
       assert.equal(bulk.body.summary.requested, 2);
       assert.equal(bulk.body.summary.requeued, 2);
+      assert.equal(bulk.body.summary.conflicts, 0);
+      assert.equal(bulk.body.summary.missing, 0);
       assert.ok(Array.isArray(bulk.body.summary.items));
       assert.equal(bulk.body.summary.items.length, 2);
       assert.ok(bulk.body.retryStatus.queuePending >= 2);
       assert.ok(bulk.body.retryStatus.manualRequeueTotal >= 2);
+
+      const secondBulk = await readJson(
+        await fetch(`${baseUrl}/self-heal/dead-letter/requeue-bulk`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ deadLetterIds: selectedIds }),
+        }),
+      );
+      assert.equal(secondBulk.status, 200);
+      assert.equal(secondBulk.body.summary.requested, 2);
+      assert.equal(secondBulk.body.summary.requeued, 0);
+      assert.equal(secondBulk.body.summary.conflicts, 2);
+      assert.equal(secondBulk.body.summary.missing, 0);
 
       const audit = await readJson(await fetch(`${baseUrl}/self-heal/requeue-audit?limit=5`));
       assert.equal(audit.status, 200);

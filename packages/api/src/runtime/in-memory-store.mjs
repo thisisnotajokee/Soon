@@ -550,6 +550,7 @@ export function createInMemoryStore() {
     const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
     const candidates = hasIdList ? normalizedIds.map((id) => ({ deadLetterId: id })) : selfHealDeadLetters.slice(0, safeLimit);
     const requeuedItems = [];
+    let conflicts = 0;
     let missing = 0;
 
     for (const item of candidates) {
@@ -557,7 +558,7 @@ export function createInMemoryStore() {
       if (requeued && !requeued.error) {
         requeuedItems.push(requeued);
       } else if (requeued?.error === 'not_dead_letter') {
-        missing += 1;
+        conflicts += 1;
       } else {
         missing += 1;
       }
@@ -566,6 +567,7 @@ export function createInMemoryStore() {
     return {
       requested: candidates.length,
       requeued: requeuedItems.length,
+      conflicts,
       missing,
       items: requeuedItems,
     };
