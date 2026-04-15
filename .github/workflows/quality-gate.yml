@@ -26,7 +26,10 @@ jobs:
       - name: Validate monitoring config (strict)
         env:
           SOON_MONITORING_STRICT_FORCE_DOCKER: '1'
-        run: npm run obs:monitoring:strict
+        run: |
+          set -euo pipefail
+          npm run obs:monitoring:strict | tee /tmp/monitoring-strict.log
+          grep -F "amtool via rendered-config" /tmp/monitoring-strict.log
 
   monitoring-smoke:
     runs-on: ubuntu-latest
