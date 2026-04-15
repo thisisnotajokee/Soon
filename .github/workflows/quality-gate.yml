@@ -86,8 +86,13 @@ jobs:
           trap 'make down' EXIT
           make doctor
 
+      - name: Validate self-heal triage artifact (postgres)
+        run: npm run -s ops:self-heal:triage:validate -- ops/reports/doctor/self-heal-triage.json
+
       - name: Publish doctor summary (postgres)
         if: always()
+        env:
+          SOON_DOCTOR_SUMMARY_REQUIRE_TRIAGE: '1'
         run: |
           if [ -f ops/reports/doctor/latest.json ]; then
             npm run -s obs:doctor:summary -- ops/reports/doctor/latest.json ops/reports/doctor/self-heal-triage.json >> "$GITHUB_STEP_SUMMARY"

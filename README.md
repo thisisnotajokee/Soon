@@ -50,6 +50,7 @@ Polityka triage:
 
 1. Lokalnie domyślnie `SOON_SELF_HEAL_TRIAGE_WARN_AS_ERROR=0` (WARN nie przerywa `make doctor`).
 2. W CI ustawiamy `SOON_SELF_HEAL_TRIAGE_WARN_AS_ERROR=1` (WARN traktowany jako błąd quality gate).
+3. W CI walidujemy artefakt `ops/reports/doctor/self-heal-triage.json` i wymagamy jego obecności w `doctor-summary`.
 
 ## Runbook self-heal (dead-letter)
 
