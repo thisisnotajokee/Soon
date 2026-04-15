@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { evaluateSelfHealRetryAttempt } from './self-heal-playbooks.mjs';
 
 function sampleHistory(base) {
   const now = Date.now();
@@ -115,6 +116,7 @@ function normalizeExecutedPlaybooks(items) {
         retryBackoffSec: Number.isFinite(Number(item?.retryBackoffSec))
           ? Number(item.retryBackoffSec)
           : 0,
+        shouldRetry: Boolean(item?.shouldRetry),
         priorityScore: Number.isFinite(Number(item?.priorityScore)) ? Number(item.priorityScore) : 0,
         matchedAnomalyCodes: Array.isArray(item?.matchedAnomalyCodes)
           ? item.matchedAnomalyCodes.filter((code) => typeof code === 'string')
@@ -218,6 +220,8 @@ export function createInMemoryStore() {
   const byAsin = new Map(SEEDED_TRACKINGS.map((item) => [item.asin, buildRecord(item)]));
   const automationRuns = [];
   const selfHealRuns = [];
+  const selfHealRetryQueue = [];
+  const selfHealDeadLetters = [];
 
   async function listTrackings() {
     return [...byAsin.values()].map(({ historyPoints, ...rest }) => rest);
@@ -351,6 +355,136 @@ export function createInMemoryStore() {
     return selfHealRuns.slice(0, safeLimit);
   }
 
+  async function enqueueSelfHealRetryJobs({ runId, source, jobs }) {
+    const normalized = normalizeExecutedPlaybooks(jobs);
+    const createdAt = new Date();
+
+    const queueItems = normalized
+      .filter((item) => item.status === 'failed' && item.maxRetries > item.retriesUsed)
+      .map((item) => {
+        const nextRetryAt = new Date(createdAt.getTime() + item.retryBackoffSec * 1000).toISOString();
+        return {
+          jobId: randomUUID(),
+          runId,
+          source: source ?? 'self-heal-worker-v1',
+          playbookId: item.playbookId,
+          status: 'queued',
+          attempts: item.attempts,
+          maxRetries: item.maxRetries,
+          retriesUsed: item.retriesUsed,
+          retryBackoffSec: item.retryBackoffSec,
+          priorityScore: item.priorityScore,
+          matchedAnomalyCodes: item.matchedAnomalyCodes,
+          nextRetryAt,
+          lastError: null,
+          createdAt: createdAt.toISOString(),
+          updatedAt: createdAt.toISOString(),
+        };
+      });
+
+    selfHealRetryQueue.push(...queueItems);
+    return {
+      enqueued: queueItems.length,
+      queueSize: selfHealRetryQueue.filter((item) => item.status === 'queued').length,
+    };
+  }
+
+  async function processSelfHealRetryQueue({ limit = 20, now = Date.now() } = {}) {
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+    const nowMs = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+    const queued = selfHealRetryQueue
+      .filter((item) => item.status === 'queued' && Date.parse(item.nextRetryAt) <= nowMs)
+      .sort((a, b) => b.priorityScore - a.priorityScore || a.nextRetryAt.localeCompare(b.nextRetryAt))
+      .slice(0, safeLimit);
+
+    let processed = 0;
+    let completed = 0;
+    let rescheduled = 0;
+    let deadLettered = 0;
+
+    for (const job of queued) {
+      processed += 1;
+      const outcome = evaluateSelfHealRetryAttempt(job);
+      const jobRef = selfHealRetryQueue.find((item) => item.jobId === job.jobId);
+      if (!jobRef) continue;
+
+      const updatedAt = new Date().toISOString();
+      if (outcome.outcome === 'done') {
+        jobRef.status = 'done';
+        jobRef.attempts = outcome.attempts;
+        jobRef.retriesUsed = outcome.retriesUsed;
+        jobRef.lastError = null;
+        jobRef.updatedAt = updatedAt;
+        completed += 1;
+        continue;
+      }
+
+      if (outcome.outcome === 'retry') {
+        jobRef.status = 'queued';
+        jobRef.attempts = outcome.attempts;
+        jobRef.retriesUsed = outcome.retriesUsed;
+        jobRef.lastError = outcome.status;
+        jobRef.nextRetryAt = new Date(nowMs + outcome.retryBackoffSec * 1000).toISOString();
+        jobRef.updatedAt = updatedAt;
+        rescheduled += 1;
+        continue;
+      }
+
+      jobRef.status = 'dead_letter';
+      jobRef.attempts = outcome.attempts;
+      jobRef.retriesUsed = outcome.retriesUsed;
+      jobRef.lastError = outcome.reason ?? 'unknown_dead_letter_reason';
+      jobRef.updatedAt = updatedAt;
+      selfHealDeadLetters.unshift({
+        deadLetterId: randomUUID(),
+        jobId: jobRef.jobId,
+        runId: jobRef.runId,
+        source: jobRef.source,
+        playbookId: jobRef.playbookId,
+        reason: jobRef.lastError,
+        finalAttemptCount: jobRef.attempts,
+        maxRetries: jobRef.maxRetries,
+        payload: {
+          retryBackoffSec: jobRef.retryBackoffSec,
+          priorityScore: jobRef.priorityScore,
+          matchedAnomalyCodes: jobRef.matchedAnomalyCodes,
+        },
+        createdAt: updatedAt,
+      });
+      deadLettered += 1;
+    }
+
+    if (selfHealDeadLetters.length > 200) {
+      selfHealDeadLetters.length = 200;
+    }
+
+    return {
+      processed,
+      completed,
+      rescheduled,
+      deadLettered,
+      queuePending: selfHealRetryQueue.filter((item) => item.status === 'queued').length,
+    };
+  }
+
+  async function getSelfHealRetryStatus() {
+    const pending = selfHealRetryQueue.filter((item) => item.status === 'queued').length;
+    const done = selfHealRetryQueue.filter((item) => item.status === 'done').length;
+    const deadLetter = selfHealRetryQueue.filter((item) => item.status === 'dead_letter').length;
+    return {
+      queuePending: pending,
+      queueDone: done,
+      queueDeadLetter: deadLetter,
+      deadLetterCount: selfHealDeadLetters.length,
+      scheduler: 'memory-interval',
+    };
+  }
+
+  async function listSelfHealDeadLetters(limit = 20) {
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+    return selfHealDeadLetters.slice(0, safeLimit);
+  }
+
   return {
     mode: 'in-memory',
     listTrackings,
@@ -363,6 +497,10 @@ export function createInMemoryStore() {
     getReadModelRefreshStatus,
     recordSelfHealRun,
     listLatestSelfHealRuns,
+    enqueueSelfHealRetryJobs,
+    processSelfHealRetryQueue,
+    getSelfHealRetryStatus,
+    listSelfHealDeadLetters,
     async close() {
       // no-op
     },

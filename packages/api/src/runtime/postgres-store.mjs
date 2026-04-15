@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 
 import { SEEDED_TRACKINGS } from './in-memory-store.mjs';
 import { applyRuntimeMigrations } from './db-migrations.mjs';
+import { evaluateSelfHealRetryAttempt } from './self-heal-playbooks.mjs';
 
 function toNumber(value) {
   if (value === null || value === undefined) return null;
@@ -121,6 +122,7 @@ function normalizeExecutedPlaybooks(items) {
         retryBackoffSec: Number.isFinite(Number(item?.retryBackoffSec))
           ? Number(item.retryBackoffSec)
           : 0,
+        shouldRetry: Boolean(item?.shouldRetry),
         priorityScore: Number.isFinite(Number(item?.priorityScore)) ? Number(item.priorityScore) : 0,
         matchedAnomalyCodes: Array.isArray(item?.matchedAnomalyCodes)
           ? item.matchedAnomalyCodes.filter((code) => typeof code === 'string')
@@ -1017,6 +1019,293 @@ export function createPostgresStore({
     return runRes.rows.map((row) => summarizeSelfHealRun(row, playbooksByRun.get(row.run_id) ?? []));
   }
 
+  async function enqueueSelfHealRetryJobs({ runId, source, jobs }) {
+    await ensureInit();
+
+    const normalized = normalizeExecutedPlaybooks(jobs);
+    const retryJobs = normalized.filter((item) => item.status === 'failed' && item.maxRetries > item.retriesUsed);
+    for (const item of retryJobs) {
+      await pool.query(
+        `
+        INSERT INTO soon_self_heal_retry_queue (
+          run_id,
+          source,
+          playbook_id,
+          status,
+          attempt_count,
+          max_retries,
+          retries_used,
+          retry_backoff_sec,
+          priority_score,
+          matched_anomaly_codes,
+          next_retry_at,
+          last_error,
+          updated_at
+        ) VALUES (
+          $1,
+          $2,
+          $3,
+          'queued',
+          $4,
+          $5,
+          $6,
+          $7,
+          $8,
+          $9::text[],
+          now() + (($10::int || ' seconds')::interval),
+          'initial_failed',
+          now()
+        )
+      `,
+        [
+          runId,
+          source ?? 'self-heal-worker-v1',
+          item.playbookId,
+          item.attempts ?? 1,
+          item.maxRetries ?? 0,
+          item.retriesUsed ?? 0,
+          item.retryBackoffSec ?? 0,
+          item.priorityScore ?? 0,
+          item.matchedAnomalyCodes ?? [],
+          item.retryBackoffSec ?? 0,
+        ],
+      );
+    }
+
+    const pendingRes = await pool.query(
+      "SELECT COUNT(*)::int AS count FROM soon_self_heal_retry_queue WHERE status = 'queued'",
+    );
+    return {
+      enqueued: retryJobs.length,
+      queueSize: Number(pendingRes.rows[0]?.count ?? 0),
+    };
+  }
+
+  async function processSelfHealRetryQueue({ limit = 20, now = Date.now() } = {}) {
+    await ensureInit();
+
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+    const nowIso = new Date(Number.isFinite(Number(now)) ? Number(now) : Date.now()).toISOString();
+    const dueRes = await pool.query(
+      `
+      SELECT
+        id,
+        run_id,
+        source,
+        playbook_id,
+        attempt_count,
+        max_retries,
+        retries_used,
+        retry_backoff_sec,
+        priority_score,
+        matched_anomaly_codes,
+        next_retry_at
+      FROM soon_self_heal_retry_queue
+      WHERE status = 'queued' AND next_retry_at <= $1::timestamptz
+      ORDER BY priority_score DESC NULLS LAST, next_retry_at ASC
+      LIMIT $2
+    `,
+      [nowIso, safeLimit],
+    );
+
+    let processed = 0;
+    let completed = 0;
+    let rescheduled = 0;
+    let deadLettered = 0;
+
+    for (const row of dueRes.rows) {
+      processed += 1;
+      const retryJob = {
+        playbookId: row.playbook_id,
+        attempts: Number(row.attempt_count ?? 1),
+        maxRetries: Number(row.max_retries ?? 0),
+        retriesUsed: Number(row.retries_used ?? 0),
+        retryBackoffSec: Number(row.retry_backoff_sec ?? 0),
+        matchedAnomalyCodes: Array.isArray(row.matched_anomaly_codes) ? row.matched_anomaly_codes : [],
+      };
+      const outcome = evaluateSelfHealRetryAttempt(retryJob);
+
+      await pool.query(
+        `
+        INSERT INTO soon_self_heal_playbook_execution (
+          run_id,
+          playbook_id,
+          status,
+          attempt_count,
+          max_retries,
+          retries_used,
+          priority_score,
+          retry_backoff_sec,
+          matched_anomaly_codes
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text[])
+      `,
+        [
+          row.run_id,
+          row.playbook_id,
+          outcome.status,
+          outcome.attempts,
+          outcome.maxRetries,
+          outcome.retriesUsed,
+          toNumber(row.priority_score) ?? 0,
+          Number(row.retry_backoff_sec ?? 0),
+          Array.isArray(row.matched_anomaly_codes) ? row.matched_anomaly_codes : [],
+        ],
+      );
+
+      if (outcome.outcome === 'done') {
+        await pool.query(
+          `
+          UPDATE soon_self_heal_retry_queue
+          SET
+            status = 'done',
+            attempt_count = $2,
+            retries_used = $3,
+            last_error = NULL,
+            updated_at = now()
+          WHERE id = $1
+        `,
+          [row.id, outcome.attempts, outcome.retriesUsed],
+        );
+        completed += 1;
+        continue;
+      }
+
+      if (outcome.outcome === 'retry') {
+        await pool.query(
+          `
+          UPDATE soon_self_heal_retry_queue
+          SET
+            status = 'queued',
+            attempt_count = $2,
+            retries_used = $3,
+            next_retry_at = now() + (($4::int || ' seconds')::interval),
+            last_error = 'retry_failed',
+            updated_at = now()
+          WHERE id = $1
+        `,
+          [row.id, outcome.attempts, outcome.retriesUsed, outcome.retryBackoffSec],
+        );
+        rescheduled += 1;
+        continue;
+      }
+
+      await pool.query(
+        `
+        UPDATE soon_self_heal_retry_queue
+        SET
+          status = 'dead_letter',
+          attempt_count = $2,
+          retries_used = $3,
+          last_error = $4,
+          updated_at = now()
+        WHERE id = $1
+      `,
+        [row.id, outcome.attempts, outcome.retriesUsed, outcome.reason ?? 'dead_letter'],
+      );
+
+      await pool.query(
+        `
+        INSERT INTO soon_self_heal_dead_letter (
+          queue_id,
+          run_id,
+          source,
+          playbook_id,
+          final_attempt_count,
+          max_retries,
+          reason,
+          payload
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+      `,
+        [
+          row.id,
+          row.run_id,
+          row.source,
+          row.playbook_id,
+          outcome.attempts,
+          outcome.maxRetries,
+          outcome.reason ?? 'dead_letter',
+          JSON.stringify({
+            matchedAnomalyCodes: Array.isArray(row.matched_anomaly_codes) ? row.matched_anomaly_codes : [],
+            priorityScore: toNumber(row.priority_score) ?? 0,
+            retryBackoffSec: Number(row.retry_backoff_sec ?? 0),
+          }),
+        ],
+      );
+      deadLettered += 1;
+    }
+
+    const pendingRes = await pool.query(
+      "SELECT COUNT(*)::int AS count FROM soon_self_heal_retry_queue WHERE status = 'queued'",
+    );
+
+    return {
+      processed,
+      completed,
+      rescheduled,
+      deadLettered,
+      queuePending: Number(pendingRes.rows[0]?.count ?? 0),
+    };
+  }
+
+  async function getSelfHealRetryStatus() {
+    await ensureInit();
+    const countsRes = await pool.query(
+      `
+      SELECT
+        COALESCE(SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END), 0)::int AS pending,
+        COALESCE(SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END), 0)::int AS done,
+        COALESCE(SUM(CASE WHEN status = 'dead_letter' THEN 1 ELSE 0 END), 0)::int AS dead_letter
+      FROM soon_self_heal_retry_queue
+    `,
+    );
+    const dlqRes = await pool.query('SELECT COUNT(*)::int AS count FROM soon_self_heal_dead_letter');
+
+    return {
+      queuePending: Number(countsRes.rows[0]?.pending ?? 0),
+      queueDone: Number(countsRes.rows[0]?.done ?? 0),
+      queueDeadLetter: Number(countsRes.rows[0]?.dead_letter ?? 0),
+      deadLetterCount: Number(dlqRes.rows[0]?.count ?? 0),
+      scheduler: 'postgres-interval',
+    };
+  }
+
+  async function listSelfHealDeadLetters(limit = 20) {
+    await ensureInit();
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+    const res = await pool.query(
+      `
+      SELECT
+        id,
+        queue_id,
+        run_id,
+        source,
+        playbook_id,
+        final_attempt_count,
+        max_retries,
+        reason,
+        payload,
+        created_at
+      FROM soon_self_heal_dead_letter
+      ORDER BY created_at DESC
+      LIMIT $1
+    `,
+      [safeLimit],
+    );
+
+    return res.rows.map((row) => ({
+      deadLetterId: String(row.id),
+      queueId: row.queue_id === null ? null : String(row.queue_id),
+      runId: row.run_id,
+      source: row.source,
+      playbookId: row.playbook_id,
+      finalAttemptCount: Number(row.final_attempt_count),
+      maxRetries: Number(row.max_retries),
+      reason: row.reason,
+      payload: row.payload ?? {},
+      createdAt: row.created_at.toISOString(),
+    }));
+  }
+
   return {
     mode: 'postgres',
     listTrackings,
@@ -1029,6 +1318,10 @@ export function createPostgresStore({
     getReadModelRefreshStatus,
     recordSelfHealRun,
     listLatestSelfHealRuns,
+    enqueueSelfHealRetryJobs,
+    processSelfHealRetryQueue,
+    getSelfHealRetryStatus,
+    listSelfHealDeadLetters,
     async close() {
       await flushDailyReadModelRefresh();
       await pool.end();

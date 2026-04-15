@@ -5,6 +5,7 @@ import { createInMemoryStore } from '../src/runtime/in-memory-store.mjs';
 import { runPriceScannerWorker } from '../src/runtime/workers/price-scanner-worker.mjs';
 import { runHunterRunnerWorker } from '../src/runtime/workers/hunter-runner-worker.mjs';
 import { runSelfHealWorker } from '../src/runtime/workers/self-heal-worker.mjs';
+import { evaluateSelfHealRetryAttempt } from '../src/runtime/self-heal-playbooks.mjs';
 
 test('price-scanner worker returns scan contract', async () => {
   const store = createInMemoryStore();
@@ -60,7 +61,7 @@ test('self-heal worker returns executed remediation playbooks', async () => {
   }
 });
 
-test('self-heal worker scores and retries anomaly-driven playbooks', async () => {
+test('self-heal worker scores and schedules retries for anomaly-driven playbooks', async () => {
   const result = await runSelfHealWorker({
     readModelStatusProvider: async () => ({
       mode: 'async',
@@ -79,7 +80,7 @@ test('self-heal worker scores and retries anomaly-driven playbooks', async () =>
   });
 
   assert.equal(result.worker, 'self-heal');
-  assert.equal(result.status, 'rollback');
+  assert.equal(result.status, 'failed');
   assert.ok(result.anomalyCount >= 3);
   assert.ok(Array.isArray(result.anomalies));
 
@@ -95,18 +96,56 @@ test('self-heal worker scores and retries anomaly-driven playbooks', async () =>
   assert.equal(scanner.maxRetries, 0);
 
   const backlog = result.executedPlaybooks.find((item) => item.playbookId === 'alert-router-backlog');
-  assert.equal(backlog.status, 'success');
-  assert.equal(backlog.attempts, 2);
-  assert.equal(backlog.retriesUsed, 1);
+  assert.equal(backlog.status, 'failed');
+  assert.equal(backlog.attempts, 1);
+  assert.equal(backlog.retriesUsed, 0);
+  assert.equal(backlog.shouldRetry, true);
   assert.ok(backlog.matchedAnomalyCodes.includes('PENDING_BACKLOG_CRIT'));
 
   const slowPath = result.executedPlaybooks.find((item) => item.playbookId === 'read-model-slow-path');
-  assert.equal(slowPath.status, 'success');
-  assert.equal(slowPath.attempts, 2);
-  assert.equal(slowPath.retriesUsed, 1);
+  assert.equal(slowPath.status, 'failed');
+  assert.equal(slowPath.attempts, 1);
+  assert.equal(slowPath.retriesUsed, 0);
+  assert.equal(slowPath.shouldRetry, true);
   assert.ok(slowPath.matchedAnomalyCodes.includes('REFRESH_DURATION_CRIT'));
 
   for (let i = 1; i < result.executedPlaybooks.length; i += 1) {
     assert.ok(result.executedPlaybooks[i - 1].priorityScore >= result.executedPlaybooks[i].priorityScore);
   }
+});
+
+test('evaluateSelfHealRetryAttempt resolves retry workflow and terminal states', async () => {
+  const firstRetry = evaluateSelfHealRetryAttempt({
+    playbookId: 'alert-router-backlog',
+    attempts: 1,
+    retriesUsed: 0,
+    maxRetries: 1,
+    retryBackoffSec: 20,
+    matchedAnomalyCodes: ['PENDING_BACKLOG_CRIT'],
+  });
+  assert.equal(firstRetry.outcome, 'done');
+  assert.equal(firstRetry.status, 'success');
+  assert.equal(firstRetry.attempts, 2);
+
+  const exhausted = evaluateSelfHealRetryAttempt({
+    playbookId: 'read-model-slow-path',
+    attempts: 0,
+    retriesUsed: 0,
+    maxRetries: 0,
+    retryBackoffSec: 30,
+    matchedAnomalyCodes: ['REFRESH_DURATION_CRIT'],
+  });
+  assert.equal(exhausted.outcome, 'dead_letter');
+  assert.equal(exhausted.status, 'failed');
+  assert.equal(exhausted.reason, 'retry_budget_exhausted');
+
+  const unknown = evaluateSelfHealRetryAttempt({
+    playbookId: 'unknown-playbook',
+    attempts: 1,
+    retriesUsed: 0,
+    maxRetries: 1,
+    matchedAnomalyCodes: [],
+  });
+  assert.equal(unknown.outcome, 'dead_letter');
+  assert.match(unknown.reason, /unknown_playbook/);
 });

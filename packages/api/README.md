@@ -24,6 +24,9 @@ Minimalny runtime API v1 dla projektu `Soon`.
 11. `GET /metrics` (Prometheus/OpenTelemetry scrape endpoint)
 12. `POST /self-heal/run` (manualny trigger cyklu self-heal; anomalies + scoring priorytetów + retry policy)
 13. `GET /self-heal/runs/latest?limit=20` (historia self-heal runów; `playbookId + status + attempts/retries`)
+14. `POST /self-heal/retry/process` (ręczne przetworzenie due retry queue; body: `limit`, opcjonalnie `now`)
+15. `GET /self-heal/retry/status` (stan kolejki retry + dead-letter)
+16. `GET /self-heal/dead-letter?limit=20` (najnowsze wpisy dead-letter)
 
 ## Storage mode
 
@@ -32,6 +35,7 @@ Minimalny runtime API v1 dla projektu `Soon`.
 3. `SOON_DATABASE_URL=postgres://...` (wymagane dla trybu postgres)
 4. `SOON_DATABASE_SSL=1` (opcjonalnie)
 5. `SOON_READ_MODEL_REFRESH_MODE=async|sync` (postgres, domyślnie `async`)
+6. `SOON_SELF_HEAL_RETRY_INTERVAL_SEC` (scheduler retry queue, domyślnie `30`, min `5`)
 
 ## Observability
 
@@ -64,6 +68,8 @@ Minimalny runtime API v1 dla projektu `Soon`.
 - `soon_alert_dispatch_audit`
 - `soon_self_heal_run`
 - `soon_self_heal_playbook_execution`
+- `soon_self_heal_retry_queue`
+- `soon_self_heal_dead_letter`
 - `soon_maintenance_event`
 
 ## Legacy backup retention

@@ -410,18 +410,28 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
       }
 
       if (method === 'POST' && pathname === '/self-heal/run') {
+        const body = await readJsonBody(req).catch(() => ({}));
+        const override = body?.readModelStatusOverride ?? null;
         const cycle = await runSelfHealWorker({
           readModelStatusProvider: store.getReadModelRefreshStatus
-            ? async () => store.getReadModelRefreshStatus()
+            ? async () => (override ?? store.getReadModelRefreshStatus())
             : undefined,
         });
         const persisted = store.recordSelfHealRun ? await store.recordSelfHealRun(cycle) : null;
+        const retryQueue = store.enqueueSelfHealRetryJobs
+          ? await store.enqueueSelfHealRetryJobs({
+              runId: persisted?.runId ?? cycle.runId ?? null,
+              source: cycle.source,
+              jobs: cycle.executedPlaybooks,
+            })
+          : null;
 
         return sendJson(res, 200, {
           status: 'ok',
           ...cycle,
           runId: persisted?.runId ?? null,
           persisted,
+          retryQueue,
         });
       }
 
@@ -434,6 +444,42 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         }
 
         const items = await store.listLatestSelfHealRuns(limit);
+        return sendJson(res, 200, { items, count: items.length });
+      }
+
+      if (method === 'POST' && pathname === '/self-heal/retry/process') {
+        const body = await readJsonBody(req).catch(() => ({}));
+        const rawLimit = Number(body?.limit ?? url.searchParams.get('limit') ?? 20);
+        const limit = Math.max(1, Math.min(100, Number.isFinite(rawLimit) ? rawLimit : 20));
+        const rawNow = body?.now ?? url.searchParams.get('now');
+        const now = Number.isFinite(Number(rawNow)) ? Number(rawNow) : Date.now();
+
+        if (!store.processSelfHealRetryQueue) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const summary = await store.processSelfHealRetryQueue({ limit, now });
+        return sendJson(res, 200, { status: 'ok', summary });
+      }
+
+      if (method === 'GET' && pathname === '/self-heal/retry/status') {
+        if (!store.getSelfHealRetryStatus) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const status = await store.getSelfHealRetryStatus();
+        return sendJson(res, 200, status);
+      }
+
+      if (method === 'GET' && pathname === '/self-heal/dead-letter') {
+        const rawLimit = Number(url.searchParams.get('limit') ?? 20);
+        const limit = Math.max(1, Math.min(100, Number.isFinite(rawLimit) ? rawLimit : 20));
+
+        if (!store.listSelfHealDeadLetters) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const items = await store.listSelfHealDeadLetters(limit);
         return sendJson(res, 200, { items, count: items.length });
       }
 
@@ -470,8 +516,23 @@ function startFromCli() {
 
   const store = resolveStore();
   const server = createSoonApiServer({ store });
+  const retryIntervalSec = Math.max(5, Number(process.env.SOON_SELF_HEAL_RETRY_INTERVAL_SEC ?? 30));
+  let retryTimer = null;
+
+  if (store.processSelfHealRetryQueue) {
+    retryTimer = setInterval(() => {
+      store.processSelfHealRetryQueue({ limit: 20 }).catch((error) => {
+        console.error('[Soon/self-heal] retry scheduler error', error);
+      });
+    }, retryIntervalSec * 1000);
+    retryTimer.unref();
+  }
 
   const shutdown = async () => {
+    if (retryTimer) {
+      clearInterval(retryTimer);
+      retryTimer = null;
+    }
     await new Promise((resolve) => server.close(resolve));
     if (store?.close) {
       await store.close();

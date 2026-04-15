@@ -430,6 +430,41 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 3. `npm run smoke:e2e` -> PASS.
 4. `npm run check` -> PASS.
 
+### Update (2026-04-15, self-heal async retry queue + dead-letter)
+
+1. Dodano migrację `008_self_heal_retry_queue.sql`:
+   - `soon_self_heal_retry_queue`
+   - `soon_self_heal_dead_letter`
+   - indeksy dla due queue i dead-letter timeline.
+2. Przebudowano wykonanie playbooków:
+   - pierwszy cykl `self-heal/run` wykonuje tylko attempt #1,
+   - porażki z retry policy są odkładane do kolejki async (`shouldRetry=true`).
+3. Dodano runtime evaluator retry:
+   - `evaluateSelfHealRetryAttempt(...)` (outcome: `done|retry|dead_letter`).
+4. Rozszerzono `memory` i `postgres` store o:
+   - `enqueueSelfHealRetryJobs(...)`
+   - `processSelfHealRetryQueue(...)`
+   - `getSelfHealRetryStatus()`
+   - `listSelfHealDeadLetters(limit)`.
+5. Dodano endpointy API:
+   - `POST /self-heal/retry/process`
+   - `GET /self-heal/retry/status`
+   - `GET /self-heal/dead-letter?limit=20`
+6. Dodano scheduler retry queue po stronie API runtime:
+   - ENV: `SOON_SELF_HEAL_RETRY_INTERVAL_SEC` (default 30s, min 5s).
+7. `POST /self-heal/run`:
+   - wspiera `readModelStatusOverride`,
+   - zwraca `retryQueue` (`enqueued`, `queueSize`).
+8. Zaktualizowano client web (`api-client`) o metody retry/dead-letter.
+9. Rozszerzono testy:
+   - workers: scenariusz async retry scheduling + evaluator terminal states,
+   - contracts: retry status/dead-letter endpointy + procesowanie queue.
+10. Zaktualizowano `packages/api/README.md` o nowe endpointy, scheduler i tabele DB.
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS (contracts + workers + smoke).
+
 ### Update (2026-04-15, self-heal priority scoring + retry policy)
 
 1. Rozszerzono `self-heal` o scoring priorytetów playbooków na podstawie:

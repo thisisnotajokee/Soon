@@ -111,6 +111,35 @@ export function createApiClient(baseUrl) {
       return body;
     },
 
+    async processSelfHealRetryQueue(limit = 20) {
+      const safeLimit = Number.isFinite(Number(limit)) ? Number(limit) : 20;
+      const response = await fetch(`${apiBase}/self-heal/retry/process`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ limit: safeLimit }),
+      });
+      const body = await response.json();
+      assertOk(response, body, 'processSelfHealRetryQueue');
+      return body;
+    },
+
+    async getSelfHealRetryStatus() {
+      const response = await fetch(`${apiBase}/self-heal/retry/status`);
+      const body = await response.json();
+      assertOk(response, body, 'getSelfHealRetryStatus');
+      return body;
+    },
+
+    async getSelfHealDeadLetter(limit = 20) {
+      const safeLimit = Number.isFinite(Number(limit)) ? Number(limit) : 20;
+      const response = await fetch(
+        `${apiBase}/self-heal/dead-letter?limit=${encodeURIComponent(String(safeLimit))}`,
+      );
+      const body = await response.json();
+      assertOk(response, body, 'getSelfHealDeadLetter');
+      return body;
+    },
+
     async getPrometheusMetrics() {
       const response = await fetch(`${apiBase}/metrics`);
       const body = await response.text();

@@ -187,27 +187,83 @@ function resolvePlaybookAttemptStatus(playbook, matchedFindings, attempt) {
   return resolvePlaybookStatus(playbook, matchedFindings);
 }
 
-function executePlaybookWithRetry(playbook) {
+function executePlaybookInitial(playbook) {
   const maxRetries = toNumber(playbook.retryPolicy?.maxRetries, 0);
   const retryBackoffSec = toNumber(playbook.retryPolicy?.backoffSec, 0);
-  let attempts = 0;
-  let status = 'success';
-
-  while (attempts <= maxRetries) {
-    attempts += 1;
-    status = resolvePlaybookAttemptStatus(playbook, playbook.matchedFindings, attempts);
-    if (status !== 'failed') break;
-  }
+  const attempts = 1;
+  const status = resolvePlaybookAttemptStatus(playbook, playbook.matchedFindings, attempts);
+  const retriesUsed = 0;
+  const shouldRetry = status === 'failed' && retriesUsed < maxRetries;
 
   return {
     playbookId: playbook.id,
     status,
     attempts,
     maxRetries,
-    retriesUsed: Math.max(0, attempts - 1),
+    retriesUsed,
     retryBackoffSec,
+    shouldRetry,
     priorityScore: Number(playbook.priorityScore.toFixed(2)),
     matchedAnomalyCodes: playbook.matchedFindings.map((item) => item.code),
+  };
+}
+
+function resolvePlaybookDefinition(playbookId) {
+  return DEFAULT_PLAYBOOKS.find((item) => item.id === playbookId) ?? null;
+}
+
+function toMatchedFindingsFromCodes(codes = []) {
+  return codes.map((code) => ({ code }));
+}
+
+export function evaluateSelfHealRetryAttempt(retryJob) {
+  const playbook = resolvePlaybookDefinition(retryJob?.playbookId);
+  if (!playbook) {
+    return {
+      outcome: 'dead_letter',
+      status: 'failed',
+      attempts: toNumber(retryJob?.attempts, 1),
+      retriesUsed: toNumber(retryJob?.retriesUsed, 0),
+      maxRetries: toNumber(retryJob?.maxRetries, 0),
+      reason: `unknown_playbook:${String(retryJob?.playbookId ?? 'missing')}`,
+    };
+  }
+
+  const matchedFindings = toMatchedFindingsFromCodes(retryJob?.matchedAnomalyCodes ?? []);
+  const currentAttempts = toNumber(retryJob?.attempts, 1);
+  const maxRetries = Math.max(0, toNumber(retryJob?.maxRetries, 0));
+  const nextAttempt = currentAttempts + 1;
+  const status = resolvePlaybookAttemptStatus(playbook, matchedFindings, nextAttempt);
+  const retriesUsed = Math.max(0, nextAttempt - 1);
+
+  if (status === 'failed' && retriesUsed < maxRetries) {
+    return {
+      outcome: 'retry',
+      status,
+      attempts: nextAttempt,
+      retriesUsed,
+      maxRetries,
+      retryBackoffSec: Math.max(0, toNumber(retryJob?.retryBackoffSec, 0)),
+    };
+  }
+
+  if (status === 'failed') {
+    return {
+      outcome: 'dead_letter',
+      status,
+      attempts: nextAttempt,
+      retriesUsed,
+      maxRetries,
+      reason: 'retry_budget_exhausted',
+    };
+  }
+
+  return {
+    outcome: 'done',
+    status,
+    attempts: nextAttempt,
+    retriesUsed,
+    maxRetries,
   };
 }
 
@@ -220,7 +276,7 @@ function resolveCycleStatus(executedPlaybooks) {
 export function remediationCycle({ readModelStatus, now = Date.now(), thresholds } = {}) {
   const anomalies = detectSelfHealAnomalies({ readModelStatus, now, thresholds });
   const plan = selectPlaybooks(anomalies);
-  const executedPlaybooks = plan.map((playbook) => executePlaybookWithRetry(playbook));
+  const executedPlaybooks = plan.map((playbook) => executePlaybookInitial(playbook));
 
   return {
     status: resolveCycleStatus(executedPlaybooks),

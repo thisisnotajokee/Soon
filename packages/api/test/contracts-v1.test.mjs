@@ -254,6 +254,8 @@ test('POST /self-heal/run persists self-heal run and playbooks', async () => {
     assert.ok(Number.isFinite(run.body.executedPlaybooks[0].retryBackoffSec));
     assert.ok(Array.isArray(run.body.executedPlaybooks[0].matchedAnomalyCodes));
     assert.ok(run.body.runId);
+    assert.ok(run.body.retryQueue);
+    assert.ok(Number.isFinite(run.body.retryQueue.enqueued));
 
     const latest = await readJson(await fetch(`${baseUrl}/self-heal/runs/latest?limit=5`));
     assert.equal(latest.status, 200);
@@ -266,6 +268,61 @@ test('POST /self-heal/run persists self-heal run and playbooks', async () => {
     assert.ok(['success', 'rollback', 'failed'].includes(latest.body.items[0].executedPlaybooks[0].status));
     assert.ok(Number.isFinite(latest.body.items[0].executedPlaybooks[0].attempts));
     assert.ok(Number.isFinite(latest.body.items[0].executedPlaybooks[0].priorityScore));
+
+    const retryStatus = await readJson(await fetch(`${baseUrl}/self-heal/retry/status`));
+    assert.equal(retryStatus.status, 200);
+    assert.ok(Number.isFinite(retryStatus.body.queuePending));
+    assert.ok(Number.isFinite(retryStatus.body.deadLetterCount));
+
+    const deadLetter = await readJson(await fetch(`${baseUrl}/self-heal/dead-letter?limit=5`));
+    assert.equal(deadLetter.status, 200);
+    assert.ok(Array.isArray(deadLetter.body.items));
+    assert.ok(Number.isFinite(deadLetter.body.count));
+  });
+});
+
+test('POST /self-heal/retry/process drains queued retries created from anomaly run', async () => {
+  await withServer(async (baseUrl) => {
+    const run = await readJson(
+      await fetch(`${baseUrl}/self-heal/run`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          readModelStatusOverride: {
+            mode: 'async',
+            pendingCount: 12,
+            pendingDays: [],
+            inFlight: false,
+            lastQueuedAt: null,
+            lastStartedAt: null,
+            lastFinishedAt: new Date().toISOString(),
+            lastDurationMs: 20000,
+            lastBatchDays: 1,
+            totalRuns: 10,
+            totalErrors: 1,
+            lastError: { message: 'refresh failed' },
+          },
+        }),
+      }),
+    );
+
+    assert.equal(run.status, 200);
+    assert.ok(run.body.retryQueue.enqueued >= 1);
+
+    const process = await readJson(
+      await fetch(`${baseUrl}/self-heal/retry/process`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ limit: 10, now: Date.now() + 120000 }),
+      }),
+    );
+    assert.equal(process.status, 200);
+    assert.ok(process.body.summary.processed >= 1);
+    assert.ok(process.body.summary.completed >= 1);
+
+    const retryStatus = await readJson(await fetch(`${baseUrl}/self-heal/retry/status`));
+    assert.equal(retryStatus.status, 200);
+    assert.equal(retryStatus.body.queuePending, 0);
   });
 });
 
