@@ -1117,3 +1117,32 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Dodać endpoint diagnostyczny runtime-state dla self-heal guardrails (read-only) do szybkiej inspekcji operacyjnej.
+
+### Update (2026-04-16, runtime-state observability + cooldown metric)
+
+1. Dodano read-only endpoint diagnostyczny runtime state:
+   - `GET /self-heal/runtime-state?key=...`
+   - `GET /api/self-heal/runtime-state?key=...`
+2. Endpoint ma allowlist key i walidację:
+   - `key_required` dla brakującego key,
+   - `key_not_allowed` dla key poza allowlistą.
+3. Rozszerzono runtime state remediacji o `cooldownSec` przy zapisie.
+4. Dodano Prometheus gauge:
+   - `soon_alert_routing_remediation_cooldown_remaining_seconds`
+   - metryka pokazuje pozostały cooldown auto-remediation alert routing.
+5. Rozszerzono kontrakty:
+   - test endpointu runtime state (walidacja + poprawny cooldown snapshot),
+   - test eksportu nowej metryki w `/metrics`.
+
+### Testy / weryfikacja
+
+1. `npm run test:contracts` -> PASS (25/25).
+2. `npm run check` -> PASS.
+
+### Ryzyka
+
+1. Endpoint jest świadomie ograniczony allowlistą; dodanie nowych kluczy runtime-state wymaga jawnego rozszerzenia allowlist.
+
+### Następny krok
+
+1. Dodać kontrolkę operacyjną (CLI/script) do szybkiego odczytu `/api/self-heal/runtime-state` i alarmowania, gdy cooldown utrzymuje się nienaturalnie długo.
