@@ -76,6 +76,79 @@ test('POST /trackings/:asin/thresholds persists values', async () => {
   });
 });
 
+test('POST /api/token-control/allocate ranks candidates and applies token budget cap', async () => {
+  await withServer(async (baseUrl) => {
+    const allocation = await readJson(
+      await fetch(`${baseUrl}/api/token-control/allocate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          budgetTokens: 12,
+          items: [
+            { asin: 'A-LOW', expectedValue: 100, confidence: 0.5, tokenCost: 50 },
+            { asin: 'B-HIGH', expectedValue: 60, confidence: 0.9, tokenCost: 10 },
+            { asin: 'C-MID', expectedValue: 50, confidence: 0.4, tokenCost: 5 },
+          ],
+        }),
+      }),
+    );
+
+    assert.equal(allocation.status, 200);
+    assert.equal(allocation.body.status, 'ok');
+    assert.equal(allocation.body.budgetMode, 'capped');
+    assert.equal(allocation.body.summary.requested, 3);
+    assert.equal(allocation.body.summary.selected, 1);
+    assert.equal(allocation.body.summary.skipped, 2);
+    assert.equal(allocation.body.summary.totalTokenCostSelected, 10);
+    assert.equal(allocation.body.summary.remainingBudgetTokens, 2);
+    assert.equal(allocation.body.plan[0].asin, 'B-HIGH');
+    assert.equal(allocation.body.plan[0].selected, true);
+    assert.equal(allocation.body.plan[1].asin, 'C-MID');
+    assert.equal(allocation.body.plan[1].selected, false);
+    assert.equal(allocation.body.plan[1].skipReason, 'budget_exceeded');
+  });
+});
+
+test('POST /token-control/allocate validates payload shape', async () => {
+  await withServer(async (baseUrl) => {
+    const missingItems = await readJson(
+      await fetch(`${baseUrl}/token-control/allocate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      }),
+    );
+    assert.equal(missingItems.status, 400);
+    assert.equal(missingItems.body.error, 'items_required');
+
+    const invalidBudget = await readJson(
+      await fetch(`${baseUrl}/token-control/allocate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          budgetTokens: -1,
+          items: [{ asin: 'B0TEST1', expectedValue: 10, confidence: 0.5, tokenCost: 5 }],
+        }),
+      }),
+    );
+    assert.equal(invalidBudget.status, 400);
+    assert.equal(invalidBudget.body.error, 'budget_tokens_invalid');
+
+    const invalidItem = await readJson(
+      await fetch(`${baseUrl}/token-control/allocate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          items: [{ asin: '', expectedValue: 10, confidence: 0.5, tokenCost: 5 }],
+        }),
+      }),
+    );
+    assert.equal(invalidItem.status, 400);
+    assert.equal(invalidItem.body.error, 'invalid_item');
+    assert.equal(invalidItem.body.reason, 'asin_required');
+  });
+});
+
 test('POST /automation/cycle enforces alert channel policy', async () => {
   await withServer(async (baseUrl) => {
     const { status, body } = await readJson(

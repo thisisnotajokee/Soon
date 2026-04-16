@@ -10,6 +10,41 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ---
 
+## 2026-04-16 — Token Control Plane v1 (kontrakt + endpoint)
+
+### Zakres
+
+1. Dodano endpoint `POST /token-control/allocate` + alias `POST /api/token-control/allocate`.
+2. Dodano walidację payloadu (`items_required`, `invalid_item`, `budget_tokens_invalid`).
+3. Dodano deterministyczne sortowanie planu tokenów (`priority desc`, `tokenCost asc`, `asin asc`).
+4. Dodano tryb budżetowy:
+- bez limitu (`budgetMode=unbounded`),
+- z limitem (`budgetMode=capped`) + `selected/skipped` i `remainingBudgetTokens`.
+5. Rozszerzono kontrakty HTTP o testy token-control-plane.
+6. Zaktualizowano dokumentację endpointów (`packages/api/README.md`).
+
+### Kluczowe decyzje
+
+1. V1 token-control-plane jest jawnie backend-only i API-first (bez UI).
+2. Priorytet tokenowy opiera się o prostą i audytowalną formułę: `(expectedValue * confidence) / tokenCost`.
+3. Budżet jest opcjonalny; jeśli brak limitu, endpoint zwraca pełny ranking bez odrzucania pozycji.
+
+### Testy / weryfikacja
+
+1. `npm run test:contracts` -> (do uruchomienia po merge bieżących zmian).
+
+### Ryzyka
+
+1. V1 nie ma jeszcze persystencji planu tokenów (to etap API kontraktowego).
+2. Brak dynamicznego, automatycznego budżetowania dziennego (kolejny etap token-policy runtime).
+
+### Następny krok
+
+1. Dodać persystencję snapshotów alokacji tokenów + endpoint read-model (`GET /token-control/snapshots/latest`).
+2. Podpiąć token-control-plane do `automation/cycle` jako źródło decyzji budżetowych.
+
+---
+
 ## 2026-04-15 — Bootstrap v1 + porządek ENV
 
 ### Zakres
