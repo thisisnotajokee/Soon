@@ -13,6 +13,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const TRIAGE_SCRIPT = resolve(__dirname, '../scripts/self-heal-requeue-triage.mjs');
 const DOCTOR_SUMMARY_SCRIPT = resolve(__dirname, '../scripts/doctor-summary.mjs');
 const TRIAGE_VALIDATE_SCRIPT = resolve(__dirname, '../scripts/self-heal-triage-validate.mjs');
+const RUNTIME_STATE_CHECK_SCRIPT = resolve(__dirname, '../scripts/self-heal-runtime-state-check.mjs');
 
 async function withMockTriageServer(fn) {
   const server = http.createServer((req, res) => {
@@ -171,6 +172,99 @@ test('self-heal-triage-validate fails when required fields are missing', async (
   await assert.rejects(
     execFileAsync(process.execPath, [TRIAGE_VALIDATE_SCRIPT, triagePath], { env: process.env }),
     /policy must be an object|bulk.summary must be an object/,
+  );
+});
+
+async function withMockRuntimeStateServer(runtimeStatePayload, fn) {
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+    if (url.pathname !== '/api/self-heal/runtime-state') {
+      res.writeHead(404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'not_found', pathname: url.pathname }));
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(runtimeStatePayload));
+  });
+
+  await new Promise((resolveListen) => server.listen(0, '127.0.0.1', resolveListen));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    await fn(baseUrl);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+}
+
+async function runRuntimeStateCli(baseUrl, envExtra = {}) {
+  try {
+    const { stdout } = await execFileAsync(process.execPath, [RUNTIME_STATE_CHECK_SCRIPT], {
+      env: {
+        ...process.env,
+        SOON_ALERT_BASE_URL: baseUrl,
+        ...envExtra,
+      },
+    });
+    return { code: 0, stdout };
+  } catch (error) {
+    return {
+      code: typeof error?.code === 'number' ? error.code : 1,
+      stdout: String(error?.stdout ?? ''),
+      stderr: String(error?.stderr ?? ''),
+    };
+  }
+}
+
+test('self-heal-runtime-state-check returns PASS when cooldown is not active', async () => {
+  await withMockRuntimeStateServer(
+    {
+      status: 'ok',
+      key: 'alert_routing_last_remediation_at',
+      found: false,
+      runtimeState: null,
+      cooldown: {
+        cooldownActive: false,
+        cooldownRemainingSec: 0,
+      },
+    },
+    async (baseUrl) => {
+      const result = await runRuntimeStateCli(baseUrl);
+      assert.equal(result.code, 0);
+      assert.match(result.stdout, /\[Soon\/self-heal-runtime-state\] PASS/);
+      assert.match(result.stdout, /cooldownRemainingSec=0/);
+    },
+  );
+});
+
+test('self-heal-runtime-state-check returns WARN when cooldown remains above warn threshold', async () => {
+  await withMockRuntimeStateServer(
+    {
+      status: 'ok',
+      key: 'alert_routing_last_remediation_at',
+      found: true,
+      runtimeState: {
+        stateKey: 'alert_routing_last_remediation_at',
+        stateValue: {
+          timestamp: new Date().toISOString(),
+          cooldownSec: 3600,
+        },
+      },
+      cooldown: {
+        cooldownActive: true,
+        cooldownRemainingSec: 2500,
+      },
+    },
+    async (baseUrl) => {
+      const result = await runRuntimeStateCli(baseUrl, {
+        SOON_SELF_HEAL_COOLDOWN_WARN_SEC: '1800',
+        SOON_SELF_HEAL_COOLDOWN_CRIT_SEC: '7200',
+      });
+      assert.equal(result.code, 1);
+      assert.match(result.stdout, /\[Soon\/self-heal-runtime-state\] WARN/);
+      assert.match(result.stdout, /SELF_HEAL_COOLDOWN_STUCK_WARN/);
+    },
   );
 });
 
