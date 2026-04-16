@@ -21,26 +21,26 @@ Minimalny runtime API v1 dla projektu `Soon`.
 8. `GET /token-control/probe-policy` lub `GET /api/token-control/probe-policy` (diagnostyka probe policy: effective config, budget status bieżącego i poprzedniego dnia, derived auto-tune decision, cooldown snapshot, last auto-tune decision, last reset audit)
 9. `GET /token-control/probe-policy/reset-auth/status` lub `GET /api/token-control/probe-policy/reset-auth/status` (status guardu auth dla endpointu resetu probe; bez ujawniania sekretu)
 10. `POST /token-control/probe-policy/reset-auth/rotate` lub `POST /api/token-control/probe-policy/reset-auth/rotate` (rotacja klucza operacyjnego resetu probe przez staged next key z grace window; body: `confirm`, `reason`, `nextOpsKey`, opcjonalnie `actor`, `graceSec`, `dryRun`, `now`; confirmation literal: `ROTATE_TOKEN_BUDGET_PROBE_RESET_OPS_KEY`)
-10. `POST /token-control/probe-policy/reset` lub `POST /api/token-control/probe-policy/reset` (manualny reset runtime-state probe z guardrailami; body: `confirm`, `reason`, opcjonalnie `actor`, `dryRun`, `now`; confirmation literal: `RESET_TOKEN_BUDGET_PROBE_STATE`; gdy ustawione `SOON_TOKEN_PROBE_RESET_OPS_KEY` endpoint wymaga nagłówka `x-soon-ops-key` lub `Authorization: Bearer <key>`)
-11. `POST /automation/cycle` (zapisuje run + token snapshot wg policy, zwraca `tokenSnapshotId`; opcjonalny override body: `tokenPolicy.mode`, `tokenPolicy.budgetTokens`, `tokenPolicy.probeBudgetTokens`, `tokenPolicy.probeCooldownSec`, `tokenPolicy.maxProbesPerDay`, `tokenPolicy.autoTuneProbePolicy`, `tokenPolicy.probeAutoTuneMinCooldownSec`, `tokenPolicy.probeAutoTuneHighCooldownSec`, `now`; policy capped bierze realny `remainingTokens` dnia; przy `token_budget_exhausted` aktywuje `smart probe` (cooldown + dzienny cap) lub fallback `smart deferral`; gdy `autoTuneProbePolicy=true` system dostraja probe cooldown/cap na bazie presji budżetu `usagePct + trend dzienny`, zapisując runtime-state key `token_budget_last_probe_at` / `token_budget_last_deferral_at`)
-12. `GET /automation/runs/latest?limit=20`
-13. `GET /automation/runs/summary?limit=20`
-14. `GET /automation/runs/trends?days=30` (`24h`, `7d`, `30d`, source: daily read-model)
-15. `GET /automation/runs/daily?days=30` (read-model dzienny dashboardu)
-16. `GET /automation/read-model/status` (diagnostyka kolejki refreshu)
-17. `GET /metrics` (Prometheus/OpenTelemetry scrape endpoint)
-18. `POST /self-heal/run` (manualny trigger cyklu self-heal; anomalies + scoring priorytetów + retry policy)
-19. `GET /self-heal/runs/latest?limit=20` (historia self-heal runów; `playbookId + status + attempts/retries`)
-20. `POST /self-heal/retry/process` (ręczne przetworzenie due retry queue; body: `limit`, opcjonalnie `now`)
-21. `GET /self-heal/retry/status` (stan kolejki retry + dead-letter)
-22. `GET /self-heal/dead-letter?limit=20` (najnowsze wpisy dead-letter)
-23. `POST /self-heal/dead-letter/requeue` (ręczne przywrócenie dead-letter do retry queue; body: `deadLetterId`)
+11. `POST /token-control/probe-policy/reset` lub `POST /api/token-control/probe-policy/reset` (manualny reset runtime-state probe z guardrailami; body: `confirm`, `reason`, opcjonalnie `actor`, `dryRun`, `now`; confirmation literal: `RESET_TOKEN_BUDGET_PROBE_STATE`; gdy ustawione `SOON_TOKEN_PROBE_RESET_OPS_KEY` endpoint wymaga nagłówka `x-soon-ops-key` lub `Authorization: Bearer <key>`)
+12. `POST /automation/cycle` (zapisuje run + token snapshot wg policy, zwraca `tokenSnapshotId`; opcjonalny override body: `tokenPolicy.mode`, `tokenPolicy.budgetTokens`, `tokenPolicy.probeBudgetTokens`, `tokenPolicy.probeCooldownSec`, `tokenPolicy.maxProbesPerDay`, `tokenPolicy.autoTuneProbePolicy`, `tokenPolicy.probeAutoTuneMinCooldownSec`, `tokenPolicy.probeAutoTuneHighCooldownSec`, `now`; policy capped bierze realny `remainingTokens` dnia; przy `token_budget_exhausted` aktywuje `smart probe` (cooldown + dzienny cap) lub fallback `smart deferral`; gdy `autoTuneProbePolicy=true` system dostraja probe cooldown/cap na bazie presji budżetu `usagePct + trend dzienny`, zapisując runtime-state key `token_budget_last_probe_at` / `token_budget_last_deferral_at`)
+13. `GET /automation/runs/latest?limit=20`
+14. `GET /automation/runs/summary?limit=20`
+15. `GET /automation/runs/trends?days=30` (`24h`, `7d`, `30d`, source: daily read-model)
+16. `GET /automation/runs/daily?days=30` (read-model dzienny dashboardu)
+17. `GET /automation/read-model/status` (diagnostyka kolejki refreshu)
+18. `GET /metrics` (Prometheus/OpenTelemetry scrape endpoint)
+19. `POST /self-heal/run` (manualny trigger cyklu self-heal; anomalies + scoring priorytetów + retry policy)
+20. `GET /self-heal/runs/latest?limit=20` (historia self-heal runów; `playbookId + status + attempts/retries`)
+21. `POST /self-heal/retry/process` (ręczne przetworzenie due retry queue; body: `limit`, opcjonalnie `now`)
+22. `GET /self-heal/retry/status` (stan kolejki retry + dead-letter)
+23. `GET /self-heal/dead-letter?limit=20` (najnowsze wpisy dead-letter)
+24. `POST /self-heal/dead-letter/requeue` (ręczne przywrócenie dead-letter do retry queue; body: `deadLetterId`)
 : jeśli wpis był już wcześniej przywrócony (`status != dead_letter`), endpoint zwraca `409 dead_letter_not_pending`
-24. `POST /self-heal/dead-letter/requeue-bulk` (hurtowe requeue: `deadLetterIds[]` albo fallback do najnowszych `limit`; opcjonalnie `now`; summary: `requested|requeued|conflicts|missing`; gdy `conflicts>0` lub `missing>0` odpowiedź zawiera `operationalAlert`)
-25. `GET /self-heal/requeue-audit?limit=20&reason=manual_requeue&from=<iso>&to=<iso>` (historia manualnych requeue z filtrami)
-26. `GET /self-heal/requeue-audit/summary?days=7` (agregaty audit: `total`, `byReason`, `byPlaybook`, `daily`)
-27. `GET /api/runtime-self-heal-status` (operacyjny status runtime self-heal: retry queue, dead-letter, latest run, signals)
-28. `GET /api/check-alert-status?limit=20` (kontrola separacji kanałów alertów: purchase->Telegram, technical->Discord)
+25. `POST /self-heal/dead-letter/requeue-bulk` (hurtowe requeue: `deadLetterIds[]` albo fallback do najnowszych `limit`; opcjonalnie `now`; summary: `requested|requeued|conflicts|missing`; gdy `conflicts>0` lub `missing>0` odpowiedź zawiera `operationalAlert`)
+26. `GET /self-heal/requeue-audit?limit=20&reason=manual_requeue&from=<iso>&to=<iso>` (historia manualnych requeue z filtrami)
+27. `GET /self-heal/requeue-audit/summary?days=7` (agregaty audit: `total`, `byReason`, `byPlaybook`, `daily`)
+28. `GET /api/runtime-self-heal-status` (operacyjny status runtime self-heal: retry queue, dead-letter, latest run, signals)
+29. `GET /api/check-alert-status?limit=20` (kontrola separacji kanałów alertów: purchase->Telegram, technical->Discord)
 
 ## Storage mode
 
@@ -100,6 +100,15 @@ Uwagi:
 
 1. Jeśli bulk zwróci `operationalAlert.level=warn`, traktuj to jako sygnał incydentu operacyjnego (partial requeue).
 2. Diagnostyka jest oparta o `summary.conflicts` i `summary.missing`.
+
+## Runbook: probe reset ops key rotation
+
+1. Szczegółowy runbook: `docs/PROBE_RESET_OPS_KEY_ROTATION_RUNBOOK_V1.md`
+2. Sekwencja operacyjna:
+   - `rotate -> update secret -> verify -> expire`
+3. Rollback:
+   - przywróć poprzedni sekret w runtime i CI,
+   - potwierdź auth status endpointem `reset-auth/status`.
 
 ### Alert thresholds (checker ENV)
 

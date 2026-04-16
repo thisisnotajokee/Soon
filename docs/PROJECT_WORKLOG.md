@@ -1795,3 +1795,29 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Dodać runbook operacyjny: sekwencja rotacji (`rotate -> update secret -> verify -> expire`) i checklistę rollback.
+
+### Update (2026-04-16, etap 17 runbook rotacji probe reset ops key)
+
+1. Dodano dedykowany runbook operacyjny:
+   - `docs/PROBE_RESET_OPS_KEY_ROTATION_RUNBOOK_V1.md`
+2. Runbook obejmuje:
+   - sekwencję standardową `rotate -> update secret -> verify -> expire`,
+   - invarianty operacyjne (ciągłość auth key),
+   - minimalny payload rotacji,
+   - checklistę rollback (runtime + CI secrets).
+3. `packages/api/README.md` uzupełniono o:
+   - link do nowego runbooka,
+   - skrót sekwencji operacyjnej i rollback,
+   - poprawioną numerację listy endpointów.
+
+### Testy / weryfikacja
+
+1. Zmiany dokumentacyjne (bez zmian runtime behavior).
+
+### Ryzyka
+
+1. Brak ryzyka runtime; ryzyko pozostaje operacyjne, jeśli sekwencja rotacji nie będzie stosowana konsekwentnie.
+
+### Następny krok
+
+1. Dodać helper skrypt CLI do preflight check rotacji (status + sanity check auth) przed wykonaniem `rotate`.
