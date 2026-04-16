@@ -475,6 +475,124 @@ test('GET /api/token-control/probe-policy/reset-auth/status reports auth guard m
     }
   }
 });
+
+test('POST /api/token-control/probe-policy/reset-auth/rotate stages next ops key with grace window', async () => {
+  const previousOpsKey = process.env.SOON_TOKEN_PROBE_RESET_OPS_KEY;
+  process.env.SOON_TOKEN_PROBE_RESET_OPS_KEY = 'contracts-ops-reset-key-old';
+  try {
+    await withServer(async (baseUrl) => {
+      const day = testDay(42);
+      const stagedOpsKey = 'contracts-ops-reset-key-next';
+
+      const missingKey = await readJson(
+        await fetch(`${baseUrl}/api/token-control/probe-policy/reset-auth/rotate`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            now: `${day}T08:00:00.000Z`,
+            confirm: 'ROTATE_TOKEN_BUDGET_PROBE_RESET_OPS_KEY',
+            reason: 'rotate probe reset ops key for contracts',
+            actor: 'contracts-test',
+            nextOpsKey: stagedOpsKey,
+            graceSec: 90,
+          }),
+        }),
+      );
+      assert.equal(missingKey.status, 401);
+      assert.equal(missingKey.body.error, 'ops_key_required');
+
+      const badKey = await readJson(
+        await fetch(`${baseUrl}/api/token-control/probe-policy/reset-auth/rotate`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-soon-ops-key': 'wrong-key' },
+          body: JSON.stringify({
+            now: `${day}T08:00:00.000Z`,
+            confirm: 'ROTATE_TOKEN_BUDGET_PROBE_RESET_OPS_KEY',
+            reason: 'rotate probe reset ops key for contracts',
+            actor: 'contracts-test',
+            nextOpsKey: stagedOpsKey,
+            graceSec: 90,
+          }),
+        }),
+      );
+      assert.equal(badKey.status, 403);
+      assert.equal(badKey.body.error, 'ops_key_invalid');
+
+      const rotate = await readJson(
+        await fetch(`${baseUrl}/api/token-control/probe-policy/reset-auth/rotate`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-soon-ops-key': 'contracts-ops-reset-key-old',
+          },
+          body: JSON.stringify({
+            now: `${day}T08:00:00.000Z`,
+            confirm: 'ROTATE_TOKEN_BUDGET_PROBE_RESET_OPS_KEY',
+            reason: 'rotate probe reset ops key for contracts',
+            actor: 'contracts-test',
+            nextOpsKey: stagedOpsKey,
+            graceSec: 90,
+          }),
+        }),
+      );
+      assert.equal(rotate.status, 200);
+      assert.equal(rotate.body.rotated, true);
+      assert.equal(rotate.body.rotation?.active, true);
+      assert.equal(rotate.body.rotation?.graceSec, 90);
+
+      const status = await readJson(await fetch(`${baseUrl}/api/token-control/probe-policy/reset-auth/status`));
+      assert.equal(status.status, 200);
+      assert.equal(status.body.auth?.opsKeyRequired, true);
+      assert.equal(status.body.rotation?.active, true);
+      assert.equal(status.body.lastRotationAudit?.found, true);
+
+      const stagedKeyWorks = await readJson(
+        await fetch(`${baseUrl}/api/token-control/probe-policy/reset`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-soon-ops-key': stagedOpsKey,
+          },
+          body: JSON.stringify({
+            now: `${day}T08:01:00.000Z`,
+            confirm: 'RESET_TOKEN_BUDGET_PROBE_STATE',
+            reason: 'manual reset with staged key in grace window',
+            actor: 'contracts-test',
+            dryRun: true,
+          }),
+        }),
+      );
+      assert.equal(stagedKeyWorks.status, 200);
+      assert.equal(stagedKeyWorks.body.dryRun, true);
+
+      const stagedKeyExpired = await readJson(
+        await fetch(`${baseUrl}/api/token-control/probe-policy/reset`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-soon-ops-key': stagedOpsKey,
+          },
+          body: JSON.stringify({
+            now: `${day}T08:03:00.000Z`,
+            confirm: 'RESET_TOKEN_BUDGET_PROBE_STATE',
+            reason: 'manual reset with staged key after grace expiry',
+            actor: 'contracts-test',
+            dryRun: true,
+          }),
+        }),
+      );
+      assert.equal(stagedKeyExpired.status, 403);
+      assert.equal(stagedKeyExpired.body.error, 'ops_key_invalid');
+    });
+  } finally {
+    if (previousOpsKey === undefined) {
+      delete process.env.SOON_TOKEN_PROBE_RESET_OPS_KEY;
+    } else {
+      process.env.SOON_TOKEN_PROBE_RESET_OPS_KEY = previousOpsKey;
+    }
+  }
+});
+
 test('POST /token-control/allocate validates payload shape', async () => {
   await withServer(async (baseUrl) => {
     const missingItems = await readJson(
