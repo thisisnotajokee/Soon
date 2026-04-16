@@ -19,7 +19,7 @@ Minimalny runtime API v1 dla projektu `Soon`.
 6. `GET /token-control/snapshots/latest` lub `GET /api/token-control/snapshots/latest` (ostatnie snapshoty alokacji tokenów)
 7. `GET /token-control/budget/status` lub `GET /api/token-control/budget/status` (status dziennego budżetu tokenów; opcjonalnie `day`, `mode`, `budgetTokens`)
 8. `GET /token-control/probe-policy` lub `GET /api/token-control/probe-policy` (diagnostyka probe policy: effective config, budget status bieżącego i poprzedniego dnia, derived auto-tune decision, cooldown snapshot, last auto-tune decision, last reset audit)
-9. `POST /token-control/probe-policy/reset` lub `POST /api/token-control/probe-policy/reset` (manualny reset runtime-state probe z guardrailami; body: `confirm`, `reason`, opcjonalnie `actor`, `dryRun`, `now`; confirmation literal: `RESET_TOKEN_BUDGET_PROBE_STATE`)
+9. `POST /token-control/probe-policy/reset` lub `POST /api/token-control/probe-policy/reset` (manualny reset runtime-state probe z guardrailami; body: `confirm`, `reason`, opcjonalnie `actor`, `dryRun`, `now`; confirmation literal: `RESET_TOKEN_BUDGET_PROBE_STATE`; gdy ustawione `SOON_TOKEN_PROBE_RESET_OPS_KEY` endpoint wymaga nagłówka `x-soon-ops-key` lub `Authorization: Bearer <key>`)
 10. `POST /automation/cycle` (zapisuje run + token snapshot wg policy, zwraca `tokenSnapshotId`; opcjonalny override body: `tokenPolicy.mode`, `tokenPolicy.budgetTokens`, `tokenPolicy.probeBudgetTokens`, `tokenPolicy.probeCooldownSec`, `tokenPolicy.maxProbesPerDay`, `tokenPolicy.autoTuneProbePolicy`, `tokenPolicy.probeAutoTuneMinCooldownSec`, `tokenPolicy.probeAutoTuneHighCooldownSec`, `now`; policy capped bierze realny `remainingTokens` dnia; przy `token_budget_exhausted` aktywuje `smart probe` (cooldown + dzienny cap) lub fallback `smart deferral`; gdy `autoTuneProbePolicy=true` system dostraja probe cooldown/cap na bazie presji budżetu `usagePct + trend dzienny`, zapisując runtime-state key `token_budget_last_probe_at` / `token_budget_last_deferral_at`)
 11. `GET /automation/runs/latest?limit=20`
 12. `GET /automation/runs/summary?limit=20`
@@ -57,6 +57,7 @@ Minimalny runtime API v1 dla projektu `Soon`.
 13. `SOON_TOKEN_EXHAUSTED_PROBE_AUTOTUNE_MIN_COOLDOWN_SEC=<int>` (opcjonalny minimalny cooldown floor dla wysokiej presji; domyślnie `21600`)
 14. `SOON_TOKEN_EXHAUSTED_PROBE_AUTOTUNE_HIGH_COOLDOWN_SEC=<int>` (opcjonalny cooldown floor dla krytycznej presji; domyślnie `43200`)
 15. `SOON_TOKEN_PROBE_RESET_COOLDOWN_SEC=<int>` (cooldown dla manualnego resetu probe runtime-state; domyślnie `300`)
+16. `SOON_TOKEN_PROBE_RESET_OPS_KEY=<secret>` (opcjonalny klucz operacyjny zabezpieczający endpoint resetu probe; gdy pusty, endpoint działa bez auth key)
 
 ## Observability
 

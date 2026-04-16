@@ -1681,3 +1681,32 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Dodać prosty RBAC/ops key dla endpointu reset (gdy API będzie wystawione publicznie).
+
+### Update (2026-04-16, etap 13 ops key guard dla resetu probe)
+
+1. Dodano prosty RBAC-lite dla endpointu:
+   - `POST /token-control/probe-policy/reset`
+   - `POST /api/token-control/probe-policy/reset`
+2. Gdy ustawione `SOON_TOKEN_PROBE_RESET_OPS_KEY`, endpoint wymaga:
+   - `x-soon-ops-key: <secret>` lub
+   - `Authorization: Bearer <secret>`.
+3. Kody odpowiedzi:
+   - brak klucza -> `401 ops_key_required`,
+   - błędny klucz -> `403 ops_key_invalid`,
+   - poprawny klucz -> normalny flow resetu (`200`, `400`, `409` wg guardraili resetu).
+4. Implementacja porównania kluczy:
+   - constant-time compare (`crypto.timingSafeEqual`).
+5. Kontrakty rozszerzone:
+   - nowy test `POST /api/token-control/probe-policy/reset enforces ops key when configured`.
+
+### Testy / weryfikacja
+
+1. `npm run test:contracts` -> PASS lokalnie po dodaniu testu ops-key.
+
+### Ryzyka
+
+1. Przy braku `SOON_TOKEN_PROBE_RESET_OPS_KEY` endpoint pozostaje otwarty (intencjonalne dla dev/local), więc dla środowisk publicznych klucz musi być ustawiony.
+
+### Następny krok
+
+1. Dodać osobny endpoint `GET /api/token-control/probe-policy/reset-auth/status` (bez ujawniania sekretu), aby monitoring wiedział czy guard jest aktywny.
