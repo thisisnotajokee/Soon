@@ -138,6 +138,27 @@ function toDayKey(value) {
   return new Date(parsed).toISOString().slice(0, 10);
 }
 
+function toBudgetTokens(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Number(parsed.toFixed(2));
+}
+
+function toAmountTokens(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Number(parsed.toFixed(2));
+}
+
+function startOfDayIso(dayKey) {
+  return `${dayKey}T00:00:00.000Z`;
+}
+
+function nextDayIso(dayKey) {
+  const base = Date.parse(`${dayKey}T00:00:00.000Z`);
+  return new Date(base + 24 * 60 * 60 * 1000).toISOString();
+}
+
 function buildDailyReadModel(runs, days) {
   const byDay = new Map();
 
@@ -224,6 +245,7 @@ export function createInMemoryStore() {
   const selfHealDeadLetters = [];
   const selfHealRequeueAudit = [];
   const tokenAllocationSnapshots = [];
+  const tokenDailyBudgetLedger = new Map();
   const runtimeState = new Map();
   let selfHealManualRequeueTotal = 0;
 
@@ -661,6 +683,60 @@ export function createInMemoryStore() {
     return { stateKey: key, ...entry };
   }
 
+  async function getTokenDailyBudgetStatus({ day, budgetTokens } = {}) {
+    const dayKey = toDayKey(day ?? new Date().toISOString());
+    if (!dayKey) return null;
+
+    const normalizedBudget = toBudgetTokens(budgetTokens);
+    const entry = tokenDailyBudgetLedger.get(dayKey);
+    const consumedRaw = entry ? Number(entry.consumedTokens ?? 0) : 0;
+    const consumed =
+      normalizedBudget === null
+        ? Number(Math.max(0, consumedRaw).toFixed(2))
+        : Number(Math.min(normalizedBudget, Math.max(0, consumedRaw)).toFixed(2));
+    const remaining =
+      normalizedBudget === null ? null : Number(Math.max(0, normalizedBudget - consumed).toFixed(2));
+    const usagePct =
+      normalizedBudget === null || normalizedBudget <= 0
+        ? 0
+        : Number(((consumed / normalizedBudget) * 100).toFixed(2));
+
+    return {
+      day: dayKey,
+      mode: normalizedBudget === null ? 'unbounded' : 'capped',
+      budgetTokens: normalizedBudget,
+      consumedTokens: consumed,
+      remainingTokens: remaining,
+      usagePct,
+      exhausted: normalizedBudget !== null ? remaining <= 0 : false,
+      windowStartedAt: startOfDayIso(dayKey),
+      windowResetAt: nextDayIso(dayKey),
+      updatedAt: entry?.updatedAt ?? new Date().toISOString(),
+    };
+  }
+
+  async function consumeTokenDailyBudget({ day, budgetTokens, amountTokens } = {}) {
+    const dayKey = toDayKey(day ?? new Date().toISOString());
+    if (!dayKey) return null;
+
+    const normalizedBudget = toBudgetTokens(budgetTokens);
+    if (normalizedBudget === null) {
+      return getTokenDailyBudgetStatus({ day: dayKey, budgetTokens: null });
+    }
+
+    const amount = toAmountTokens(amountTokens);
+    const existing = tokenDailyBudgetLedger.get(dayKey);
+    const consumedBefore = existing ? Number(existing.consumedTokens ?? 0) : 0;
+    const consumedAfter = Number(Math.min(normalizedBudget, consumedBefore + amount).toFixed(2));
+    tokenDailyBudgetLedger.set(dayKey, {
+      consumedTokens: consumedAfter,
+      budgetTokens: normalizedBudget,
+      updatedAt: new Date().toISOString(),
+    });
+
+    return getTokenDailyBudgetStatus({ day: dayKey, budgetTokens: normalizedBudget });
+  }
+
   async function recordTokenAllocationSnapshot(payload = {}) {
     const snapshot = {
       snapshotId: randomUUID(),
@@ -732,6 +808,8 @@ export function createInMemoryStore() {
     getSelfHealRequeueAuditSummary,
     getRuntimeState,
     setRuntimeState,
+    getTokenDailyBudgetStatus,
+    consumeTokenDailyBudget,
     recordTokenAllocationSnapshot,
     listLatestTokenAllocationSnapshots,
     async close() {

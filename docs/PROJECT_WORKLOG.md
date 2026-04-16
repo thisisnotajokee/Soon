@@ -1413,3 +1413,42 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
    - `SOON_RUNTIME_BASE_URL`,
    - `SOON_RUNTIME_BEARER_TOKEN` lub `SOON_RUNTIME_API_KEY`,
    i dopiero wtedy aktywować monitorowanie runtime przez GitHub Actions.
+
+### Update (2026-04-16, etap 5 token budget daily ledger)
+
+1. Wdrożono dzienny, stanowy ledger budżetu tokenów:
+   - nowa migracja: `packages/api/db/migrations/012_token_daily_budget_ledger.sql`,
+   - store parity (memory + postgres):
+     - `getTokenDailyBudgetStatus({ day, budgetTokens })`,
+     - `consumeTokenDailyBudget({ day, budgetTokens, amountTokens })`.
+2. `POST /automation/cycle` używa teraz realnego `remainingTokens` dla danego dnia:
+   - capped policy jest stosowana do pozostałego dziennego budżetu,
+   - po cyklu następuje konsumpcja `totalTokenCostSelected`,
+   - response zawiera: `tokenPolicyApplied`, `tokenBudgetStatusBefore`, `tokenBudgetStatus`.
+3. Dodano endpoint statusu budżetu:
+   - `GET /token-control/budget/status`
+   - `GET /api/token-control/budget/status`
+   - opcjonalne query: `day`, `mode`, `budgetTokens`.
+4. Rozszerzono metryki Prometheus:
+   - `soon_token_budget_daily_limit_tokens`
+   - `soon_token_budget_consumed_tokens`
+   - `soon_token_budget_remaining_tokens`
+   - `soon_token_budget_usage_pct`
+   - `soon_token_budget_exhausted`
+   - `soon_token_budget_policy_fallback_active`
+5. Dodano alerty:
+   - `SoonTokenDailyBudgetPressureWarn`
+   - `SoonTokenDailyBudgetExhaustedCritical`
+
+### Testy / weryfikacja
+
+1. `npm run test:contracts` -> PASS (30/30).
+2. `npm run check` -> PASS (monitoring + contracts + workers + scripts + smoke:e2e).
+
+### Ryzyka
+
+1. Day-window jest liczony w UTC (`YYYY-MM-DD`); jeśli biznesowo potrzebny inny timezone, trzeba dodać explicit TZ policy.
+
+### Następny krok
+
+1. Dodać etap 6: scenariusz samonaprawy przy `token_budget_exhausted` (automatyczne obniżenie intensywności cyklu / smart deferral) i test kontraktowy dla degradacji graceful.
