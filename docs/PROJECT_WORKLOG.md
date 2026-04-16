@@ -1911,3 +1911,26 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Ujednolicić nazwę secretu probe-reset między watchdog i quality-gate (`SOON_RUNTIME_PROBE_RESET_OPS_KEY` vs `SOON_TOKEN_PROBE_RESET_OPS_KEY`) i zrobić migrację na jedną nazwę.
+
+### Update (2026-04-16, etap 21 secret name unification for probe-reset)
+
+1. Ujednolicono nazwę secretu probe-reset w workflow `runtime-state-watchdog`:
+   - docelowo: `SOON_TOKEN_PROBE_RESET_OPS_KEY`.
+2. Dodano fallback migracyjny (tymczasowy):
+   - jeśli `SOON_TOKEN_PROBE_RESET_OPS_KEY` jest puste, workflow używa legacy `SOON_RUNTIME_PROBE_RESET_OPS_KEY`.
+3. Dzięki temu:
+   - `quality-gate` i `runtime-state-watchdog` używają wspólnej nazwy docelowej,
+   - migracja jest bezpieczna (brak twardego downtime dla watchdoga).
+
+### Testy / weryfikacja
+
+1. Zmiana workflow/docs (bez zmian runtime API).
+2. Weryfikacja finalna przez checki PR (monitoring + postgres + memory).
+
+### Ryzyka
+
+1. Pozostawienie fallbacku zbyt długo może ukryć brak migracji secretu w repo settings.
+
+### Następny krok
+
+1. Po potwierdzeniu obecności `SOON_TOKEN_PROBE_RESET_OPS_KEY` w repo usunąć fallback `SOON_RUNTIME_PROBE_RESET_OPS_KEY` z workflow.
