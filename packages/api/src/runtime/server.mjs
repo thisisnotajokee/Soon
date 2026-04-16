@@ -32,6 +32,7 @@ function resolveStore() {
 const ALERT_ROUTING_REMEDIATION_STATE_KEY = 'alert_routing_last_remediation_at';
 const TOKEN_BUDGET_DEFERRAL_STATE_KEY = 'token_budget_last_deferral_at';
 const TOKEN_BUDGET_PROBE_STATE_KEY = 'token_budget_last_probe_at';
+const TOKEN_BUDGET_PROBE_RESET_AUDIT_STATE_KEY = 'token_budget_probe_reset_audit_last';
 const TOKEN_BUDGET_PROBE_DEFAULT_COOLDOWN_SEC = 24 * 60 * 60;
 const TOKEN_BUDGET_PROBE_AUTOTUNE_FALLBACK_MIN_COOLDOWN_SEC = 6 * 60 * 60;
 const TOKEN_BUDGET_PROBE_AUTOTUNE_FALLBACK_HIGH_COOLDOWN_SEC = 12 * 60 * 60;
@@ -39,6 +40,7 @@ const RUNTIME_STATE_ALLOWLIST = new Set([
   ALERT_ROUTING_REMEDIATION_STATE_KEY,
   TOKEN_BUDGET_DEFERRAL_STATE_KEY,
   TOKEN_BUDGET_PROBE_STATE_KEY,
+  TOKEN_BUDGET_PROBE_RESET_AUDIT_STATE_KEY,
 ]);
 
 function aggregateRunMetrics(items) {
@@ -386,7 +388,39 @@ function deriveLastProbeAutoTuneDecision(probeRuntimeState) {
       Number.isFinite(Number(state?.maxProbesPerDay))
         ? Math.max(0, Math.floor(Number(state?.maxProbesPerDay)))
         : null,
-    probesForDay: Number.isFinite(Number(state?.probesForDay)) ? Math.max(0, Math.floor(Number(state?.probesForDay))) : null,
+    probesForDay:
+      Number.isFinite(Number(state?.probesForDay)) ? Math.max(0, Math.floor(Number(state?.probesForDay))) : null,
+  };
+}
+
+function deriveLastProbeResetAudit(resetAuditRuntimeState, { nowMs = Date.now() } = {}) {
+  const state = resetAuditRuntimeState?.stateValue ?? {};
+  const timestamp = state?.timestamp ?? null;
+  const parsedTs = Number.isFinite(Date.parse(timestamp ?? '')) ? Date.parse(timestamp) : 0;
+  const cooldownSec = Number.isFinite(Number(state?.cooldownSec))
+    ? Math.max(0, Math.floor(Number(state?.cooldownSec)))
+    : 0;
+  const cooldownRemainingMs =
+    cooldownSec > 0 && parsedTs > 0 ? Math.max(0, parsedTs + cooldownSec * 1000 - nowMs) : 0;
+
+  return {
+    found: Boolean(resetAuditRuntimeState),
+    timestamp,
+    day: state?.day ?? null,
+    actor: state?.actor ?? null,
+    reason: state?.reason ?? null,
+    action: state?.action ?? null,
+    cooldownSec,
+    cooldown: {
+      active: cooldownRemainingMs > 0,
+      remainingSec: Math.ceil(cooldownRemainingMs / 1000),
+    },
+    probeStateExisted: parseBooleanInput(state?.probeStateExisted, false),
+    previousProbeTimestamp: state?.previousProbeTimestamp ?? null,
+    lastKnownProbesForDay:
+      Number.isFinite(Number(state?.lastKnownProbesForDay))
+        ? Math.max(0, Math.floor(Number(state?.lastKnownProbesForDay)))
+        : null,
   };
 }
 
@@ -1234,6 +1268,7 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           minCooldownSec: config?.probeAutoTuneMinCooldownSec,
           highCooldownSec: config?.probeAutoTuneHighCooldownSec,
         });
+
         const probeRuntimeState = store.getRuntimeState
           ? await store.getRuntimeState(TOKEN_BUDGET_PROBE_STATE_KEY)
           : null;
@@ -1242,6 +1277,10 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           nowMs: nowTs,
         });
         const lastAutoTuneDecision = deriveLastProbeAutoTuneDecision(probeRuntimeState);
+        const resetAuditRuntimeState = store.getRuntimeState
+          ? await store.getRuntimeState(TOKEN_BUDGET_PROBE_RESET_AUDIT_STATE_KEY)
+          : null;
+        const lastProbeResetAudit = deriveLastProbeResetAudit(resetAuditRuntimeState, { nowMs: nowTs });
 
         return sendJson(res, 200, {
           status: 'ok',
@@ -1252,6 +1291,111 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           probeCooldown,
           derivedAutoTuneDecision,
           lastAutoTuneDecision,
+          lastProbeResetAudit,
+        });
+      }
+
+      if (
+        method === 'POST' &&
+        (pathname === '/token-control/probe-policy/reset' || pathname === '/api/token-control/probe-policy/reset')
+      ) {
+        if (!store.getRuntimeState || !store.setRuntimeState) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const body = await readJsonBody(req).catch(() => ({}));
+        const nowTs = parseTimestampInput(body?.now, Date.now());
+        if (nowTs === null) {
+          return sendJson(res, 400, { error: 'invalid_now' });
+        }
+        const nowIso = new Date(nowTs).toISOString();
+        const nowDay = dayKeyFromTimestamp(nowTs);
+        const confirm = String(body?.confirm ?? '').trim();
+        if (confirm !== 'RESET_TOKEN_BUDGET_PROBE_STATE') {
+          return sendJson(res, 400, {
+            error: 'reset_confirmation_required',
+            expectedConfirm: 'RESET_TOKEN_BUDGET_PROBE_STATE',
+          });
+        }
+
+        const reason = String(body?.reason ?? '')
+          .trim()
+          .slice(0, 240);
+        if (reason.length < 8) {
+          return sendJson(res, 400, { error: 'reset_reason_too_short', minLength: 8 });
+        }
+
+        const actor = String(body?.actor ?? 'manual').trim().slice(0, 80) || 'manual';
+        const dryRun = parseBooleanInput(body?.dryRun, false);
+        const resetCooldownSec = clampInt(process.env.SOON_TOKEN_PROBE_RESET_COOLDOWN_SEC, 300, 0, 86400);
+        const resetAuditRuntimeState = await store.getRuntimeState(TOKEN_BUDGET_PROBE_RESET_AUDIT_STATE_KEY);
+        const resetAuditSnapshot = deriveLastProbeResetAudit(resetAuditRuntimeState, { nowMs: nowTs });
+        if (resetAuditSnapshot.cooldown.active) {
+          return sendJson(res, 409, {
+            error: 'reset_cooldown_active',
+            cooldownRemainingSec: resetAuditSnapshot.cooldown.remainingSec,
+            resetCooldownSec,
+            lastProbeResetAudit: resetAuditSnapshot,
+          });
+        }
+
+        const probeRuntimeStateBefore = await store.getRuntimeState(TOKEN_BUDGET_PROBE_STATE_KEY);
+        if (dryRun) {
+          return sendJson(res, 200, {
+            status: 'ok',
+            dryRun: true,
+            wouldReset: true,
+            actor,
+            reason,
+            resetCooldownSec,
+            probeRuntimeStateBefore,
+          });
+        }
+
+        const probeRuntimeState = await store.setRuntimeState(TOKEN_BUDGET_PROBE_STATE_KEY, {
+          timestamp: nowIso,
+          day: '',
+          reason: 'manual_probe_runtime_state_reset',
+          probeBudgetTokens: null,
+          cooldownSec: 0,
+          probesForDay: 0,
+          maxProbesPerDay: 0,
+          autoTuneEnabled: false,
+          autoTuneApplied: false,
+          autoTuneReason: 'manual_reset',
+          autoTunePressureBand: 'reset',
+          autoTuneUsagePct: null,
+          autoTunePreviousUsagePct: null,
+          autoTuneUsageDeltaPct: null,
+          resetBy: actor,
+          resetReason: reason,
+          resetAt: nowIso,
+        });
+
+        const resetAuditState = await store.setRuntimeState(TOKEN_BUDGET_PROBE_RESET_AUDIT_STATE_KEY, {
+          timestamp: nowIso,
+          day: nowDay,
+          action: 'token_budget_probe_state_reset',
+          actor,
+          reason,
+          cooldownSec: resetCooldownSec,
+          probeStateExisted: Boolean(probeRuntimeStateBefore),
+          previousProbeTimestamp: probeRuntimeStateBefore?.stateValue?.timestamp ?? null,
+          lastKnownProbesForDay: Number.isFinite(Number(probeRuntimeStateBefore?.stateValue?.probesForDay))
+            ? Math.max(0, Math.floor(Number(probeRuntimeStateBefore.stateValue.probesForDay)))
+            : null,
+        });
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          reset: true,
+          dryRun: false,
+          actor,
+          reason,
+          resetCooldownSec,
+          probeRuntimeStateBefore,
+          probeRuntimeState,
+          resetAuditState,
         });
       }
 
