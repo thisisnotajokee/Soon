@@ -17,7 +17,7 @@ Minimalny runtime API v1 dla projektu `Soon`.
 4. `POST /trackings/:asin/thresholds`
 5. `POST /token-control/allocate` lub `POST /api/token-control/allocate` (priorytetyzacja kandydatów + opcjonalny limit `budgetTokens`)
 6. `GET /token-control/snapshots/latest` lub `GET /api/token-control/snapshots/latest` (ostatnie snapshoty alokacji tokenów)
-7. `POST /automation/cycle` (zapisuje run + unbounded token snapshot, zwraca `tokenSnapshotId`)
+7. `POST /automation/cycle` (zapisuje run + token snapshot wg policy, zwraca `tokenSnapshotId`; opcjonalny override body: `tokenPolicy.mode`, `tokenPolicy.budgetTokens`)
 8. `GET /automation/runs/latest?limit=20`
 9. `GET /automation/runs/summary?limit=20`
 10. `GET /automation/runs/trends?days=30` (`24h`, `7d`, `30d`, source: daily read-model)
@@ -45,6 +45,8 @@ Minimalny runtime API v1 dla projektu `Soon`.
 4. `SOON_DATABASE_SSL=1` (opcjonalnie)
 5. `SOON_READ_MODEL_REFRESH_MODE=async|sync` (postgres, domyślnie `async`)
 6. `SOON_SELF_HEAL_RETRY_INTERVAL_SEC` (scheduler retry queue, domyślnie `30`, min `5`)
+7. `SOON_TOKEN_POLICY_MODE=unbounded|capped` (domyślnie `unbounded`)
+8. `SOON_TOKEN_DAILY_BUDGET=<number>` (wymagane dla `capped`; brak/invalid => fallback do `unbounded`)
 
 ## Observability
 

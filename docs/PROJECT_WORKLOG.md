@@ -10,6 +10,54 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ---
 
+## 2026-04-16 — Token Control Plane v4 (capped policy in automation)
+
+### Zakres
+
+1. `automation/cycle` obsługuje teraz policy tokenów:
+- `SOON_TOKEN_POLICY_MODE=unbounded|capped`,
+- `SOON_TOKEN_DAILY_BUDGET`.
+2. `automation/cycle` wspiera opcjonalny override request body:
+- `tokenPolicy.mode`,
+- `tokenPolicy.budgetTokens`.
+3. Przy `capped` selekcja ASIN jest robiona wg token budget (skipped przy `budget_exceeded`).
+4. `tokenPlan` zawiera metadane selekcji:
+- `selected`,
+- `skipReason`,
+- `remainingBudgetAfter`.
+5. Snapshot tokenów z `automation/cycle` odwzorowuje realny wynik policy (nie tylko unbounded).
+6. `trackingCount` runu automatyki odzwierciedla liczbę faktycznie wybranych ASIN (`selectedCount`), nie pełną watchlistę.
+7. Dodano alerty Prometheus dla budget pressure:
+- `SoonTokenBudgetPressureWarn`,
+- `SoonTokenBudgetExhaustedCritical`.
+8. Rozszerzono kontrakty:
+- `automation/cycle` zwraca `tokenSnapshotId`,
+- metryki `/metrics` zawierają `soon_token_control_*`,
+- scenariusz `capped` z wyczerpaniem budżetu.
+
+### Kluczowe decyzje
+
+1. Jeśli `SOON_TOKEN_POLICY_MODE=capped`, ale budżet jest pusty/niepoprawny -> bezpieczny fallback do `unbounded`.
+2. Heartbeat techniczny pozostaje zawsze aktywny (niezależnie od budget policy).
+3. Capped policy ogranicza decyzje zakupowe tylko do ASIN wybranych w token-plan.
+
+### Testy / weryfikacja
+
+1. `npm run test:contracts` -> PASS.
+2. `npm run check` -> PASS.
+
+### Ryzyka
+
+1. Brak jeszcze persystowanego dziennego zużycia budżetu między runami (obecnie policy per-run).
+2. Potrzebny kolejny etap: dynamiczny replenishment i limity per segment/market.
+
+### Następny krok
+
+1. Dodać stateful budget ledger (daily consumed/remaining) i policy reset okna dobowego.
+2. Dodać endpoint operacyjny `GET /token-control/budget/status`.
+
+---
+
 ## 2026-04-16 — Token Control Plane v3 (automation runId + metrics)
 
 ### Zakres

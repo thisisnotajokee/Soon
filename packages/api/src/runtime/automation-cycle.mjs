@@ -25,7 +25,71 @@ function scoreTracking(tracking) {
   return { score, confidence, avgNew, minNew };
 }
 
-export function runAutomationCycle(trackings) {
+function allocateTokenPlan(items, { mode = 'unbounded', budgetTokens = null } = {}) {
+  const ranked = items
+    .map((item) => ({
+      asin: item.tracking.asin,
+      tokenCost: item.tokenCost,
+      expectedValue: Number(item.expectedValue.toFixed(2)),
+      confidence: item.confidence,
+      priority: item.tokenPriority,
+    }))
+    .sort((a, b) => b.priority - a.priority);
+
+  const constrained = mode === 'capped' && Number.isFinite(budgetTokens) && budgetTokens > 0;
+  let remaining = constrained ? Number(budgetTokens.toFixed(2)) : null;
+  let selectedCount = 0;
+  let selectedTokenCost = 0;
+
+  const tokenPlan = ranked.map((item) => {
+    if (!constrained) {
+      selectedCount += 1;
+      selectedTokenCost += item.tokenCost;
+      return {
+        ...item,
+        selected: true,
+        skipReason: null,
+        remainingBudgetAfter: null,
+      };
+    }
+
+    if (item.tokenCost <= remaining) {
+      remaining = Number((remaining - item.tokenCost).toFixed(2));
+      selectedCount += 1;
+      selectedTokenCost += item.tokenCost;
+      return {
+        ...item,
+        selected: true,
+        skipReason: null,
+        remainingBudgetAfter: remaining,
+      };
+    }
+
+    return {
+      ...item,
+      selected: false,
+      skipReason: 'budget_exceeded',
+      remainingBudgetAfter: remaining,
+    };
+  });
+
+  return {
+    tokenPlan,
+    summary: {
+      requested: tokenPlan.length,
+      selected: selectedCount,
+      skipped: tokenPlan.length - selectedCount,
+      budgetTokens: constrained ? Number(budgetTokens.toFixed(2)) : null,
+      totalTokenCostSelected: Number(selectedTokenCost.toFixed(2)),
+      remainingBudgetTokens: constrained ? Number(Math.max(0, remaining).toFixed(2)) : null,
+    },
+  };
+}
+
+export function runAutomationCycle(trackings, options = {}) {
+  const tokenPolicyMode = options?.tokenPolicyMode === 'capped' ? 'capped' : 'unbounded';
+  const tokenBudgetRaw = Number(options?.budgetTokens);
+  const tokenBudget = Number.isFinite(tokenBudgetRaw) && tokenBudgetRaw > 0 ? tokenBudgetRaw : null;
   const items = trackings.map((tracking) => {
     const { score, confidence, avgNew, minNew } = scoreTracking(tracking);
     const tokenCost = Math.max(8, Object.keys(tracking.pricesNew ?? {}).length * 6);
@@ -41,23 +105,22 @@ export function runAutomationCycle(trackings) {
     };
   });
 
-  const tokenPlan = items
+  const allocation = allocateTokenPlan(items, {
+    mode: tokenPolicyMode,
+    budgetTokens: tokenBudget,
+  });
+  const tokenPlan = allocation.tokenPlan;
+  const selectedAsins = new Set(tokenPlan.filter((item) => item.selected).map((item) => item.asin));
+
+  const decisions = items
+    .filter((item) => selectedAsins.has(item.tracking.asin))
     .map((item) => ({
       asin: item.tracking.asin,
-      tokenCost: item.tokenCost,
-      expectedValue: Number(item.expectedValue.toFixed(2)),
+      score: item.score,
       confidence: item.confidence,
-      priority: item.tokenPriority,
-    }))
-    .sort((a, b) => b.priority - a.priority);
-
-  const decisions = items.map((item) => ({
-    asin: item.tracking.asin,
-    score: item.score,
-    confidence: item.confidence,
-    shouldAlert: item.score >= 70,
-    reason: item.score >= 70 ? 'high-value-opportunity' : 'hold-baseline',
-  }));
+      shouldAlert: item.score >= 70,
+      reason: item.score >= 70 ? 'high-value-opportunity' : 'hold-baseline',
+    }));
 
   const alerts = decisions
     .filter((decision) => decision.shouldAlert)
@@ -77,6 +140,14 @@ export function runAutomationCycle(trackings) {
 
   return {
     executedSteps: ['scan', 'score', 'token-allocate', 'route-alerts', 'self-check'],
+    tokenPolicy: {
+      mode: allocation.summary.budgetTokens === null ? 'unbounded' : 'capped',
+      budgetTokens: allocation.summary.budgetTokens,
+      selectedCount: allocation.summary.selected,
+      skippedCount: allocation.summary.skipped,
+      totalTokenCostSelected: allocation.summary.totalTokenCostSelected,
+      remainingBudgetTokens: allocation.summary.remainingBudgetTokens,
+    },
     tokenPlan,
     decisions,
     alerts,
