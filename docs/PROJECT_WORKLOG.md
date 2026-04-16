@@ -1763,3 +1763,35 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Ustawić `SOON_TOKEN_PROBE_RESET_OPS_KEY` w secretach repo/environment produkcyjnym i potwierdzić green CI na `quality-gate`.
+
+### Update (2026-04-16, etap 16 ops key rotation for probe reset endpoint)
+
+1. Dodano rotację klucza operacyjnego endpointu resetu probe:
+   - `POST /token-control/probe-policy/reset-auth/rotate`
+   - `POST /api/token-control/probe-policy/reset-auth/rotate`
+2. Rotacja działa jako staged next key z grace window:
+   - body: `confirm`, `reason`, `nextOpsKey`, opcjonalnie `actor`, `graceSec`, `dryRun`, `now`,
+   - confirmation literal: `ROTATE_TOKEN_BUDGET_PROBE_RESET_OPS_KEY`.
+3. Auth dla `POST /api/token-control/probe-policy/reset` rozszerzono:
+   - akceptuje primary key (`SOON_TOKEN_PROBE_RESET_OPS_KEY`) albo aktywny staged key (w okresie grace).
+4. Endpoint statusowy guardu auth rozszerzono o telemetry rotacji:
+   - `rotation.active`, `rotation.expiresAt`, `rotation.remainingSec`, `rotation.nextOpsKeyFingerprint`,
+   - `lastRotationAudit`.
+5. Audit runtime-state:
+   - `token_budget_probe_ops_key_rotation`
+   - `token_budget_probe_ops_key_rotation_audit_last`.
+
+### Testy / weryfikacja
+
+1. Nowy kontrakt HTTP:
+   - `POST /api/token-control/probe-policy/reset-auth/rotate stages next ops key with grace window`.
+2. `npm run test:contracts` -> PASS.
+3. `npm run check` -> PASS.
+
+### Ryzyka
+
+1. Rotacja staged wymaga bezpiecznego ustawienia docelowego sekretu w CI/produkcji przed upływem grace window.
+
+### Następny krok
+
+1. Dodać runbook operacyjny: sekwencja rotacji (`rotate -> update secret -> verify -> expire`) i checklistę rollback.

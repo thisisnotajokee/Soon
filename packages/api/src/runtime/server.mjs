@@ -34,6 +34,8 @@ const ALERT_ROUTING_REMEDIATION_STATE_KEY = 'alert_routing_last_remediation_at';
 const TOKEN_BUDGET_DEFERRAL_STATE_KEY = 'token_budget_last_deferral_at';
 const TOKEN_BUDGET_PROBE_STATE_KEY = 'token_budget_last_probe_at';
 const TOKEN_BUDGET_PROBE_RESET_AUDIT_STATE_KEY = 'token_budget_probe_reset_audit_last';
+const TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_STATE_KEY = 'token_budget_probe_ops_key_rotation';
+const TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_AUDIT_STATE_KEY = 'token_budget_probe_ops_key_rotation_audit_last';
 const TOKEN_BUDGET_PROBE_DEFAULT_COOLDOWN_SEC = 24 * 60 * 60;
 const TOKEN_BUDGET_PROBE_AUTOTUNE_FALLBACK_MIN_COOLDOWN_SEC = 6 * 60 * 60;
 const TOKEN_BUDGET_PROBE_AUTOTUNE_FALLBACK_HIGH_COOLDOWN_SEC = 12 * 60 * 60;
@@ -42,6 +44,8 @@ const RUNTIME_STATE_ALLOWLIST = new Set([
   TOKEN_BUDGET_DEFERRAL_STATE_KEY,
   TOKEN_BUDGET_PROBE_STATE_KEY,
   TOKEN_BUDGET_PROBE_RESET_AUDIT_STATE_KEY,
+  TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_STATE_KEY,
+  TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_AUDIT_STATE_KEY,
 ]);
 
 function aggregateRunMetrics(items) {
@@ -282,6 +286,10 @@ function secretsEqual(left, right) {
   return crypto.timingSafeEqual(leftBuf, rightBuf);
 }
 
+function hashSecret(value) {
+  return crypto.createHash('sha256').update(String(value ?? ''), 'utf8').digest('hex');
+}
+
 function shiftDayKey(dayKey, offsetDays = 0) {
   const parsed = Date.parse(`${String(dayKey).trim()}T00:00:00.000Z`);
   if (!Number.isFinite(parsed)) return null;
@@ -429,6 +437,95 @@ function deriveLastProbeResetAudit(resetAuditRuntimeState, { nowMs = Date.now() 
       Number.isFinite(Number(state?.lastKnownProbesForDay))
         ? Math.max(0, Math.floor(Number(state?.lastKnownProbesForDay)))
         : null,
+  };
+}
+
+function deriveProbeResetOpsKeyRotationState(rotationRuntimeState, { nowMs = Date.now() } = {}) {
+  const state = rotationRuntimeState?.stateValue ?? {};
+  const timestamp = state?.timestamp ?? null;
+  const activatedAt = state?.activatedAt ?? timestamp;
+  const expiresAt = state?.expiresAt ?? null;
+  const activatedAtMs = Number.isFinite(Date.parse(activatedAt ?? '')) ? Date.parse(activatedAt) : 0;
+  const expiresAtMs = Number.isFinite(Date.parse(expiresAt ?? '')) ? Date.parse(expiresAt) : 0;
+  const nextOpsKeyHash = String(state?.nextOpsKeyHash ?? '').trim();
+  const previousPrimaryOpsKeyHash = String(state?.previousPrimaryOpsKeyHash ?? '').trim();
+  const graceSec = Number.isFinite(Number(state?.graceSec)) ? Math.max(0, Math.floor(Number(state?.graceSec))) : 0;
+  const remainingMs = expiresAtMs > 0 ? Math.max(0, expiresAtMs - nowMs) : 0;
+  const active = Boolean(nextOpsKeyHash && remainingMs > 0);
+  return {
+    found: Boolean(rotationRuntimeState),
+    active,
+    timestamp,
+    activatedAt,
+    activatedAtMs,
+    expiresAt,
+    expiresAtMs,
+    remainingSec: Math.ceil(remainingMs / 1000),
+    graceSec,
+    actor: state?.actor ?? null,
+    reason: state?.reason ?? null,
+    nextOpsKeyHash,
+    previousPrimaryOpsKeyHash,
+    nextOpsKeyFingerprint: nextOpsKeyHash ? nextOpsKeyHash.slice(0, 12) : null,
+  };
+}
+
+function deriveProbeResetOpsKeyRotationAudit(auditRuntimeState) {
+  const state = auditRuntimeState?.stateValue ?? {};
+  const graceSec = Number.isFinite(Number(state?.graceSec)) ? Math.max(0, Math.floor(Number(state?.graceSec))) : 0;
+  return {
+    found: Boolean(auditRuntimeState),
+    timestamp: state?.timestamp ?? null,
+    day: state?.day ?? null,
+    actor: state?.actor ?? null,
+    reason: state?.reason ?? null,
+    action: state?.action ?? null,
+    graceSec,
+    expiresAt: state?.expiresAt ?? null,
+    nextOpsKeyFingerprint: state?.nextOpsKeyFingerprint ?? null,
+    previousRotationActive: parseBooleanInput(state?.previousRotationActive, false),
+    previousRotationExpiresAt: state?.previousRotationExpiresAt ?? null,
+  };
+}
+
+function resolveProvidedOpsKeyFromRequest(req) {
+  const headerOpsKey = String(req.headers['x-soon-ops-key'] ?? req.headers['x-ops-key'] ?? '').trim();
+  const authorization = String(req.headers.authorization ?? '').trim();
+  const bearerToken = authorization.toLowerCase().startsWith('bearer ')
+    ? authorization.slice('bearer '.length).trim()
+    : '';
+  return headerOpsKey || bearerToken;
+}
+
+async function resolveProbeResetOpsKeyAuthContext({ req, store, nowMs = Date.now() }) {
+  const primaryOpsKey = String(process.env.SOON_TOKEN_PROBE_RESET_OPS_KEY ?? '').trim();
+  const providedOpsKey = resolveProvidedOpsKeyFromRequest(req);
+  const rotationRuntimeState = store.getRuntimeState
+    ? await store.getRuntimeState(TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_STATE_KEY)
+    : null;
+  const rotationSnapshot = deriveProbeResetOpsKeyRotationState(rotationRuntimeState, { nowMs });
+
+  const primaryMatched = Boolean(primaryOpsKey && providedOpsKey && secretsEqual(providedOpsKey, primaryOpsKey));
+  const stagedMatched = Boolean(
+    !primaryMatched &&
+      providedOpsKey &&
+      rotationSnapshot.active &&
+      rotationSnapshot.nextOpsKeyHash &&
+      secretsEqual(hashSecret(providedOpsKey), rotationSnapshot.nextOpsKeyHash),
+  );
+
+  const authRequired = Boolean(primaryOpsKey) || rotationSnapshot.active;
+  const authValid = !authRequired || primaryMatched || stagedMatched;
+
+  return {
+    primaryOpsKey,
+    providedOpsKey,
+    authRequired,
+    authValid,
+    primaryMatched,
+    stagedMatched,
+    rotationRuntimeState,
+    rotationSnapshot,
   };
 }
 
@@ -1237,9 +1334,6 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         }
 
         const nowTs = parseTimestampInput(url.searchParams.get('now') ?? null, Date.now());
-        if (nowTs === null) {
-          return sendJson(res, 400, { error: 'invalid_now' });
-        }
         const dayKey = resolveDayKeyInput(url.searchParams.get('day') ?? null, nowTs);
         if (!dayKey) {
           return sendJson(res, 400, { error: 'invalid_day' });
@@ -1308,14 +1402,151 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         (pathname === '/token-control/probe-policy/reset-auth/status' ||
           pathname === '/api/token-control/probe-policy/reset-auth/status')
       ) {
-        const requiredOpsKey = String(process.env.SOON_TOKEN_PROBE_RESET_OPS_KEY ?? '').trim();
+        const authContext = await resolveProbeResetOpsKeyAuthContext({ req, store, nowMs: Date.now() });
+        const rotationAuditRuntimeState = store.getRuntimeState
+          ? await store.getRuntimeState(TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_AUDIT_STATE_KEY)
+          : null;
+        const rotationAudit = deriveProbeResetOpsKeyRotationAudit(rotationAuditRuntimeState);
         return sendJson(res, 200, {
           status: 'ok',
           endpoint: 'token-control/probe-policy/reset',
           auth: {
-            opsKeyRequired: Boolean(requiredOpsKey),
+            opsKeyRequired: authContext.authRequired,
+            primaryOpsKeyConfigured: Boolean(authContext.primaryOpsKey),
             acceptedHeaders: ['x-soon-ops-key', 'x-ops-key', 'authorization: bearer'],
           },
+          rotation: {
+            active: authContext.rotationSnapshot.active,
+            found: authContext.rotationSnapshot.found,
+            activatedAt: authContext.rotationSnapshot.activatedAt,
+            expiresAt: authContext.rotationSnapshot.expiresAt,
+            remainingSec: authContext.rotationSnapshot.remainingSec,
+            graceSec: authContext.rotationSnapshot.graceSec,
+            nextOpsKeyFingerprint: authContext.rotationSnapshot.nextOpsKeyFingerprint,
+          },
+          lastRotationAudit: rotationAudit,
+        });
+      }
+
+      if (
+        method === 'POST' &&
+        (pathname === '/token-control/probe-policy/reset-auth/rotate' ||
+          pathname === '/api/token-control/probe-policy/reset-auth/rotate')
+      ) {
+        if (!store.getRuntimeState || !store.setRuntimeState) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const body = await readJsonBody(req).catch(() => ({}));
+        const nowTs = parseTimestampInput(body?.now, Date.now());
+        if (nowTs === null) {
+          return sendJson(res, 400, { error: 'invalid_now' });
+        }
+        const authContext = await resolveProbeResetOpsKeyAuthContext({ req, store, nowMs: nowTs });
+        if (!authContext.primaryOpsKey) {
+          return sendJson(res, 409, { error: 'ops_key_guard_not_enabled' });
+        }
+        if (!authContext.providedOpsKey) {
+          return sendJson(res, 401, {
+            error: 'ops_key_required',
+            header: 'x-soon-ops-key',
+          });
+        }
+        if (!authContext.authValid) {
+          return sendJson(res, 403, { error: 'ops_key_invalid' });
+        }
+
+        const confirm = String(body?.confirm ?? '').trim();
+        if (confirm !== 'ROTATE_TOKEN_BUDGET_PROBE_RESET_OPS_KEY') {
+          return sendJson(res, 400, {
+            error: 'rotation_confirmation_required',
+            expectedConfirm: 'ROTATE_TOKEN_BUDGET_PROBE_RESET_OPS_KEY',
+          });
+        }
+
+        const reason = String(body?.reason ?? '')
+          .trim()
+          .slice(0, 240);
+        if (reason.length < 8) {
+          return sendJson(res, 400, { error: 'rotation_reason_too_short', minLength: 8 });
+        }
+
+        const actor = String(body?.actor ?? 'manual').trim().slice(0, 80) || 'manual';
+        const dryRun = parseBooleanInput(body?.dryRun, false);
+        const nextOpsKey = String(body?.nextOpsKey ?? '').trim();
+        if (nextOpsKey.length < 16) {
+          return sendJson(res, 400, { error: 'next_ops_key_too_short', minLength: 16 });
+        }
+        if (secretsEqual(nextOpsKey, authContext.primaryOpsKey)) {
+          return sendJson(res, 400, { error: 'next_ops_key_same_as_current' });
+        }
+
+        const defaultGraceSec = clampInt(process.env.SOON_TOKEN_PROBE_RESET_ROTATION_GRACE_SEC, 3600, 60, 604800);
+        const graceSec = clampInt(body?.graceSec, defaultGraceSec, 60, 604800);
+        const nowIso = new Date(nowTs).toISOString();
+        const nowDay = dayKeyFromTimestamp(nowTs);
+        const expiresAtIso = new Date(nowTs + graceSec * 1000).toISOString();
+        const nextOpsKeyHash = hashSecret(nextOpsKey);
+
+        if (dryRun) {
+          return sendJson(res, 200, {
+            status: 'ok',
+            dryRun: true,
+            rotation: {
+              active: true,
+              activatedAt: nowIso,
+              expiresAt: expiresAtIso,
+              graceSec,
+              nextOpsKeyFingerprint: nextOpsKeyHash.slice(0, 12),
+            },
+            authContext: {
+              primaryMatched: authContext.primaryMatched,
+              stagedMatched: authContext.stagedMatched,
+              rotationActiveBefore: authContext.rotationSnapshot.active,
+            },
+          });
+        }
+
+        const rotationState = await store.setRuntimeState(TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_STATE_KEY, {
+          timestamp: nowIso,
+          day: nowDay,
+          activatedAt: nowIso,
+          expiresAt: expiresAtIso,
+          graceSec,
+          actor,
+          reason,
+          nextOpsKeyHash,
+          previousPrimaryOpsKeyHash: hashSecret(authContext.primaryOpsKey),
+        });
+
+        const rotationAuditState = await store.setRuntimeState(TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_AUDIT_STATE_KEY, {
+          timestamp: nowIso,
+          day: nowDay,
+          action: 'token_budget_probe_reset_ops_key_rotated',
+          actor,
+          reason,
+          graceSec,
+          expiresAt: expiresAtIso,
+          nextOpsKeyFingerprint: nextOpsKeyHash.slice(0, 12),
+          previousRotationActive: authContext.rotationSnapshot.active,
+          previousRotationExpiresAt: authContext.rotationSnapshot.expiresAt,
+        });
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          rotated: true,
+          dryRun: false,
+          actor,
+          reason,
+          rotation: {
+            active: true,
+            activatedAt: nowIso,
+            expiresAt: expiresAtIso,
+            graceSec,
+            nextOpsKeyFingerprint: nextOpsKeyHash.slice(0, 12),
+          },
+          rotationState,
+          rotationAuditState,
         });
       }
 
@@ -1327,29 +1558,21 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           return sendJson(res, 501, { error: 'not_implemented' });
         }
 
-        const requiredOpsKey = String(process.env.SOON_TOKEN_PROBE_RESET_OPS_KEY ?? '').trim();
-        if (requiredOpsKey) {
-          const headerOpsKey = String(req.headers['x-soon-ops-key'] ?? req.headers['x-ops-key'] ?? '').trim();
-          const authorization = String(req.headers.authorization ?? '').trim();
-          const bearerToken = authorization.toLowerCase().startsWith('bearer ')
-            ? authorization.slice('bearer '.length).trim()
-            : '';
-          const providedOpsKey = headerOpsKey || bearerToken;
-          if (!providedOpsKey) {
-            return sendJson(res, 401, {
-              error: 'ops_key_required',
-              header: 'x-soon-ops-key',
-            });
-          }
-          if (!secretsEqual(providedOpsKey, requiredOpsKey)) {
-            return sendJson(res, 403, { error: 'ops_key_invalid' });
-          }
-        }
-
         const body = await readJsonBody(req).catch(() => ({}));
         const nowTs = parseTimestampInput(body?.now, Date.now());
         if (nowTs === null) {
           return sendJson(res, 400, { error: 'invalid_now' });
+        }
+
+        const authContext = await resolveProbeResetOpsKeyAuthContext({ req, store, nowMs: nowTs });
+        if (authContext.authRequired && !authContext.providedOpsKey) {
+          return sendJson(res, 401, {
+            error: 'ops_key_required',
+            header: 'x-soon-ops-key',
+          });
+        }
+        if (authContext.authRequired && !authContext.authValid) {
+          return sendJson(res, 403, { error: 'ops_key_invalid' });
         }
         const nowIso = new Date(nowTs).toISOString();
         const nowDay = dayKeyFromTimestamp(nowTs);
