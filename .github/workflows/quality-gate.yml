@@ -131,6 +131,14 @@ jobs:
           trap 'make down' EXIT
           make doctor
 
+      - name: Runtime-state watchdog smoke (postgres)
+        run: |
+          set -euo pipefail
+          mkdir -p ops/reports/doctor
+          make up
+          trap 'make down' EXIT
+          SOON_SELF_HEAL_COOLDOWN_WARN_SEC=999999 SOON_SELF_HEAL_COOLDOWN_CRIT_SEC=999999 npm run -s ops:self-heal:runtime-state:check:json > ops/reports/doctor/self-heal-runtime-state-watchdog.json
+
       - name: Ensure self-heal triage artifact (postgres)
         if: always()
         run: |
@@ -163,6 +171,19 @@ jobs:
             echo "- Artifact missing: \`ops/reports/doctor/latest.json\`" >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Publish runtime-state watchdog summary (postgres)
+        if: always()
+        run: |
+          set -euo pipefail
+          WATCHDOG_PATH="ops/reports/doctor/self-heal-runtime-state-watchdog.json"
+          echo "### Self-heal Runtime-state Watchdog" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ -s "$WATCHDOG_PATH" ]; then
+            node -e "const fs=require('node:fs'); const p=process.argv[1]; const d=JSON.parse(fs.readFileSync(p,'utf8')); console.log('- Overall: `'\"'\"''+String(d.overall||'unknown')+'`'); console.log('- Key: `'\"'\"''+String(d.key||'unknown')+'`'); console.log('- Cooldown active: `'\"'\"''+(d.cooldownActive?'true':'false')+'`'); console.log('- Cooldown remaining sec: `'\"'\"''+String(d.cooldownRemainingSec??0)+'`');" "$WATCHDOG_PATH" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Artifact missing: \`$WATCHDOG_PATH\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Upload doctor artifact (postgres)
         if: always()
         uses: actions/upload-artifact@v7
@@ -171,4 +192,5 @@ jobs:
           path: |
             ops/reports/doctor/latest.json
             ops/reports/doctor/self-heal-triage.json
+            ops/reports/doctor/self-heal-runtime-state-watchdog.json
           if-no-files-found: warn
