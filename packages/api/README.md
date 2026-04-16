@@ -62,6 +62,8 @@ Minimalny runtime API v1 dla projektu `Soon`.
 16. `SOON_TOKEN_PROBE_RESET_OPS_KEY=<secret>` (opcjonalny klucz operacyjny zabezpieczający endpoint resetu probe; gdy pusty, endpoint działa bez auth key)
 17. `SOON_TOKEN_PROBE_RESET_ROTATION_GRACE_SEC=<int>` (domyślny grace window dla staged rotacji klucza resetu probe; domyślnie `3600`, min `60`, max `604800`)
 18. `SOON_PROBE_RESET_PREFLIGHT_REQUIRE_GUARD=0|1` (opcjonalny strict mode dla preflight skryptu rotacji; domyślnie auto: strict w CI/PROD, relaxed lokalnie)
+19. `SOON_PROBE_RESET_PREFLIGHT_WARN_AS_ERROR=0|1` (opcjonalny fail-on-WARN dla preflight; domyślnie `0`)
+20. `SOON_PROBE_RESET_PREFLIGHT_OUT=<path>` (opcjonalny path artifactu JSON preflight, np. `ops/reports/doctor/probe-reset-preflight.json`)
 
 ## Observability
 

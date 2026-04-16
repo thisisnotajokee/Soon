@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -433,9 +433,9 @@ async function withMockProbeResetPreflightServer(fn, options = {}) {
   }
 }
 
-async function runProbeResetPreflightCli(baseUrl, envExtra = {}) {
+async function runProbeResetPreflightCli(baseUrl, envExtra = {}, args = []) {
   try {
-    const { stdout } = await execFileAsync(process.execPath, [PROBE_RESET_PREFLIGHT_SCRIPT], {
+    const { stdout } = await execFileAsync(process.execPath, [PROBE_RESET_PREFLIGHT_SCRIPT, ...args], {
       env: {
         ...process.env,
         SOON_ALERT_BASE_URL: baseUrl,
@@ -478,6 +478,33 @@ test('probe-reset-ops-key-preflight returns CRIT when ops key is required but no
       assert.match(result.stdout, /PROBE_RESET_OPS_KEY_MISSING/);
     },
     { requiredOpsKey: 'expected-ops-key', opsKeyRequired: true },
+  );
+});
+
+test('probe-reset-ops-key-preflight writes artifact report when --out is provided', async () => {
+  const token = 'probe-reset-ops-key-test';
+  const tmpDir = await mkdtemp(join(os.tmpdir(), 'soon-probe-reset-preflight-'));
+  const outPath = join(tmpDir, 'probe-reset-preflight.json');
+
+  await withMockProbeResetPreflightServer(
+    async (baseUrl) => {
+      const result = await runProbeResetPreflightCli(
+        baseUrl,
+        {
+          SOON_TOKEN_PROBE_RESET_OPS_KEY: token,
+        },
+        ['--out', outPath],
+      );
+      assert.equal(result.code, 0);
+      assert.match(result.stdout, /\[Soon\/probe-reset-preflight\] PASS/);
+      assert.match(result.stdout, /artifact=/);
+
+      const parsed = JSON.parse(await readFile(outPath, 'utf8'));
+      assert.equal(parsed.overall, 'PASS');
+      assert.equal(parsed.auth.localOpsKeyConfigured, true);
+      assert.equal(parsed.artifactPath, outPath);
+    },
+    { requiredOpsKey: token, opsKeyRequired: true },
   );
 });
 
