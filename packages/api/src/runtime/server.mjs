@@ -678,12 +678,35 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         }
         const budgetTokens = rawBudget === null ? null : rawBudget;
         const allocation = allocateTokenControlPlan({ items: normalized.items, budgetTokens });
+        const snapshot = store.recordTokenAllocationSnapshot
+          ? await store.recordTokenAllocationSnapshot({
+              runId: null,
+              budgetMode: budgetTokens === null ? 'unbounded' : 'capped',
+              summary: allocation.summary,
+              plan: allocation.plan,
+            })
+          : null;
 
         return sendJson(res, 200, {
           status: 'ok',
           budgetMode: budgetTokens === null ? 'unbounded' : 'capped',
+          snapshotId: snapshot?.snapshotId ?? null,
           ...allocation,
         });
+      }
+
+      if (
+        method === 'GET' &&
+        (pathname === '/token-control/snapshots/latest' || pathname === '/api/token-control/snapshots/latest')
+      ) {
+        if (!store.listLatestTokenAllocationSnapshots) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const rawLimit = Number(url.searchParams.get('limit') ?? 20);
+        const limit = Math.max(1, Math.min(100, Number.isFinite(rawLimit) ? rawLimit : 20));
+        const items = await store.listLatestTokenAllocationSnapshots(limit);
+        return sendJson(res, 200, { items, count: items.length });
       }
 
       if (method === 'POST' && pathname === '/automation/cycle') {
