@@ -351,6 +351,71 @@ test('POST /automation/cycle triggers smart deferral when daily token budget is 
   });
 });
 
+test('POST /automation/cycle uses one-shot smart probe before fallback deferral when budget is exhausted', async () => {
+  await withServer(async (baseUrl) => {
+    const day = '2036-05-02';
+
+    const firstRun = await readJson(
+      await fetch(`${baseUrl}/automation/cycle`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          now: `${day}T08:00:00.000Z`,
+          tokenPolicy: { mode: 'capped', budgetTokens: 12, probeBudgetTokens: 10 },
+        }),
+      }),
+    );
+
+    assert.equal(firstRun.status, 200);
+    assert.equal(firstRun.body.tokenBudgetStatus?.remainingTokens, 0);
+
+    const secondRun = await readJson(
+      await fetch(`${baseUrl}/automation/cycle`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          now: `${day}T10:00:00.000Z`,
+          tokenPolicy: { mode: 'capped', budgetTokens: 12, probeBudgetTokens: 10 },
+        }),
+      }),
+    );
+
+    assert.equal(secondRun.status, 200);
+    assert.equal(secondRun.body.tokenBudgetAutoRemediation?.triggered, true);
+    assert.equal(secondRun.body.tokenBudgetAutoRemediation?.action, 'smart_probe');
+    assert.equal(secondRun.body.degradation?.active, true);
+    assert.equal(secondRun.body.degradation?.mode, 'token_budget_exhausted_probe');
+    assert.equal(secondRun.body.degradation?.probeBudgetTokens, 10);
+    assert.equal(secondRun.body.tokenPolicy?.budgetTokens, 10);
+    assert.ok(secondRun.body.alerts.some((alert) => alert.reason === 'token_budget_exhausted_probe'));
+
+    const probeRuntimeState = await readJson(
+      await fetch(`${baseUrl}/api/self-heal/runtime-state?key=token_budget_last_probe_at`),
+    );
+    assert.equal(probeRuntimeState.status, 200);
+    assert.equal(probeRuntimeState.body.found, true);
+    assert.equal(probeRuntimeState.body.runtimeState?.stateValue?.day, day);
+    assert.equal(probeRuntimeState.body.runtimeState?.stateValue?.probeBudgetTokens, 10);
+
+    const thirdRun = await readJson(
+      await fetch(`${baseUrl}/automation/cycle`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          now: `${day}T12:00:00.000Z`,
+          tokenPolicy: { mode: 'capped', budgetTokens: 12, probeBudgetTokens: 10 },
+        }),
+      }),
+    );
+
+    assert.equal(thirdRun.status, 200);
+    assert.equal(thirdRun.body.tokenBudgetAutoRemediation?.triggered, true);
+    assert.equal(thirdRun.body.tokenBudgetAutoRemediation?.action, 'smart_deferral');
+    assert.equal(thirdRun.body.degradation?.mode, 'token_budget_exhausted_deferral');
+    assert.ok(thirdRun.body.alerts.some((alert) => alert.reason === 'token_budget_exhausted_deferral'));
+  });
+});
+
 test('GET /automation/runs/latest returns persisted runs', async () => {
   await withServer(async (baseUrl) => {
     const cycle = await readJson(
@@ -611,6 +676,8 @@ test('GET /metrics exports read-model Prometheus metrics', async () => {
     assert.match(body, /soon_token_budget_policy_fallback_active\{mode="/);
     assert.match(body, /soon_token_budget_deferral_active\{mode="/);
     assert.match(body, /soon_token_budget_last_deferral_unixtime/);
+    assert.match(body, /soon_token_budget_probe_active\{mode="/);
+    assert.match(body, /soon_token_budget_last_probe_unixtime/);
   });
 });
 

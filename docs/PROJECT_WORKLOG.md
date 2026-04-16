@@ -1484,3 +1484,35 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Dodać parametr policy dla `partial deferral` (np. `minProbeBudgetTokens`) i test A/B: pełny deferral vs probe-mode.
+
+### Update (2026-04-16, etap 7 one-shot smart probe przy token_budget_exhausted)
+
+1. Rozszerzono `automation/cycle` o tryb `smart_probe`:
+   - przy `token_budget_exhausted` system najpierw próbuje one-shot probe (max 1x/dzień),
+   - probe budżet jest konfigurowany przez `tokenPolicy.probeBudgetTokens` lub ENV `SOON_TOKEN_EXHAUSTED_PROBE_BUDGET`,
+   - kolejne wywołanie tego samego dnia przechodzi już do `smart_deferral`.
+2. Runtime-state rozszerzony o nowy klucz:
+   - `token_budget_last_probe_at` (`timestamp`, `day`, `reason`, `probeBudgetTokens`, `windowResetAt`),
+   - klucz dodany do allowlist endpointu `GET /api/self-heal/runtime-state`.
+3. Degradacja cyklu dostała dwa jawne tryby:
+   - `token_budget_exhausted_probe`,
+   - `token_budget_exhausted_deferral`.
+4. Rozszerzono metryki token-budget:
+   - `soon_token_budget_probe_active`,
+   - `soon_token_budget_last_probe_unixtime`.
+5. Uzupełniono kontrakty i dokumentację API:
+   - nowy test scenariusza one-shot probe + fallback deferral,
+   - README: nowe pole `tokenPolicy.probeBudgetTokens` i nowy ENV probe.
+
+### Testy / weryfikacja
+
+1. `npm run test:contracts` -> do uruchomienia po wdrożeniu etapu 7.
+2. `npm run check` -> do uruchomienia po wdrożeniu etapu 7.
+
+### Ryzyka
+
+1. Probe jest celowo one-shot per UTC day; przy bardzo agresywnym zużyciu tokenów może być potrzebny limit oparty o częstotliwość (np. 1 probe/12h), a nie tylko day-key.
+
+### Następny krok
+
+1. Odpalić `npm run test:contracts` i `npm run check`, potem merge etapu 7.

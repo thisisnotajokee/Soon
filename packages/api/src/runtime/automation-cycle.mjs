@@ -93,7 +93,13 @@ export function runAutomationCycle(trackings, options = {}) {
     tokenPolicyMode === 'capped' && Number.isFinite(tokenBudgetRaw)
       ? Number(Math.max(0, tokenBudgetRaw).toFixed(2))
       : null;
-  const deferralActive = tokenPolicyMode === 'capped' && tokenBudget !== null && tokenBudget <= 0;
+  const degradationModeSource = String(options?.degradationMode ?? 'none').trim().toLowerCase();
+  const degradationMode =
+    degradationModeSource === 'smart_deferral' || degradationModeSource === 'smart_probe'
+      ? degradationModeSource
+      : 'none';
+  const deferralActive = degradationMode === 'smart_deferral';
+  const probeActive = degradationMode === 'smart_probe';
   const deferredUntil = options?.deferredUntil ?? null;
   const items = trackings.map((tracking) => {
     const { score, confidence, avgNew, minNew } = scoreTracking(tracking);
@@ -140,7 +146,11 @@ export function runAutomationCycle(trackings, options = {}) {
     asin: 'system',
     kind: 'technical',
     channel: resolveAlertChannel('technical'),
-    reason: deferralActive ? 'token_budget_exhausted_deferral' : 'runtime-heartbeat',
+    reason: deferralActive
+      ? 'token_budget_exhausted_deferral'
+      : probeActive
+        ? 'token_budget_exhausted_probe'
+        : 'runtime-heartbeat',
     deferredUntil: deferralActive ? deferredUntil : null,
   });
 
@@ -148,6 +158,16 @@ export function runAutomationCycle(trackings, options = {}) {
   if (deferralActive) {
     executedSteps.push('degrade-smart-deferral');
   }
+  if (probeActive) {
+    executedSteps.push('degrade-smart-probe');
+  }
+
+  const degradationActive = deferralActive || probeActive;
+  const degradationModeResponse = deferralActive
+    ? 'token_budget_exhausted_deferral'
+    : probeActive
+      ? 'token_budget_exhausted_probe'
+      : 'none';
 
   return {
     executedSteps,
@@ -160,10 +180,11 @@ export function runAutomationCycle(trackings, options = {}) {
       remainingBudgetTokens: allocation.summary.remainingBudgetTokens,
     },
     degradation: {
-      active: deferralActive,
-      mode: deferralActive ? 'token_budget_exhausted_deferral' : 'none',
-      reason: deferralActive ? 'daily_token_budget_exhausted' : null,
+      active: degradationActive,
+      mode: degradationModeResponse,
+      reason: degradationActive ? 'daily_token_budget_exhausted' : null,
       deferredUntil: deferralActive ? deferredUntil : null,
+      probeBudgetTokens: probeActive ? allocation.summary.budgetTokens : null,
     },
     tokenPlan,
     decisions,
