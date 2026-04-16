@@ -193,22 +193,28 @@ export function createPostgresStore({
   let refreshTotalErrors = 0;
 
   async function seedIfEmpty() {
-    const countRes = await pool.query('SELECT COUNT(*)::int AS count FROM soon_tracking');
-    if (countRes.rows[0].count > 0) {
-      return;
-    }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock(51827601)');
 
-    for (const item of SEEDED_TRACKINGS) {
-      await pool.query(
+      const countRes = await client.query('SELECT COUNT(*)::int AS count FROM soon_tracking');
+      if (countRes.rows[0].count > 0) {
+        await client.query('COMMIT');
+        return;
+      }
+
+      for (const item of SEEDED_TRACKINGS) {
+        await client.query(
         `
         INSERT INTO soon_tracking (asin, title, created_at, updated_at)
         VALUES ($1, $2, now(), now())
         ON CONFLICT (asin) DO UPDATE SET title = EXCLUDED.title, updated_at = now()
       `,
-        [item.asin, item.title],
-      );
+          [item.asin, item.title],
+        );
 
-      await pool.query(
+        await client.query(
         `
         INSERT INTO soon_tracking_threshold (
           asin,
@@ -225,17 +231,17 @@ export function createPostgresStore({
           target_price_used = EXCLUDED.target_price_used,
           updated_at = now()
       `,
-        [
-          item.asin,
-          item.thresholdDropPct ?? null,
-          item.thresholdRisePct ?? null,
-          item.targetPriceNew ?? null,
-          item.targetPriceUsed ?? null,
-        ],
-      );
+          [
+            item.asin,
+            item.thresholdDropPct ?? null,
+            item.thresholdRisePct ?? null,
+            item.targetPriceNew ?? null,
+            item.targetPriceUsed ?? null,
+          ],
+        );
 
-      for (const [market, price] of Object.entries(item.pricesNew ?? {})) {
-        await pool.query(
+        for (const [market, price] of Object.entries(item.pricesNew ?? {})) {
+          await client.query(
           `
           INSERT INTO soon_tracking_price (asin, market, condition, price, currency, updated_at)
           VALUES ($1, $2, 'new', $3, 'EUR', now())
@@ -244,12 +250,12 @@ export function createPostgresStore({
             currency = EXCLUDED.currency,
             updated_at = now()
         `,
-          [item.asin, market, price],
-        );
-      }
+            [item.asin, market, price],
+          );
+        }
 
-      for (const [market, price] of Object.entries(item.pricesUsed ?? {})) {
-        await pool.query(
+        for (const [market, price] of Object.entries(item.pricesUsed ?? {})) {
+          await client.query(
           `
           INSERT INTO soon_tracking_price (asin, market, condition, price, currency, updated_at)
           VALUES ($1, $2, 'used', $3, 'EUR', now())
@@ -258,21 +264,29 @@ export function createPostgresStore({
             currency = EXCLUDED.currency,
             updated_at = now()
         `,
-          [item.asin, market, price],
-        );
-      }
+            [item.asin, market, price],
+          );
+        }
 
-      const base = item.pricesNew?.de ?? Object.values(item.pricesNew ?? {})[0] ?? 100;
-      const history = sampleHistory(base);
-      for (const point of history) {
-        await pool.query(
+        const base = item.pricesNew?.de ?? Object.values(item.pricesNew ?? {})[0] ?? 100;
+        const history = sampleHistory(base);
+        for (const point of history) {
+          await client.query(
           `
           INSERT INTO soon_price_history (asin, market, condition, price, currency, recorded_at)
           VALUES ($1, 'de', 'new', $2, 'EUR', $3::timestamptz)
         `,
-          [item.asin, point.value, point.ts],
-        );
+            [item.asin, point.value, point.ts],
+          );
+        }
       }
+
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
     }
   }
 
