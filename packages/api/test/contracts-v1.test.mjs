@@ -626,7 +626,7 @@ test('POST /automation/cycle autotunes probe policy under high token-pressure co
     assert.equal(secondRun.body.tokenBudgetAutoRemediation?.probePolicyAutoTuneApplied, true);
     assert.equal(secondRun.body.tokenBudgetAutoRemediation?.probePolicyPressureBand, 'critical');
     assert.equal(secondRun.body.tokenBudgetAutoRemediation?.probePolicyAutoTuneReason, 'critical_budget_pressure');
-    assert.ok(secondRun.body.tokenBudgetAutoRemediation?.probePolicyUsageDeltaPct >= 20);
+    assert.ok(secondRun.body.tokenBudgetAutoRemediation?.probePolicyUsagePct >= 95);
     assert.ok(secondRun.body.tokenBudgetAutoRemediation?.probeCooldownSec >= 43200);
     assert.equal(secondRun.body.tokenBudgetAutoRemediation?.maxProbesPerDay, 1);
 
