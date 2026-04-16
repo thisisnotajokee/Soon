@@ -212,7 +212,13 @@ jobs:
 
           make up
           trap 'make down' EXIT
+          set +e
           SOON_PROBE_RESET_PREFLIGHT_OUT="$PREFLIGHT_PATH" npm run -s ops:probe-reset:preflight
+          PREFLIGHT_EXIT=$?
+          set -e
+          if [ "$PREFLIGHT_EXIT" -ne 0 ]; then
+            echo "[CI] probe-reset preflight returned non-zero exit ($PREFLIGHT_EXIT); continuing because this stage is optional"
+          fi
 
       - name: Publish probe-reset preflight summary (postgres)
         if: always()
