@@ -1230,3 +1230,28 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 1. Ustawić w GitHub Secrets:
    - `SOON_RUNTIME_BEARER_TOKEN` (preferowane) lub `SOON_RUNTIME_API_KEY`,
    a następnie uruchomić `runtime-state-watchdog` przez `workflow_dispatch`.
+
+### Update (2026-04-16, runtime watchdog safe-enable switch)
+
+1. Dodano bezpiecznik aktywacji watchdoga:
+   - workflow uruchamia realny job tylko gdy repo variable:
+     - `SOON_RUNTIME_WATCHDOG_ENABLED=1`.
+2. Gdy flaga nie jest ustawiona:
+   - workflow kończy się bez faila jako `watchdog-disabled`,
+   - w `GITHUB_STEP_SUMMARY` jest jasna informacja jak go włączyć.
+
+### Testy / weryfikacja
+
+1. Walidacja syntaktyczna workflow + lokalny `npm run check` -> PASS.
+
+### Ryzyka
+
+1. Bez ustawienia flagi `SOON_RUNTIME_WATCHDOG_ENABLED=1` watchdog nie wykona realnego checku (świadomie).
+
+### Następny krok
+
+1. Na etapie deploy Soon ustawić:
+   - `SOON_RUNTIME_WATCHDOG_ENABLED=1`,
+   - `SOON_RUNTIME_BASE_URL`,
+   - `SOON_RUNTIME_BEARER_TOKEN` lub `SOON_RUNTIME_API_KEY`,
+   i dopiero wtedy aktywować monitorowanie runtime przez GitHub Actions.

@@ -7,6 +7,7 @@ on:
 
 jobs:
   watchdog:
+    if: ${{ vars.SOON_RUNTIME_WATCHDOG_ENABLED == '1' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -63,3 +64,16 @@ jobs:
           name: runtime-state-watchdog-${{ github.run_id }}-${{ github.run_attempt }}
           path: ops/reports/doctor/runtime-state-watchdog.json
           if-no-files-found: warn
+
+  watchdog-disabled:
+    if: ${{ vars.SOON_RUNTIME_WATCHDOG_ENABLED != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Runtime-state watchdog is disabled
+        run: |
+          set -euo pipefail
+          echo "## Runtime-state Watchdog" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Status: \`disabled\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- To enable: set repository variable \`SOON_RUNTIME_WATCHDOG_ENABLED=1\`" >> "$GITHUB_STEP_SUMMARY"
