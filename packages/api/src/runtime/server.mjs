@@ -1304,6 +1304,22 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
       }
 
       if (
+        method === 'GET' &&
+        (pathname === '/token-control/probe-policy/reset-auth/status' ||
+          pathname === '/api/token-control/probe-policy/reset-auth/status')
+      ) {
+        const requiredOpsKey = String(process.env.SOON_TOKEN_PROBE_RESET_OPS_KEY ?? '').trim();
+        return sendJson(res, 200, {
+          status: 'ok',
+          endpoint: 'token-control/probe-policy/reset',
+          auth: {
+            opsKeyRequired: Boolean(requiredOpsKey),
+            acceptedHeaders: ['x-soon-ops-key', 'x-ops-key', 'authorization: bearer'],
+          },
+        });
+      }
+
+      if (
         method === 'POST' &&
         (pathname === '/token-control/probe-policy/reset' || pathname === '/api/token-control/probe-policy/reset')
       ) {
