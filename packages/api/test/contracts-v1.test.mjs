@@ -140,8 +140,8 @@ test('GET /token-control/snapshots/latest returns persisted token allocation sna
 
 test('GET /api/token-control/budget/status returns daily token budget status and window reset', async () => {
   await withServer(async (baseUrl) => {
-    const dayOne = '2026-04-16';
-    const dayTwo = '2026-04-17';
+    const dayOne = '2036-04-16';
+    const dayTwo = '2036-04-17';
 
     const initial = await readJson(
       await fetch(`${baseUrl}/api/token-control/budget/status?mode=capped&budgetTokens=20&day=${dayOne}`),
@@ -276,6 +276,7 @@ test('POST /automation/cycle applies capped token budget and skips over-budget c
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
+          now: '2036-04-18T12:00:00.000Z',
           tokenPolicy: { mode: 'capped', budgetTokens: 12 },
         }),
       }),
