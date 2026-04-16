@@ -18,7 +18,7 @@ Minimalny runtime API v1 dla projektu `Soon`.
 5. `POST /token-control/allocate` lub `POST /api/token-control/allocate` (priorytetyzacja kandydatów + opcjonalny limit `budgetTokens`)
 6. `GET /token-control/snapshots/latest` lub `GET /api/token-control/snapshots/latest` (ostatnie snapshoty alokacji tokenów)
 7. `GET /token-control/budget/status` lub `GET /api/token-control/budget/status` (status dziennego budżetu tokenów; opcjonalnie `day`, `mode`, `budgetTokens`)
-8. `POST /automation/cycle` (zapisuje run + token snapshot wg policy, zwraca `tokenSnapshotId`; opcjonalny override body: `tokenPolicy.mode`, `tokenPolicy.budgetTokens`, `now`; policy capped bierze realny `remainingTokens` dnia; przy `token_budget_exhausted` aktywuje `smart deferral` i zapisuje runtime-state key `token_budget_last_deferral_at`)
+8. `POST /automation/cycle` (zapisuje run + token snapshot wg policy, zwraca `tokenSnapshotId`; opcjonalny override body: `tokenPolicy.mode`, `tokenPolicy.budgetTokens`, `tokenPolicy.probeBudgetTokens`, `now`; policy capped bierze realny `remainingTokens` dnia; przy `token_budget_exhausted` aktywuje `smart probe` (max 1x/dzień) lub fallback `smart deferral`, zapisując runtime-state key `token_budget_last_probe_at` / `token_budget_last_deferral_at`)
 9. `GET /automation/runs/latest?limit=20`
 10. `GET /automation/runs/summary?limit=20`
 11. `GET /automation/runs/trends?days=30` (`24h`, `7d`, `30d`, source: daily read-model)
@@ -48,6 +48,7 @@ Minimalny runtime API v1 dla projektu `Soon`.
 6. `SOON_SELF_HEAL_RETRY_INTERVAL_SEC` (scheduler retry queue, domyślnie `30`, min `5`)
 7. `SOON_TOKEN_POLICY_MODE=unbounded|capped` (domyślnie `unbounded`)
 8. `SOON_TOKEN_DAILY_BUDGET=<number>` (wymagane dla `capped`; brak/invalid => fallback do `unbounded`)
+9. `SOON_TOKEN_EXHAUSTED_PROBE_BUDGET=<number>` (opcjonalny one-shot probe budget dla dnia z wyczerpanym limitem)
 
 ## Observability
 
@@ -57,7 +58,7 @@ Minimalny runtime API v1 dla projektu `Soon`.
    - self-heal retry queue (`soon_self_heal_retry_queue_*`, `soon_self_heal_dead_letter_total`, `soon_self_heal_manual_requeue_total`)
    - token-control snapshot (`soon_token_control_*`, w tym `budget_usage_pct`)
    - token budget daily ledger (`soon_token_budget_*`, w tym `remaining_tokens`, `usage_pct`, `exhausted`)
-   - token budget self-heal deferral (`soon_token_budget_deferral_active`, `soon_token_budget_last_deferral_unixtime`)
+   - token budget self-heal deferral/probe (`soon_token_budget_deferral_active`, `soon_token_budget_last_deferral_unixtime`, `soon_token_budget_probe_active`, `soon_token_budget_last_probe_unixtime`)
 3. OpenTelemetry: użyj `prometheus receiver` w OTel Collector i scrape `GET /metrics`.
 4. Reguły alertów: `ops/monitoring/prometheus/soon-read-model-alerts.yml`
 5. Local checker (threshold gates): `npm run obs:read-model:alert:check`

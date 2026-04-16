@@ -31,7 +31,12 @@ function resolveStore() {
 
 const ALERT_ROUTING_REMEDIATION_STATE_KEY = 'alert_routing_last_remediation_at';
 const TOKEN_BUDGET_DEFERRAL_STATE_KEY = 'token_budget_last_deferral_at';
-const RUNTIME_STATE_ALLOWLIST = new Set([ALERT_ROUTING_REMEDIATION_STATE_KEY, TOKEN_BUDGET_DEFERRAL_STATE_KEY]);
+const TOKEN_BUDGET_PROBE_STATE_KEY = 'token_budget_last_probe_at';
+const RUNTIME_STATE_ALLOWLIST = new Set([
+  ALERT_ROUTING_REMEDIATION_STATE_KEY,
+  TOKEN_BUDGET_DEFERRAL_STATE_KEY,
+  TOKEN_BUDGET_PROBE_STATE_KEY,
+]);
 
 function aggregateRunMetrics(items) {
   const runs = items.length;
@@ -451,12 +456,17 @@ function resolveAutomationTokenPolicyConfig(rawConfig = null) {
   const budgetSource = rawConfig?.budgetTokens ?? process.env.SOON_TOKEN_DAILY_BUDGET;
   const parsedBudget = toFiniteNumber(budgetSource);
   const budgetTokens = parsedBudget !== null && parsedBudget > 0 ? Number(parsedBudget.toFixed(2)) : null;
+  const probeBudgetSource = rawConfig?.probeBudgetTokens ?? process.env.SOON_TOKEN_EXHAUSTED_PROBE_BUDGET;
+  const parsedProbeBudget = toFiniteNumber(probeBudgetSource);
+  const probeBudgetTokens =
+    parsedProbeBudget !== null && parsedProbeBudget > 0 ? Number(parsedProbeBudget.toFixed(2)) : null;
 
   if (requestedMode === 'capped' && budgetTokens === null) {
     return {
       requestedMode,
       mode: 'unbounded',
       budgetTokens: null,
+      probeBudgetTokens: null,
       fallbackReason: 'invalid_or_missing_budget',
     };
   }
@@ -465,6 +475,7 @@ function resolveAutomationTokenPolicyConfig(rawConfig = null) {
     requestedMode,
     mode: requestedMode,
     budgetTokens,
+    probeBudgetTokens,
     fallbackReason: null,
   };
 }
@@ -752,7 +763,12 @@ function renderTokenControlPrometheusMetrics(snapshot) {
   return `${lines.join('\n')}\n`;
 }
 
-function renderTokenBudgetPrometheusMetrics(status, tokenPolicyConfig = null, deferralRuntimeState = null) {
+function renderTokenBudgetPrometheusMetrics(
+  status,
+  tokenPolicyConfig = null,
+  deferralRuntimeState = null,
+  probeRuntimeState = null,
+) {
   const mode = escapePromLabel(status?.mode ?? tokenPolicyConfig?.mode ?? 'unbounded');
   const budgetTokens = toPromNumber(status?.budgetTokens);
   const consumedTokens = toPromNumber(status?.consumedTokens);
@@ -766,6 +782,11 @@ function renderTokenBudgetPrometheusMetrics(status, tokenPolicyConfig = null, de
   const deferralForCurrentDay = deferralDay === String(status?.day ?? '');
   const deferralActive = exhausted && deferralForCurrentDay ? 1 : 0;
   const deferralTs = toPromUnixTs(deferralState?.timestamp ?? null);
+  const probeState = probeRuntimeState?.stateValue ?? {};
+  const probeDay = String(probeState?.day ?? '').trim();
+  const probeForCurrentDay = probeDay === String(status?.day ?? '');
+  const probeActive = exhausted && probeForCurrentDay ? 1 : 0;
+  const probeTs = toPromUnixTs(probeState?.timestamp ?? null);
 
   const lines = [
     '# HELP soon_token_budget_daily_limit_tokens Daily token budget limit (0 means unbounded).',
@@ -792,6 +813,12 @@ function renderTokenBudgetPrometheusMetrics(status, tokenPolicyConfig = null, de
     '# HELP soon_token_budget_last_deferral_unixtime Last smart-deferral activation timestamp (unix seconds, 0 when absent).',
     '# TYPE soon_token_budget_last_deferral_unixtime gauge',
     `soon_token_budget_last_deferral_unixtime ${deferralTs}`,
+    '# HELP soon_token_budget_probe_active Whether smart probe mode is active for current daily budget window.',
+    '# TYPE soon_token_budget_probe_active gauge',
+    `soon_token_budget_probe_active{mode="${mode}",day="${day}"} ${probeActive}`,
+    '# HELP soon_token_budget_last_probe_unixtime Last smart-probe activation timestamp (unix seconds, 0 when absent).',
+    '# TYPE soon_token_budget_last_probe_unixtime gauge',
+    `soon_token_budget_last_probe_unixtime ${probeTs}`,
   ];
 
   return `${lines.join('\n')}\n`;
@@ -968,31 +995,62 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           action: 'none',
           reason: null,
           deferredUntil: null,
-          stateKey: TOKEN_BUDGET_DEFERRAL_STATE_KEY,
+          stateKey: null,
           stateUpdatedAt: null,
         };
         if (tokenBudgetExhaustedBefore) {
-          tokenBudgetAutoRemediation = {
-            ...tokenBudgetAutoRemediation,
-            triggered: true,
-            action: 'smart_deferral',
-            reason: 'daily_token_budget_exhausted',
-            deferredUntil: tokenBudgetStatusBefore?.windowResetAt ?? null,
-          };
-          if (store.setRuntimeState) {
-            const runtimeState = await store.setRuntimeState(TOKEN_BUDGET_DEFERRAL_STATE_KEY, {
-              timestamp: startedAt,
-              day: budgetDay,
+          const probeBudgetTokens = toFiniteNumber(tokenPolicyConfig?.probeBudgetTokens);
+          const probeState = store.getRuntimeState ? await store.getRuntimeState(TOKEN_BUDGET_PROBE_STATE_KEY) : null;
+          const probeUsedToday = String(probeState?.stateValue?.day ?? '').trim() === budgetDay;
+
+          if (probeBudgetTokens !== null && probeBudgetTokens > 0 && !probeUsedToday) {
+            tokenPolicyApplied = {
+              ...tokenPolicyApplied,
+              budgetTokens: Number(probeBudgetTokens.toFixed(2)),
+            };
+            tokenBudgetAutoRemediation = {
+              ...tokenBudgetAutoRemediation,
+              triggered: true,
+              action: 'smart_probe',
               reason: 'daily_token_budget_exhausted',
-              deferredUntil: tokenBudgetAutoRemediation.deferredUntil,
-              remainingTokens: tokenBudgetStatusBefore?.remainingTokens ?? 0,
-            });
-            tokenBudgetAutoRemediation.stateUpdatedAt = runtimeState?.updatedAt ?? null;
+              deferredUntil: null,
+              stateKey: TOKEN_BUDGET_PROBE_STATE_KEY,
+            };
+            if (store.setRuntimeState) {
+              const runtimeState = await store.setRuntimeState(TOKEN_BUDGET_PROBE_STATE_KEY, {
+                timestamp: startedAt,
+                day: budgetDay,
+                reason: 'daily_token_budget_exhausted',
+                probeBudgetTokens: tokenPolicyApplied.budgetTokens,
+                windowResetAt: tokenBudgetStatusBefore?.windowResetAt ?? null,
+              });
+              tokenBudgetAutoRemediation.stateUpdatedAt = runtimeState?.updatedAt ?? null;
+            }
+          } else {
+            tokenBudgetAutoRemediation = {
+              ...tokenBudgetAutoRemediation,
+              triggered: true,
+              action: 'smart_deferral',
+              reason: 'daily_token_budget_exhausted',
+              deferredUntil: tokenBudgetStatusBefore?.windowResetAt ?? null,
+              stateKey: TOKEN_BUDGET_DEFERRAL_STATE_KEY,
+            };
+            if (store.setRuntimeState) {
+              const runtimeState = await store.setRuntimeState(TOKEN_BUDGET_DEFERRAL_STATE_KEY, {
+                timestamp: startedAt,
+                day: budgetDay,
+                reason: 'daily_token_budget_exhausted',
+                deferredUntil: tokenBudgetAutoRemediation.deferredUntil,
+                remainingTokens: tokenBudgetStatusBefore?.remainingTokens ?? 0,
+              });
+              tokenBudgetAutoRemediation.stateUpdatedAt = runtimeState?.updatedAt ?? null;
+            }
           }
         }
         const cycle = runAutomationCycle(trackings, {
           tokenPolicyMode: tokenPolicyApplied.mode,
           budgetTokens: tokenPolicyApplied.budgetTokens,
+          degradationMode: tokenBudgetAutoRemediation.action,
           deferredUntil: tokenBudgetAutoRemediation.deferredUntil,
         });
         const finishedAt = new Date().toISOString();
@@ -1016,7 +1074,8 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
             })
           : null;
         let tokenBudgetStatusAfter = tokenBudgetStatusBefore;
-        if (tokenPolicyApplied.mode === 'capped' && store.consumeTokenDailyBudget) {
+        const skipBudgetConsumeForProbe = tokenBudgetAutoRemediation.action === 'smart_probe';
+        if (tokenPolicyApplied.mode === 'capped' && store.consumeTokenDailyBudget && !skipBudgetConsumeForProbe) {
           tokenBudgetStatusAfter = await store.consumeTokenDailyBudget({
             day: budgetDay,
             budgetTokens: tokenPolicyConfig.budgetTokens,
@@ -1504,7 +1563,15 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           const tokenBudgetDeferralState = store.getRuntimeState
             ? await store.getRuntimeState(TOKEN_BUDGET_DEFERRAL_STATE_KEY)
             : null;
-          payload += renderTokenBudgetPrometheusMetrics(tokenBudgetStatus, tokenPolicyConfig, tokenBudgetDeferralState);
+          const tokenBudgetProbeState = store.getRuntimeState
+            ? await store.getRuntimeState(TOKEN_BUDGET_PROBE_STATE_KEY)
+            : null;
+          payload += renderTokenBudgetPrometheusMetrics(
+            tokenBudgetStatus,
+            tokenPolicyConfig,
+            tokenBudgetDeferralState,
+            tokenBudgetProbeState,
+          );
         }
         res.writeHead(200, {
           'content-type': 'text/plain; version=0.0.4; charset=utf-8',
