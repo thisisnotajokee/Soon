@@ -14,6 +14,7 @@ const TRIAGE_SCRIPT = resolve(__dirname, '../scripts/self-heal-requeue-triage.mj
 const DOCTOR_SUMMARY_SCRIPT = resolve(__dirname, '../scripts/doctor-summary.mjs');
 const TRIAGE_VALIDATE_SCRIPT = resolve(__dirname, '../scripts/self-heal-triage-validate.mjs');
 const RUNTIME_STATE_CHECK_SCRIPT = resolve(__dirname, '../scripts/self-heal-runtime-state-check.mjs');
+const PROBE_RESET_PREFLIGHT_SCRIPT = resolve(__dirname, '../scripts/probe-reset-ops-key-preflight.mjs');
 
 async function withMockTriageServer(fn) {
   const server = http.createServer((req, res) => {
@@ -379,6 +380,104 @@ test('self-heal-runtime-state-check supports bearer auth for protected runtime e
       assert.match(result.stdout, /\[Soon\/self-heal-runtime-state\] PASS/);
     },
     { requiredBearerToken: token },
+  );
+});
+
+async function withMockProbeResetPreflightServer(fn, options = {}) {
+  const requiredOpsKey = options.requiredOpsKey ?? null;
+  const opsKeyRequired = options.opsKeyRequired ?? true;
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+    if (req.method === 'GET' && url.pathname === '/api/token-control/probe-policy/reset-auth/status') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          status: 'ok',
+          auth: {
+            opsKeyRequired,
+            acceptedHeaders: ['x-soon-ops-key', 'authorization: bearer'],
+          },
+          rotation: {
+            active: false,
+          },
+        }),
+      );
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/token-control/probe-policy/reset') {
+      const providedOpsKey = String(req.headers['x-soon-ops-key'] ?? '');
+      if (requiredOpsKey && providedOpsKey !== requiredOpsKey) {
+        const status = providedOpsKey ? 403 : 401;
+        const code = providedOpsKey ? 'ops_key_invalid' : 'ops_key_required';
+        res.writeHead(status, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: code }));
+        return;
+      }
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'invalid_confirm' }));
+      return;
+    }
+
+    res.writeHead(404, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not_found', pathname: url.pathname }));
+  });
+
+  await new Promise((resolveListen) => server.listen(0, '127.0.0.1', resolveListen));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  try {
+    await fn(baseUrl);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+}
+
+async function runProbeResetPreflightCli(baseUrl, envExtra = {}) {
+  try {
+    const { stdout } = await execFileAsync(process.execPath, [PROBE_RESET_PREFLIGHT_SCRIPT], {
+      env: {
+        ...process.env,
+        SOON_ALERT_BASE_URL: baseUrl,
+        ...envExtra,
+      },
+    });
+    return { code: 0, stdout };
+  } catch (error) {
+    return {
+      code: typeof error?.code === 'number' ? error.code : 1,
+      stdout: String(error?.stdout ?? ''),
+      stderr: String(error?.stderr ?? ''),
+    };
+  }
+}
+
+test('probe-reset-ops-key-preflight returns PASS when guard is active and ops key auth sanity succeeds', async () => {
+  const token = 'probe-reset-ops-key-test';
+  await withMockProbeResetPreflightServer(
+    async (baseUrl) => {
+      const result = await runProbeResetPreflightCli(baseUrl, {
+        SOON_TOKEN_PROBE_RESET_OPS_KEY: token,
+      });
+      assert.equal(result.code, 0);
+      assert.match(result.stdout, /\[Soon\/probe-reset-preflight\] PASS/);
+      assert.match(result.stdout, /authSanity attempted=1 ok=1 status=400/);
+    },
+    { requiredOpsKey: token, opsKeyRequired: true },
+  );
+});
+
+test('probe-reset-ops-key-preflight returns CRIT when ops key is required but not provided', async () => {
+  await withMockProbeResetPreflightServer(
+    async (baseUrl) => {
+      const result = await runProbeResetPreflightCli(baseUrl, {
+        SOON_TOKEN_PROBE_RESET_OPS_KEY: '',
+      });
+      assert.equal(result.code, 2);
+      assert.match(result.stdout, /\[Soon\/probe-reset-preflight\] CRIT/);
+      assert.match(result.stdout, /PROBE_RESET_OPS_KEY_MISSING/);
+    },
+    { requiredOpsKey: 'expected-ops-key', opsKeyRequired: true },
   );
 });
 
