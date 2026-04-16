@@ -361,6 +361,35 @@ function deriveTokenBudgetProbeAutoTunePolicy({
   };
 }
 
+function deriveLastProbeAutoTuneDecision(probeRuntimeState) {
+  const state = probeRuntimeState?.stateValue ?? {};
+  const wasEnabled = parseBooleanInput(state?.autoTuneEnabled, false);
+  const wasApplied = parseBooleanInput(state?.autoTuneApplied, false);
+  const usagePct = toFiniteNumber(state?.autoTuneUsagePct);
+  const previousUsagePct = toFiniteNumber(state?.autoTunePreviousUsagePct);
+  const usageDeltaPct = toFiniteNumber(state?.autoTuneUsageDeltaPct);
+
+  return {
+    found: Boolean(probeRuntimeState),
+    timestamp: state?.timestamp ?? null,
+    day: state?.day ?? null,
+    autoTuneEnabled: wasEnabled,
+    autoTuneApplied: wasApplied,
+    autoTuneReason: state?.autoTuneReason ?? null,
+    pressureBand: state?.autoTunePressureBand ?? null,
+    usagePct: usagePct === null ? null : Number(usagePct.toFixed(2)),
+    previousUsagePct: previousUsagePct === null ? null : Number(previousUsagePct.toFixed(2)),
+    usageDeltaPct: usageDeltaPct === null ? null : Number(usageDeltaPct.toFixed(2)),
+    probeCooldownSec:
+      Number.isFinite(Number(state?.cooldownSec)) ? Math.max(0, Math.floor(Number(state?.cooldownSec))) : null,
+    maxProbesPerDay:
+      Number.isFinite(Number(state?.maxProbesPerDay))
+        ? Math.max(0, Math.floor(Number(state?.maxProbesPerDay)))
+        : null,
+    probesForDay: Number.isFinite(Number(state?.probesForDay)) ? Math.max(0, Math.floor(Number(state?.probesForDay))) : null,
+  };
+}
+
 function resolveAlertRoutingRemediationConfig(rawConfig) {
   const rawMode = String(rawConfig?.mode ?? 'latest').trim().toLowerCase();
   const mode = rawMode === 'off' || rawMode === 'window' || rawMode === 'latest' ? rawMode : 'latest';
@@ -1157,6 +1186,75 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         });
       }
 
+      if (
+        method === 'GET' &&
+        (pathname === '/token-control/probe-policy' || pathname === '/api/token-control/probe-policy')
+      ) {
+        if (!store.getTokenDailyBudgetStatus) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const nowTs = parseTimestampInput(url.searchParams.get('now') ?? null, Date.now());
+        if (nowTs === null) {
+          return sendJson(res, 400, { error: 'invalid_now' });
+        }
+        const dayKey = resolveDayKeyInput(url.searchParams.get('day') ?? null, nowTs);
+        if (!dayKey) {
+          return sendJson(res, 400, { error: 'invalid_day' });
+        }
+
+        const config = resolveAutomationTokenPolicyConfig({
+          mode: url.searchParams.get('mode') ?? undefined,
+          budgetTokens: url.searchParams.get('budgetTokens') ?? undefined,
+          probeCooldownSec: url.searchParams.get('probeCooldownSec') ?? undefined,
+          maxProbesPerDay: url.searchParams.get('maxProbesPerDay') ?? undefined,
+          autoTuneProbePolicy: url.searchParams.get('autoTuneProbePolicy') ?? undefined,
+          probeAutoTuneMinCooldownSec: url.searchParams.get('probeAutoTuneMinCooldownSec') ?? undefined,
+          probeAutoTuneHighCooldownSec: url.searchParams.get('probeAutoTuneHighCooldownSec') ?? undefined,
+        });
+
+        const tokenBudgetStatus = await store.getTokenDailyBudgetStatus({
+          day: dayKey,
+          budgetTokens: config.budgetTokens,
+        });
+        const previousDay = shiftDayKey(dayKey, -1);
+        const tokenBudgetStatusPreviousDay = previousDay
+          ? await store.getTokenDailyBudgetStatus({
+              day: previousDay,
+              budgetTokens: tokenBudgetStatus?.budgetTokens ?? config.budgetTokens,
+            })
+          : null;
+
+        const derivedAutoTuneDecision = deriveTokenBudgetProbeAutoTunePolicy({
+          enabled: Boolean(config?.autoTuneProbePolicy),
+          usagePct: tokenBudgetStatus?.usagePct ?? 0,
+          previousUsagePct: tokenBudgetStatusPreviousDay?.usagePct ?? null,
+          probeCooldownSec: config?.probeCooldownSec,
+          maxProbesPerDay: config?.maxProbesPerDay,
+          minCooldownSec: config?.probeAutoTuneMinCooldownSec,
+          highCooldownSec: config?.probeAutoTuneHighCooldownSec,
+        });
+        const probeRuntimeState = store.getRuntimeState
+          ? await store.getRuntimeState(TOKEN_BUDGET_PROBE_STATE_KEY)
+          : null;
+        const probeCooldown = deriveTokenBudgetProbeCooldownFromRuntimeState(probeRuntimeState, {
+          fallbackCooldownSec: config?.probeCooldownSec ?? TOKEN_BUDGET_PROBE_DEFAULT_COOLDOWN_SEC,
+          nowMs: nowTs,
+        });
+        const lastAutoTuneDecision = deriveLastProbeAutoTuneDecision(probeRuntimeState);
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          day: dayKey,
+          tokenPolicyConfig: config,
+          tokenBudgetStatus,
+          tokenBudgetStatusPreviousDay,
+          probeCooldown,
+          derivedAutoTuneDecision,
+          lastAutoTuneDecision,
+        });
+      }
+
       if (method === 'POST' && pathname === '/automation/cycle') {
         const body = await readJsonBody(req).catch(() => ({}));
         const startTs = parseTimestampInput(body?.now, Date.now());
@@ -1286,6 +1384,13 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
                 cooldownSec: tokenBudgetAutoRemediation.probeCooldownSec,
                 probesForDay: tokenBudgetAutoRemediation.probesUsedAfterAction,
                 maxProbesPerDay: tokenBudgetAutoRemediation.maxProbesPerDay,
+                autoTuneEnabled: tokenBudgetAutoRemediation.probePolicyAutoTuneEnabled,
+                autoTuneApplied: tokenBudgetAutoRemediation.probePolicyAutoTuneApplied,
+                autoTuneReason: tokenBudgetAutoRemediation.probePolicyAutoTuneReason,
+                autoTunePressureBand: tokenBudgetAutoRemediation.probePolicyPressureBand,
+                autoTuneUsagePct: tokenBudgetAutoRemediation.probePolicyUsagePct,
+                autoTunePreviousUsagePct: tokenBudgetAutoRemediation.probePolicyPreviousUsagePct,
+                autoTuneUsageDeltaPct: tokenBudgetAutoRemediation.probePolicyUsageDeltaPct,
                 windowResetAt: tokenBudgetStatusBefore?.windowResetAt ?? null,
               });
               tokenBudgetAutoRemediation.stateUpdatedAt = runtimeState?.updatedAt ?? null;
