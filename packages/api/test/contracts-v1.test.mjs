@@ -23,6 +23,13 @@ async function readJson(response) {
   return { status: response.status, body };
 }
 
+const TEST_DAY_SEED = Math.floor(Math.random() * 10000);
+function testDay(offset = 0) {
+  return new Date(Date.UTC(2036, 0, 1) + (TEST_DAY_SEED + offset) * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+}
+
 test('GET /health returns service status and modules', async () => {
   await withServer(async (baseUrl) => {
     const { status, body } = await readJson(await fetch(`${baseUrl}/health`));
@@ -140,8 +147,8 @@ test('GET /token-control/snapshots/latest returns persisted token allocation sna
 
 test('GET /api/token-control/budget/status returns daily token budget status and window reset', async () => {
   await withServer(async (baseUrl) => {
-    const dayOne = '2036-04-16';
-    const dayTwo = '2036-04-17';
+    const dayOne = testDay(0);
+    const dayTwo = testDay(1);
 
     const initial = await readJson(
       await fetch(`${baseUrl}/api/token-control/budget/status?mode=capped&budgetTokens=20&day=${dayOne}`),
@@ -204,8 +211,8 @@ test('GET /api/token-control/budget/status returns daily token budget status and
 
 test('GET /api/token-control/probe-policy returns current config and auto-tune diagnostics', async () => {
   await withServer(async (baseUrl) => {
-    const day = '2036-05-01';
-    const previousDay = '2036-04-30';
+    const day = testDay(20);
+    const previousDay = testDay(19);
 
     await readJson(
       await fetch(`${baseUrl}/automation/cycle`, {
@@ -286,7 +293,7 @@ test('GET /api/token-control/probe-policy returns current config and auto-tune d
 
 test('POST /api/token-control/probe-policy/reset resets probe runtime state with guardrails and audit', async () => {
   await withServer(async (baseUrl) => {
-    const day = '2036-05-12';
+    const day = testDay(40);
 
     await readJson(
       await fetch(`${baseUrl}/automation/cycle`, {
@@ -449,7 +456,7 @@ test('POST /automation/cycle applies capped token budget and skips over-budget c
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          now: '2036-04-18T12:00:00.000Z',
+          now: `${testDay(2)}T12:00:00.000Z`,
           tokenPolicy: { mode: 'capped', budgetTokens: 12 },
         }),
       }),
@@ -472,7 +479,7 @@ test('POST /automation/cycle applies capped token budget and skips over-budget c
 
 test('POST /automation/cycle triggers smart deferral when daily token budget is exhausted', async () => {
   await withServer(async (baseUrl) => {
-    const day = '2036-05-01';
+    const day = testDay(50);
 
     const firstRun = await readJson(
       await fetch(`${baseUrl}/automation/cycle`, {
@@ -526,7 +533,7 @@ test('POST /automation/cycle triggers smart deferral when daily token budget is 
 
 test('POST /automation/cycle uses one-shot smart probe before fallback deferral when budget is exhausted', async () => {
   await withServer(async (baseUrl) => {
-    const day = '2036-05-02';
+    const day = testDay(51);
 
     const firstRun = await readJson(
       await fetch(`${baseUrl}/automation/cycle`, {
@@ -599,7 +606,7 @@ test('POST /automation/cycle uses one-shot smart probe before fallback deferral 
 
 test('POST /automation/cycle allows second smart probe after cooldown elapses', async () => {
   await withServer(async (baseUrl) => {
-    const day = '2036-05-03';
+    const day = testDay(52);
 
     const firstRun = await readJson(
       await fetch(`${baseUrl}/automation/cycle`, {
@@ -686,7 +693,7 @@ test('POST /automation/cycle allows second smart probe after cooldown elapses', 
 
 test('POST /automation/cycle blocks probe by daily cap even after cooldown elapsed', async () => {
   await withServer(async (baseUrl) => {
-    const day = '2036-05-04';
+    const day = testDay(53);
 
     const firstRun = await readJson(
       await fetch(`${baseUrl}/automation/cycle`, {
@@ -752,7 +759,7 @@ test('POST /automation/cycle blocks probe by daily cap even after cooldown elaps
 
 test('POST /automation/cycle autotunes probe policy under high token-pressure conditions', async () => {
   await withServer(async (baseUrl) => {
-    const day = '2036-05-05';
+    const day = testDay(54);
 
     const firstRun = await readJson(
       await fetch(`${baseUrl}/automation/cycle`, {
