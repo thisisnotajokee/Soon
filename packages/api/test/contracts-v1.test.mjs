@@ -382,6 +382,70 @@ test('POST /api/token-control/probe-policy/reset resets probe runtime state with
     assert.equal(diagnostics.body.lastProbeResetAudit?.action, 'token_budget_probe_state_reset');
   });
 });
+
+test('POST /api/token-control/probe-policy/reset enforces ops key when configured', async () => {
+  const previousOpsKey = process.env.SOON_TOKEN_PROBE_RESET_OPS_KEY;
+  process.env.SOON_TOKEN_PROBE_RESET_OPS_KEY = 'contracts-ops-reset-key';
+  try {
+    await withServer(async (baseUrl) => {
+      const day = testDay(41);
+
+      const missingKey = await readJson(
+        await fetch(`${baseUrl}/api/token-control/probe-policy/reset`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            now: `${day}T11:00:00.000Z`,
+            confirm: 'RESET_TOKEN_BUDGET_PROBE_STATE',
+            reason: 'manual reset for test with ops key',
+            actor: 'contracts-test',
+          }),
+        }),
+      );
+      assert.equal(missingKey.status, 401);
+      assert.equal(missingKey.body.error, 'ops_key_required');
+
+      const badKey = await readJson(
+        await fetch(`${baseUrl}/api/token-control/probe-policy/reset`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-soon-ops-key': 'wrong-key' },
+          body: JSON.stringify({
+            now: `${day}T11:00:00.000Z`,
+            confirm: 'RESET_TOKEN_BUDGET_PROBE_STATE',
+            reason: 'manual reset for test with wrong ops key',
+            actor: 'contracts-test',
+          }),
+        }),
+      );
+      assert.equal(badKey.status, 403);
+      assert.equal(badKey.body.error, 'ops_key_invalid');
+
+      const goodKey = await readJson(
+        await fetch(`${baseUrl}/api/token-control/probe-policy/reset`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-soon-ops-key': 'contracts-ops-reset-key',
+          },
+          body: JSON.stringify({
+            now: `${day}T11:00:00.000Z`,
+            confirm: 'RESET_TOKEN_BUDGET_PROBE_STATE',
+            reason: 'manual reset for test with valid ops key',
+            actor: 'contracts-test',
+          }),
+        }),
+      );
+      assert.equal(goodKey.status, 200);
+      assert.equal(goodKey.body.reset, true);
+    });
+  } finally {
+    if (previousOpsKey === undefined) {
+      delete process.env.SOON_TOKEN_PROBE_RESET_OPS_KEY;
+    } else {
+      process.env.SOON_TOKEN_PROBE_RESET_OPS_KEY = previousOpsKey;
+    }
+  }
+});
 test('POST /token-control/allocate validates payload shape', async () => {
   await withServer(async (baseUrl) => {
     const missingItems = await readJson(

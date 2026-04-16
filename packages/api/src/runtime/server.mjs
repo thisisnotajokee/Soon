@@ -1,4 +1,5 @@
 import http from 'node:http';
+import crypto from 'node:crypto';
 import { URL } from 'node:url';
 
 import { createInMemoryStore } from './in-memory-store.mjs';
@@ -272,6 +273,13 @@ function parseBooleanInput(value, fallback = false) {
   if (normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on') return true;
   if (normalized === '0' || normalized === 'false' || normalized === 'no' || normalized === 'off') return false;
   return fallback;
+}
+
+function secretsEqual(left, right) {
+  const leftBuf = Buffer.from(String(left ?? ''), 'utf8');
+  const rightBuf = Buffer.from(String(right ?? ''), 'utf8');
+  if (leftBuf.length !== rightBuf.length) return false;
+  return crypto.timingSafeEqual(leftBuf, rightBuf);
 }
 
 function shiftDayKey(dayKey, offsetDays = 0) {
@@ -1301,6 +1309,25 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
       ) {
         if (!store.getRuntimeState || !store.setRuntimeState) {
           return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const requiredOpsKey = String(process.env.SOON_TOKEN_PROBE_RESET_OPS_KEY ?? '').trim();
+        if (requiredOpsKey) {
+          const headerOpsKey = String(req.headers['x-soon-ops-key'] ?? req.headers['x-ops-key'] ?? '').trim();
+          const authorization = String(req.headers.authorization ?? '').trim();
+          const bearerToken = authorization.toLowerCase().startsWith('bearer ')
+            ? authorization.slice('bearer '.length).trim()
+            : '';
+          const providedOpsKey = headerOpsKey || bearerToken;
+          if (!providedOpsKey) {
+            return sendJson(res, 401, {
+              error: 'ops_key_required',
+              header: 'x-soon-ops-key',
+            });
+          }
+          if (!secretsEqual(providedOpsKey, requiredOpsKey)) {
+            return sendJson(res, 403, { error: 'ops_key_invalid' });
+          }
         }
 
         const body = await readJsonBody(req).catch(() => ({}));
