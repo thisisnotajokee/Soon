@@ -286,7 +286,7 @@ test('GET /api/token-control/probe-policy returns current config and auto-tune d
 
 test('POST /api/token-control/probe-policy/reset resets probe runtime state with guardrails and audit', async () => {
   await withServer(async (baseUrl) => {
-    const day = '2036-05-02';
+    const day = '2036-05-12';
 
     await readJson(
       await fetch(`${baseUrl}/automation/cycle`, {
