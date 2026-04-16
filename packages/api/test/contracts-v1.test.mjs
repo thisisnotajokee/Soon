@@ -577,6 +577,83 @@ test('POST /automation/cycle blocks probe by daily cap even after cooldown elaps
   });
 });
 
+test('POST /automation/cycle autotunes probe policy under high token-pressure conditions', async () => {
+  await withServer(async (baseUrl) => {
+    const day = '2036-05-05';
+
+    const firstRun = await readJson(
+      await fetch(`${baseUrl}/automation/cycle`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          now: `${day}T08:00:00.000Z`,
+          tokenPolicy: {
+            mode: 'capped',
+            budgetTokens: 12,
+            probeBudgetTokens: 10,
+            probeCooldownSec: 300,
+            maxProbesPerDay: 4,
+            autoTuneProbePolicy: true,
+          },
+        }),
+      }),
+    );
+    assert.equal(firstRun.status, 200);
+    assert.equal(firstRun.body.tokenBudgetStatus?.remainingTokens, 0);
+
+    const secondRun = await readJson(
+      await fetch(`${baseUrl}/automation/cycle`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          now: `${day}T10:00:00.000Z`,
+          tokenPolicy: {
+            mode: 'capped',
+            budgetTokens: 12,
+            probeBudgetTokens: 10,
+            probeCooldownSec: 300,
+            maxProbesPerDay: 4,
+            autoTuneProbePolicy: true,
+          },
+        }),
+      }),
+    );
+    assert.equal(secondRun.status, 200);
+    assert.equal(secondRun.body.tokenBudgetAutoRemediation?.action, 'smart_probe');
+    assert.equal(secondRun.body.tokenBudgetAutoRemediation?.configuredProbeCooldownSec, 300);
+    assert.equal(secondRun.body.tokenBudgetAutoRemediation?.configuredMaxProbesPerDay, 4);
+    assert.equal(secondRun.body.tokenBudgetAutoRemediation?.probePolicyAutoTuneEnabled, true);
+    assert.equal(secondRun.body.tokenBudgetAutoRemediation?.probePolicyAutoTuneApplied, true);
+    assert.equal(secondRun.body.tokenBudgetAutoRemediation?.probePolicyPressureBand, 'critical');
+    assert.equal(secondRun.body.tokenBudgetAutoRemediation?.probePolicyAutoTuneReason, 'critical_budget_pressure');
+    assert.ok(secondRun.body.tokenBudgetAutoRemediation?.probePolicyUsagePct >= 95);
+    assert.ok(secondRun.body.tokenBudgetAutoRemediation?.probeCooldownSec >= 43200);
+    assert.equal(secondRun.body.tokenBudgetAutoRemediation?.maxProbesPerDay, 1);
+
+    const thirdRun = await readJson(
+      await fetch(`${baseUrl}/automation/cycle`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          now: `${day}T10:30:00.000Z`,
+          tokenPolicy: {
+            mode: 'capped',
+            budgetTokens: 12,
+            probeBudgetTokens: 10,
+            probeCooldownSec: 300,
+            maxProbesPerDay: 4,
+            autoTuneProbePolicy: true,
+          },
+        }),
+      }),
+    );
+    assert.equal(thirdRun.status, 200);
+    assert.equal(thirdRun.body.tokenBudgetAutoRemediation?.action, 'smart_deferral');
+    assert.equal(thirdRun.body.tokenBudgetAutoRemediation?.probeBlockedByCooldown, true);
+    assert.ok(thirdRun.body.tokenBudgetAutoRemediation?.probeCooldownRemainingSec > 0);
+  });
+});
+
 test('GET /automation/runs/latest returns persisted runs', async () => {
   await withServer(async (baseUrl) => {
     const cycle = await readJson(

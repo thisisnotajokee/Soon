@@ -18,7 +18,7 @@ Minimalny runtime API v1 dla projektu `Soon`.
 5. `POST /token-control/allocate` lub `POST /api/token-control/allocate` (priorytetyzacja kandydatów + opcjonalny limit `budgetTokens`)
 6. `GET /token-control/snapshots/latest` lub `GET /api/token-control/snapshots/latest` (ostatnie snapshoty alokacji tokenów)
 7. `GET /token-control/budget/status` lub `GET /api/token-control/budget/status` (status dziennego budżetu tokenów; opcjonalnie `day`, `mode`, `budgetTokens`)
-8. `POST /automation/cycle` (zapisuje run + token snapshot wg policy, zwraca `tokenSnapshotId`; opcjonalny override body: `tokenPolicy.mode`, `tokenPolicy.budgetTokens`, `tokenPolicy.probeBudgetTokens`, `tokenPolicy.probeCooldownSec`, `tokenPolicy.maxProbesPerDay`, `now`; policy capped bierze realny `remainingTokens` dnia; przy `token_budget_exhausted` aktywuje `smart probe` (cooldown + dzienny cap) lub fallback `smart deferral`, zapisując runtime-state key `token_budget_last_probe_at` / `token_budget_last_deferral_at`)
+8. `POST /automation/cycle` (zapisuje run + token snapshot wg policy, zwraca `tokenSnapshotId`; opcjonalny override body: `tokenPolicy.mode`, `tokenPolicy.budgetTokens`, `tokenPolicy.probeBudgetTokens`, `tokenPolicy.probeCooldownSec`, `tokenPolicy.maxProbesPerDay`, `tokenPolicy.autoTuneProbePolicy`, `tokenPolicy.probeAutoTuneMinCooldownSec`, `tokenPolicy.probeAutoTuneHighCooldownSec`, `now`; policy capped bierze realny `remainingTokens` dnia; przy `token_budget_exhausted` aktywuje `smart probe` (cooldown + dzienny cap) lub fallback `smart deferral`; gdy `autoTuneProbePolicy=true` system dostraja probe cooldown/cap na bazie presji budżetu `usagePct + trend dzienny`, zapisując runtime-state key `token_budget_last_probe_at` / `token_budget_last_deferral_at`)
 9. `GET /automation/runs/latest?limit=20`
 10. `GET /automation/runs/summary?limit=20`
 11. `GET /automation/runs/trends?days=30` (`24h`, `7d`, `30d`, source: daily read-model)
@@ -51,6 +51,9 @@ Minimalny runtime API v1 dla projektu `Soon`.
 9. `SOON_TOKEN_EXHAUSTED_PROBE_BUDGET=<number>` (opcjonalny one-shot probe budget dla dnia z wyczerpanym limitem)
 10. `SOON_TOKEN_EXHAUSTED_PROBE_COOLDOWN_SEC=<number>` (opcjonalny cooldown probe; domyślnie `86400`)
 11. `SOON_TOKEN_EXHAUSTED_PROBE_MAX_PER_DAY=<int>` (opcjonalny dzienny cap probe; domyślnie `1`)
+12. `SOON_TOKEN_EXHAUSTED_PROBE_AUTOTUNE_ENABLED=0|1` (opcjonalny auto-tuning probe cooldown/cap; domyślnie `0`)
+13. `SOON_TOKEN_EXHAUSTED_PROBE_AUTOTUNE_MIN_COOLDOWN_SEC=<int>` (opcjonalny minimalny cooldown floor dla wysokiej presji; domyślnie `21600`)
+14. `SOON_TOKEN_EXHAUSTED_PROBE_AUTOTUNE_HIGH_COOLDOWN_SEC=<int>` (opcjonalny cooldown floor dla krytycznej presji; domyślnie `43200`)
 
 ## Observability
 
@@ -60,7 +63,7 @@ Minimalny runtime API v1 dla projektu `Soon`.
    - self-heal retry queue (`soon_self_heal_retry_queue_*`, `soon_self_heal_dead_letter_total`, `soon_self_heal_manual_requeue_total`)
    - token-control snapshot (`soon_token_control_*`, w tym `budget_usage_pct`)
    - token budget daily ledger (`soon_token_budget_*`, w tym `remaining_tokens`, `usage_pct`, `exhausted`)
-   - token budget self-heal deferral/probe (`soon_token_budget_deferral_active`, `soon_token_budget_last_deferral_unixtime`, `soon_token_budget_probe_active`, `soon_token_budget_last_probe_unixtime`, `soon_token_budget_probe_cooldown_remaining_seconds`, `soon_token_budget_probe_daily_cap`, `soon_token_budget_probe_daily_used`)
+   - token budget self-heal deferral/probe (`soon_token_budget_deferral_active`, `soon_token_budget_last_deferral_unixtime`, `soon_token_budget_probe_active`, `soon_token_budget_last_probe_unixtime`, `soon_token_budget_probe_cooldown_remaining_seconds`, `soon_token_budget_probe_daily_cap`, `soon_token_budget_probe_daily_used`, `soon_token_budget_probe_autotune_enabled`)
 3. OpenTelemetry: użyj `prometheus receiver` w OTel Collector i scrape `GET /metrics`.
 4. Reguły alertów: `ops/monitoring/prometheus/soon-read-model-alerts.yml`
 5. Local checker (threshold gates): `npm run obs:read-model:alert:check`

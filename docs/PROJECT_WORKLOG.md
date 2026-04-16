@@ -1580,3 +1580,39 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Dodać auto-tuning cap/cooldown na podstawie presji budżetu (`usagePct` i trend dzienny).
+
+### Update (2026-04-16, etap 10 probe policy auto-tuning: pressure + daily trend)
+
+1. Dodano auto-tuning polityki probe dla `POST /automation/cycle`:
+   - nowy przełącznik policy: `tokenPolicy.autoTuneProbePolicy`,
+   - nowe parametry floor: `tokenPolicy.probeAutoTuneMinCooldownSec`, `tokenPolicy.probeAutoTuneHighCooldownSec`,
+   - fallback ENV:
+     - `SOON_TOKEN_EXHAUSTED_PROBE_AUTOTUNE_ENABLED` (default `0`),
+     - `SOON_TOKEN_EXHAUSTED_PROBE_AUTOTUNE_MIN_COOLDOWN_SEC` (default `21600`),
+     - `SOON_TOKEN_EXHAUSTED_PROBE_AUTOTUNE_HIGH_COOLDOWN_SEC` (default `43200`).
+2. Mechanika auto-tune:
+   - wejście: `usagePct` bieżącego dnia + trend `usageDeltaPct` vs poprzedni dzień,
+   - pasma presji: `medium | high | critical`,
+   - efekt: podniesienie `probeCooldownSec` i ograniczenie `maxProbesPerDay` (tylko w kierunku bezpieczniejszym).
+3. Telemetry `tokenBudgetAutoRemediation` rozszerzono o:
+   - `configuredProbeCooldownSec`, `configuredMaxProbesPerDay`,
+   - `probePolicyAutoTuneEnabled`, `probePolicyAutoTuneApplied`, `probePolicyAutoTuneReason`,
+   - `probePolicyPressureBand`, `probePolicyUsagePct`, `probePolicyPreviousUsagePct`, `probePolicyUsageDeltaPct`.
+4. Prometheus rozszerzony o:
+   - `soon_token_budget_probe_autotune_enabled`.
+5. Kontrakty rozszerzono o scenariusz:
+   - auto-tune aktywny przy wysokiej presji -> podniesiony cooldown + obcięty cap + fallback do deferral przy kolejnym runie.
+
+### Testy / weryfikacja
+
+1. `npm run test:contracts` -> do uruchomienia po wdrożeniu etapu 10.
+2. `npm run check` -> do uruchomienia po wdrożeniu etapu 10.
+
+### Ryzyka
+
+1. Przy złym strojeniu floorów auto-tune może być zbyt agresywny (za mało probe) albo zbyt liberalny (za dużo probe); dlatego default `autoTune=off`.
+2. Trend dzienny opiera się o porównanie z poprzednim dniem w ledgerze; przy świeżym wdrożeniu brak historii może dawać skokowy `usageDeltaPct`.
+
+### Następny krok
+
+1. Dodać endpoint diagnostyczny policy (`/api/token-control/probe-policy`) z current config + ostatnia decyzja auto-tune dla operacyjnej obserwowalności.
