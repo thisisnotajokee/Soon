@@ -188,6 +188,7 @@ test('POST /automation/cycle enforces alert channel policy', async () => {
 
     assert.equal(status, 200);
     assert.equal(body.status, 'ok');
+    assert.ok(body.tokenSnapshotId);
     assert.ok(Array.isArray(body.alerts));
     assert.ok(body.alerts.length >= 1);
 
@@ -450,6 +451,10 @@ test('GET /metrics exports read-model Prometheus metrics', async () => {
     assert.match(body, /soon_alert_routing_purchase_non_telegram_total/);
     assert.match(body, /soon_alert_routing_technical_non_discord_total/);
     assert.match(body, /soon_alert_routing_remediation_cooldown_remaining_seconds/);
+    assert.match(body, /soon_token_control_snapshot_present/);
+    assert.match(body, /soon_token_control_selected_count\{budget_mode="/);
+    assert.match(body, /soon_token_control_skipped_count\{budget_mode="/);
+    assert.match(body, /soon_token_control_budget_usage_pct\{budget_mode="/);
   });
 });
 

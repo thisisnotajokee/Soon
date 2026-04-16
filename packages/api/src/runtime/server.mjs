@@ -373,6 +373,33 @@ function allocateTokenControlPlan({ items, budgetTokens = null }) {
   };
 }
 
+function buildUnboundedTokenSnapshotFromPlan(tokenPlan = []) {
+  const normalizedPlan = (Array.isArray(tokenPlan) ? tokenPlan : []).map((item) => ({
+    asin: String(item?.asin ?? ''),
+    expectedValue: Number(item?.expectedValue ?? 0),
+    confidence: Number(item?.confidence ?? 0),
+    tokenCost: Number(item?.tokenCost ?? 0),
+    priority: Number(item?.priority ?? 0),
+    selected: true,
+    skipReason: null,
+    remainingBudgetAfter: null,
+  }));
+
+  const totalTokenCostSelected = normalizedPlan.reduce((acc, item) => acc + item.tokenCost, 0);
+  return {
+    budgetMode: 'unbounded',
+    summary: {
+      requested: normalizedPlan.length,
+      selected: normalizedPlan.length,
+      skipped: 0,
+      budgetTokens: null,
+      totalTokenCostSelected: Number(totalTokenCostSelected.toFixed(2)),
+      remainingBudgetTokens: null,
+    },
+    plan: normalizedPlan,
+  };
+}
+
 function aggregateTrendWindowFromDaily(items) {
   const totals = items.reduce(
     (acc, item) => {
@@ -602,6 +629,60 @@ function renderRuntimeOperationalPrometheusMetrics({ selfHeal, alertRouting, ale
   return `${lines.join('\n')}\n`;
 }
 
+function renderTokenControlPrometheusMetrics(snapshot) {
+  const hasSnapshot = snapshot ? 1 : 0;
+  const budgetMode = escapePromLabel(snapshot?.budgetMode ?? 'none');
+  const summary = snapshot?.summary ?? {};
+  const requested = toPromNumber(summary.requested);
+  const selected = toPromNumber(summary.selected);
+  const skipped = toPromNumber(summary.skipped);
+  const totalTokenCostSelected = toPromNumber(summary.totalTokenCostSelected);
+  const budgetTokens = toPromNumber(summary.budgetTokens);
+  const remainingBudgetTokens = toPromNumber(summary.remainingBudgetTokens);
+  const budgetLimited = summary.budgetTokens !== null && summary.budgetTokens !== undefined && Number(summary.budgetTokens) > 0;
+  const budgetUsageRatio = budgetLimited
+    ? Number((totalTokenCostSelected / Number(summary.budgetTokens)).toFixed(6))
+    : 0;
+  const budgetUsagePct = budgetLimited
+    ? Number(((totalTokenCostSelected / Number(summary.budgetTokens)) * 100).toFixed(2))
+    : 0;
+
+  const lines = [
+    '# HELP soon_token_control_snapshot_present Whether token-control snapshot exists.',
+    '# TYPE soon_token_control_snapshot_present gauge',
+    `soon_token_control_snapshot_present ${hasSnapshot}`,
+    '# HELP soon_token_control_requested_count Number of requested candidates in latest token allocation snapshot.',
+    '# TYPE soon_token_control_requested_count gauge',
+    `soon_token_control_requested_count{budget_mode="${budgetMode}"} ${requested}`,
+    '# HELP soon_token_control_selected_count Number of selected candidates in latest token allocation snapshot.',
+    '# TYPE soon_token_control_selected_count gauge',
+    `soon_token_control_selected_count{budget_mode="${budgetMode}"} ${selected}`,
+    '# HELP soon_token_control_skipped_count Number of skipped candidates in latest token allocation snapshot.',
+    '# TYPE soon_token_control_skipped_count gauge',
+    `soon_token_control_skipped_count{budget_mode="${budgetMode}"} ${skipped}`,
+    '# HELP soon_token_control_total_token_cost_selected Total token cost of selected candidates.',
+    '# TYPE soon_token_control_total_token_cost_selected gauge',
+    `soon_token_control_total_token_cost_selected{budget_mode="${budgetMode}"} ${totalTokenCostSelected}`,
+    '# HELP soon_token_control_budget_tokens Latest token budget cap (0 means unbounded/not set).',
+    '# TYPE soon_token_control_budget_tokens gauge',
+    `soon_token_control_budget_tokens{budget_mode="${budgetMode}"} ${budgetTokens}`,
+    '# HELP soon_token_control_remaining_budget_tokens Remaining token budget in latest snapshot (0 means unbounded/not set).',
+    '# TYPE soon_token_control_remaining_budget_tokens gauge',
+    `soon_token_control_remaining_budget_tokens{budget_mode="${budgetMode}"} ${remainingBudgetTokens}`,
+    '# HELP soon_token_control_budget_limited Whether latest snapshot used capped budget mode.',
+    '# TYPE soon_token_control_budget_limited gauge',
+    `soon_token_control_budget_limited{budget_mode="${budgetMode}"} ${budgetLimited ? 1 : 0}`,
+    '# HELP soon_token_control_budget_usage_ratio Latest selected_cost/budget ratio (0 for unbounded mode).',
+    '# TYPE soon_token_control_budget_usage_ratio gauge',
+    `soon_token_control_budget_usage_ratio{budget_mode="${budgetMode}"} ${toPromNumber(budgetUsageRatio)}`,
+    '# HELP soon_token_control_budget_usage_pct Latest selected_cost/budget percent (0 for unbounded mode).',
+    '# TYPE soon_token_control_budget_usage_pct gauge',
+    `soon_token_control_budget_usage_pct{budget_mode="${budgetMode}"} ${toPromNumber(budgetUsagePct)}`,
+  ];
+
+  return `${lines.join('\n')}\n`;
+}
+
 export function createSoonApiServer({ store = resolveStore() } = {}) {
   let lastAlertRoutingRemediationAtMs = 0;
 
@@ -723,10 +804,18 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
               finishedAt,
             })
           : null;
+        const tokenSnapshotInput = buildUnboundedTokenSnapshotFromPlan(cycle.tokenPlan);
+        const tokenSnapshot = store.recordTokenAllocationSnapshot
+          ? await store.recordTokenAllocationSnapshot({
+              runId: persisted?.runId ?? null,
+              ...tokenSnapshotInput,
+            })
+          : null;
 
         return sendJson(res, 200, {
           status: 'ok',
           runId: persisted?.runId ?? null,
+          tokenSnapshotId: tokenSnapshot?.snapshotId ?? null,
           ...cycle,
           persisted,
         });
@@ -1184,6 +1273,10 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
             alertRouting,
             alertRoutingCooldownRemainingSec,
           });
+        }
+        if (store.listLatestTokenAllocationSnapshots) {
+          const tokenSnapshots = await store.listLatestTokenAllocationSnapshots(1);
+          payload += renderTokenControlPrometheusMetrics(tokenSnapshots[0] ?? null);
         }
         res.writeHead(200, {
           'content-type': 'text/plain; version=0.0.4; charset=utf-8',
