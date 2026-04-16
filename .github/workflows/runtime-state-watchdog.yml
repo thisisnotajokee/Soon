@@ -1,0 +1,63 @@
+name: runtime-state-watchdog
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SOON_ALERT_BASE_URL: ${{ secrets.SOON_RUNTIME_BASE_URL }}
+      SOON_SELF_HEAL_COOLDOWN_WARN_SEC: ${{ vars.SOON_SELF_HEAL_COOLDOWN_WARN_SEC || '1800' }}
+      SOON_SELF_HEAL_COOLDOWN_CRIT_SEC: ${{ vars.SOON_SELF_HEAL_COOLDOWN_CRIT_SEC || '7200' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate required base URL secret
+        run: |
+          set -euo pipefail
+          if [ -z "${SOON_ALERT_BASE_URL:-}" ]; then
+            echo "[watchdog] missing secret SOON_RUNTIME_BASE_URL" >&2
+            exit 2
+          fi
+
+      - name: Run runtime-state watchdog
+        run: |
+          set -euo pipefail
+          mkdir -p ops/reports/doctor
+          npm run -s ops:self-heal:runtime-state:check:json > ops/reports/doctor/runtime-state-watchdog.json
+
+      - name: Publish watchdog summary
+        if: always()
+        run: |
+          set -euo pipefail
+          REPORT_PATH="ops/reports/doctor/runtime-state-watchdog.json"
+          echo "## Runtime-state Watchdog" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ -s "$REPORT_PATH" ]; then
+            node -e "const fs=require('node:fs'); const p=process.argv[1]; const d=JSON.parse(fs.readFileSync(p,'utf8')); console.log('- Overall: `'\"'\"''+String(d.overall||'unknown')+'`'); console.log('- Base URL: `'\"'\"''+String(d.baseUrl||'unknown')+'`'); console.log('- Key: `'\"'\"''+String(d.key||'unknown')+'`'); console.log('- Cooldown active: `'\"'\"''+(d.cooldownActive?'true':'false')+'`'); console.log('- Cooldown remaining sec: `'\"'\"''+String(d.cooldownRemainingSec??0)+'`'); console.log('- Findings: `'\"'\"''+String((d.findings||[]).length)+'`');" "$REPORT_PATH" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Artifact missing: \`$REPORT_PATH\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload watchdog artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: runtime-state-watchdog-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ops/reports/doctor/runtime-state-watchdog.json
+          if-no-files-found: warn

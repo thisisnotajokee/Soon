@@ -1176,3 +1176,32 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Dodać ten watchdog do quality-gate/cron jako osobny check operacyjny (np. nightly + alert przy `WARN/CRIT`).
+
+### Update (2026-04-16, watchdog wired into CI + scheduled ops)
+
+1. Podpięto watchdog runtime-state do `quality-gate` (job `postgres`) jako smoke-check:
+   - generowany artefakt: `ops/reports/doctor/self-heal-runtime-state-watchdog.json`,
+   - publikowane podsumowanie do `GITHUB_STEP_SUMMARY`,
+   - artifact upload rozszerzony o watchdog JSON.
+2. Dodano osobny workflow operacyjny:
+   - `.github/workflows/runtime-state-watchdog.yml`
+   - triggery:
+     - `schedule` (nightly, `17 2 * * *`),
+     - `workflow_dispatch`.
+3. Workflow operacyjny uruchamia watchdog przeciw zadanemu runtime URL:
+   - sekret wymagany: `SOON_RUNTIME_BASE_URL`,
+   - progi sterowane przez repo vars:
+     - `SOON_SELF_HEAL_COOLDOWN_WARN_SEC` (domyślnie `1800`),
+     - `SOON_SELF_HEAL_COOLDOWN_CRIT_SEC` (domyślnie `7200`).
+
+### Testy / weryfikacja
+
+1. `npm run check` -> PASS.
+
+### Ryzyka
+
+1. Jeżeli sekret `SOON_RUNTIME_BASE_URL` nie będzie ustawiony, workflow operacyjny failuje fail-fast (intencjonalnie).
+
+### Następny krok
+
+1. Ustawić `SOON_RUNTIME_BASE_URL` + ewentualne progi repo vars i uruchomić `runtime-state-watchdog` ręcznie (`workflow_dispatch`) jako test pierwszego przebiegu.
