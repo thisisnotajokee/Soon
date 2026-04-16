@@ -468,6 +468,8 @@ function resolveAutomationTokenPolicyConfig(rawConfig = null) {
     7 * 24 * 60 * 60,
   );
   const probeCooldownSec = clampInt(rawConfig?.probeCooldownSec, fallbackProbeCooldownSec, 0, 7 * 24 * 60 * 60);
+  const fallbackProbeMaxPerDay = clampInt(process.env.SOON_TOKEN_EXHAUSTED_PROBE_MAX_PER_DAY, 1, 0, 100);
+  const maxProbesPerDay = clampInt(rawConfig?.maxProbesPerDay, fallbackProbeMaxPerDay, 0, 100);
 
   if (requestedMode === 'capped' && budgetTokens === null) {
     return {
@@ -476,6 +478,7 @@ function resolveAutomationTokenPolicyConfig(rawConfig = null) {
       budgetTokens: null,
       probeBudgetTokens: null,
       probeCooldownSec,
+      maxProbesPerDay,
       fallbackReason: 'invalid_or_missing_budget',
     };
   }
@@ -486,6 +489,7 @@ function resolveAutomationTokenPolicyConfig(rawConfig = null) {
     budgetTokens,
     probeBudgetTokens,
     probeCooldownSec,
+    maxProbesPerDay,
     fallbackReason: null,
   };
 }
@@ -828,6 +832,12 @@ function renderTokenBudgetPrometheusMetrics(
   const probeActive = exhausted && probeForCurrentDay ? 1 : 0;
   const probeTs = toPromUnixTs(probeState?.timestamp ?? null);
   const probeCooldownRemainingSec = toPromNumber(probeCooldownState?.cooldownRemainingSec);
+  const maxProbesPerDay = toPromNumber(tokenPolicyConfig?.maxProbesPerDay);
+  const probeUsedToday = probeForCurrentDay
+    ? Number.isFinite(Number(probeState?.probesForDay))
+      ? Math.max(0, Math.floor(Number(probeState?.probesForDay)))
+      : 1
+    : 0;
 
   const lines = [
     '# HELP soon_token_budget_daily_limit_tokens Daily token budget limit (0 means unbounded).',
@@ -863,6 +873,12 @@ function renderTokenBudgetPrometheusMetrics(
     '# HELP soon_token_budget_probe_cooldown_remaining_seconds Remaining cooldown before next smart probe activation.',
     '# TYPE soon_token_budget_probe_cooldown_remaining_seconds gauge',
     `soon_token_budget_probe_cooldown_remaining_seconds{mode="${mode}",day="${day}"} ${probeCooldownRemainingSec}`,
+    '# HELP soon_token_budget_probe_daily_cap Maximum number of smart probes allowed per day.',
+    '# TYPE soon_token_budget_probe_daily_cap gauge',
+    `soon_token_budget_probe_daily_cap{mode="${mode}",day="${day}"} ${maxProbesPerDay}`,
+    '# HELP soon_token_budget_probe_daily_used Number of smart probes used in current day window.',
+    '# TYPE soon_token_budget_probe_daily_used gauge',
+    `soon_token_budget_probe_daily_used{mode="${mode}",day="${day}"} ${probeUsedToday}`,
   ];
 
   return `${lines.join('\n')}\n`;
@@ -1045,28 +1061,45 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
             0,
             7 * 24 * 60 * 60,
           ),
+          maxProbesPerDay: clampInt(tokenPolicyConfig?.maxProbesPerDay, 1, 0, 100),
+          probesUsedToday: 0,
+          probesUsedAfterAction: 0,
           probeCooldownRemainingSec: 0,
           probeBlockedByCooldown: false,
+          probeBlockedByDailyCap: false,
           stateKey: null,
           stateUpdatedAt: null,
         };
         if (tokenBudgetExhaustedBefore) {
           const probeBudgetTokens = toFiniteNumber(tokenPolicyConfig?.probeBudgetTokens);
           const probeState = store.getRuntimeState ? await store.getRuntimeState(TOKEN_BUDGET_PROBE_STATE_KEY) : null;
+          const probeStateValue = probeState?.stateValue ?? {};
+          const probeStateDay = String(probeStateValue?.day ?? '').trim();
+          const probesUsedToday =
+            probeStateDay === budgetDay
+              ? Number.isFinite(Number(probeStateValue?.probesForDay))
+                ? Math.max(0, Math.floor(Number(probeStateValue?.probesForDay)))
+                : 1
+              : 0;
           const probeCooldownState = deriveTokenBudgetProbeCooldownFromRuntimeState(probeState, {
             fallbackCooldownSec: tokenBudgetAutoRemediation.probeCooldownSec,
             nowMs: startTs,
             overrideCooldownSec: tokenBudgetAutoRemediation.probeCooldownSec,
           });
           const probeAllowedByCooldown = !probeCooldownState.cooldownActive;
+          const probeAllowedByDailyCap = probesUsedToday < tokenBudgetAutoRemediation.maxProbesPerDay;
           tokenBudgetAutoRemediation = {
             ...tokenBudgetAutoRemediation,
+            probesUsedToday,
+            probesUsedAfterAction: probesUsedToday,
             probeCooldownSec: probeCooldownState.cooldownSec,
             probeCooldownRemainingSec: probeCooldownState.cooldownRemainingSec,
             probeBlockedByCooldown: probeBudgetTokens !== null && probeBudgetTokens > 0 && !probeAllowedByCooldown,
+            probeBlockedByDailyCap:
+              probeBudgetTokens !== null && probeBudgetTokens > 0 && !probeAllowedByDailyCap,
           };
 
-          if (probeBudgetTokens !== null && probeBudgetTokens > 0 && probeAllowedByCooldown) {
+          if (probeBudgetTokens !== null && probeBudgetTokens > 0 && probeAllowedByCooldown && probeAllowedByDailyCap) {
             tokenPolicyApplied = {
               ...tokenPolicyApplied,
               budgetTokens: Number(probeBudgetTokens.toFixed(2)),
@@ -1077,6 +1110,7 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
               action: 'smart_probe',
               reason: 'daily_token_budget_exhausted',
               deferredUntil: null,
+              probesUsedAfterAction: probesUsedToday + 1,
               stateKey: TOKEN_BUDGET_PROBE_STATE_KEY,
             };
             if (store.setRuntimeState) {
@@ -1086,6 +1120,8 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
                 reason: 'daily_token_budget_exhausted',
                 probeBudgetTokens: tokenPolicyApplied.budgetTokens,
                 cooldownSec: tokenBudgetAutoRemediation.probeCooldownSec,
+                probesForDay: tokenBudgetAutoRemediation.probesUsedAfterAction,
+                maxProbesPerDay: tokenBudgetAutoRemediation.maxProbesPerDay,
                 windowResetAt: tokenBudgetStatusBefore?.windowResetAt ?? null,
               });
               tokenBudgetAutoRemediation.stateUpdatedAt = runtimeState?.updatedAt ?? null;

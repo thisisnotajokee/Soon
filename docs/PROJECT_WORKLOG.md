@@ -1547,3 +1547,36 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Dodać limit hybrydowy `maxProbesPerDay` i kontrakt dla kombinacji `cooldown + max/day`.
+
+### Update (2026-04-16, etap 9 hybrid probe policy: cooldown + daily cap)
+
+1. Token probe dostał politykę hybrydową:
+   - nowy parametr policy: `tokenPolicy.maxProbesPerDay`,
+   - nowy ENV fallback: `SOON_TOKEN_EXHAUSTED_PROBE_MAX_PER_DAY` (default `1`).
+2. `POST /automation/cycle` rozszerzono o telemetry cap:
+   - `tokenBudgetAutoRemediation.maxProbesPerDay`,
+   - `tokenBudgetAutoRemediation.probesUsedToday`,
+   - `tokenBudgetAutoRemediation.probesUsedAfterAction`,
+   - `tokenBudgetAutoRemediation.probeBlockedByDailyCap`.
+3. Runtime-state probe zapisuje licznik dzienny:
+   - `token_budget_last_probe_at.stateValue.probesForDay`,
+   - `token_budget_last_probe_at.stateValue.maxProbesPerDay`.
+4. Prometheus rozszerzony o metryki dziennego cap:
+   - `soon_token_budget_probe_daily_cap`,
+   - `soon_token_budget_probe_daily_used`.
+5. Uzupełniono kontrakty:
+   - probe blocked by daily cap even after cooldown elapsed,
+   - obecny test cooldownowy działa w wariancie `maxProbesPerDay=2`.
+
+### Testy / weryfikacja
+
+1. `npm run test:contracts` -> do uruchomienia po wdrożeniu etapu 9.
+2. `npm run check` -> do uruchomienia po wdrożeniu etapu 9.
+
+### Ryzyka
+
+1. Przy bardzo dużym `maxProbesPerDay` i krótkim cooldown nadal można wygenerować wysokie zużycie tokenów; dla produkcji warto utrzymać bezpieczny cap.
+
+### Następny krok
+
+1. Dodać auto-tuning cap/cooldown na podstawie presji budżetu (`usagePct` i trend dzienny).

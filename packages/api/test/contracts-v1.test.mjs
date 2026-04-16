@@ -388,6 +388,9 @@ test('POST /automation/cycle uses one-shot smart probe before fallback deferral 
     assert.equal(secondRun.body.degradation?.probeBudgetTokens, 10);
     assert.ok(secondRun.body.tokenBudgetAutoRemediation?.probeCooldownSec > 0);
     assert.equal(secondRun.body.tokenBudgetAutoRemediation?.probeBlockedByCooldown, false);
+    assert.equal(secondRun.body.tokenBudgetAutoRemediation?.maxProbesPerDay, 1);
+    assert.equal(secondRun.body.tokenBudgetAutoRemediation?.probesUsedToday, 0);
+    assert.equal(secondRun.body.tokenBudgetAutoRemediation?.probesUsedAfterAction, 1);
     assert.equal(secondRun.body.tokenPolicy?.budgetTokens, 10);
     assert.ok(secondRun.body.alerts.some((alert) => alert.reason === 'token_budget_exhausted_probe'));
 
@@ -398,6 +401,7 @@ test('POST /automation/cycle uses one-shot smart probe before fallback deferral 
     assert.equal(probeRuntimeState.body.found, true);
     assert.equal(probeRuntimeState.body.runtimeState?.stateValue?.day, day);
     assert.equal(probeRuntimeState.body.runtimeState?.stateValue?.probeBudgetTokens, 10);
+    assert.equal(probeRuntimeState.body.runtimeState?.stateValue?.probesForDay, 1);
 
     const thirdRun = await readJson(
       await fetch(`${baseUrl}/automation/cycle`, {
@@ -413,6 +417,8 @@ test('POST /automation/cycle uses one-shot smart probe before fallback deferral 
     assert.equal(thirdRun.status, 200);
     assert.equal(thirdRun.body.tokenBudgetAutoRemediation?.triggered, true);
     assert.equal(thirdRun.body.tokenBudgetAutoRemediation?.action, 'smart_deferral');
+    assert.equal(thirdRun.body.tokenBudgetAutoRemediation?.probeBlockedByDailyCap, true);
+    assert.equal(thirdRun.body.tokenBudgetAutoRemediation?.probesUsedToday, 1);
     assert.equal(thirdRun.body.degradation?.mode, 'token_budget_exhausted_deferral');
     assert.ok(thirdRun.body.alerts.some((alert) => alert.reason === 'token_budget_exhausted_deferral'));
   });
@@ -428,7 +434,13 @@ test('POST /automation/cycle allows second smart probe after cooldown elapses', 
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           now: `${day}T08:00:00.000Z`,
-          tokenPolicy: { mode: 'capped', budgetTokens: 12, probeBudgetTokens: 10, probeCooldownSec: 3600 },
+          tokenPolicy: {
+            mode: 'capped',
+            budgetTokens: 12,
+            probeBudgetTokens: 10,
+            probeCooldownSec: 3600,
+            maxProbesPerDay: 2,
+          },
         }),
       }),
     );
@@ -441,13 +453,20 @@ test('POST /automation/cycle allows second smart probe after cooldown elapses', 
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           now: `${day}T10:00:00.000Z`,
-          tokenPolicy: { mode: 'capped', budgetTokens: 12, probeBudgetTokens: 10, probeCooldownSec: 3600 },
+          tokenPolicy: {
+            mode: 'capped',
+            budgetTokens: 12,
+            probeBudgetTokens: 10,
+            probeCooldownSec: 3600,
+            maxProbesPerDay: 2,
+          },
         }),
       }),
     );
     assert.equal(secondRun.status, 200);
     assert.equal(secondRun.body.tokenBudgetAutoRemediation?.action, 'smart_probe');
     assert.equal(secondRun.body.tokenBudgetAutoRemediation?.probeCooldownSec, 3600);
+    assert.equal(secondRun.body.tokenBudgetAutoRemediation?.maxProbesPerDay, 2);
 
     const thirdRun = await readJson(
       await fetch(`${baseUrl}/automation/cycle`, {
@@ -455,7 +474,13 @@ test('POST /automation/cycle allows second smart probe after cooldown elapses', 
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           now: `${day}T10:30:00.000Z`,
-          tokenPolicy: { mode: 'capped', budgetTokens: 12, probeBudgetTokens: 10, probeCooldownSec: 3600 },
+          tokenPolicy: {
+            mode: 'capped',
+            budgetTokens: 12,
+            probeBudgetTokens: 10,
+            probeCooldownSec: 3600,
+            maxProbesPerDay: 2,
+          },
         }),
       }),
     );
@@ -470,13 +495,85 @@ test('POST /automation/cycle allows second smart probe after cooldown elapses', 
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           now: `${day}T11:15:00.000Z`,
-          tokenPolicy: { mode: 'capped', budgetTokens: 12, probeBudgetTokens: 10, probeCooldownSec: 3600 },
+          tokenPolicy: {
+            mode: 'capped',
+            budgetTokens: 12,
+            probeBudgetTokens: 10,
+            probeCooldownSec: 3600,
+            maxProbesPerDay: 2,
+          },
         }),
       }),
     );
     assert.equal(fourthRun.status, 200);
     assert.equal(fourthRun.body.tokenBudgetAutoRemediation?.action, 'smart_probe');
     assert.equal(fourthRun.body.degradation?.mode, 'token_budget_exhausted_probe');
+  });
+});
+
+test('POST /automation/cycle blocks probe by daily cap even after cooldown elapsed', async () => {
+  await withServer(async (baseUrl) => {
+    const day = '2036-05-04';
+
+    const firstRun = await readJson(
+      await fetch(`${baseUrl}/automation/cycle`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          now: `${day}T08:00:00.000Z`,
+          tokenPolicy: {
+            mode: 'capped',
+            budgetTokens: 12,
+            probeBudgetTokens: 10,
+            probeCooldownSec: 3600,
+            maxProbesPerDay: 1,
+          },
+        }),
+      }),
+    );
+    assert.equal(firstRun.status, 200);
+    assert.equal(firstRun.body.tokenBudgetStatus?.remainingTokens, 0);
+
+    const secondRun = await readJson(
+      await fetch(`${baseUrl}/automation/cycle`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          now: `${day}T10:00:00.000Z`,
+          tokenPolicy: {
+            mode: 'capped',
+            budgetTokens: 12,
+            probeBudgetTokens: 10,
+            probeCooldownSec: 3600,
+            maxProbesPerDay: 1,
+          },
+        }),
+      }),
+    );
+    assert.equal(secondRun.status, 200);
+    assert.equal(secondRun.body.tokenBudgetAutoRemediation?.action, 'smart_probe');
+
+    const thirdRun = await readJson(
+      await fetch(`${baseUrl}/automation/cycle`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          now: `${day}T11:30:00.000Z`,
+          tokenPolicy: {
+            mode: 'capped',
+            budgetTokens: 12,
+            probeBudgetTokens: 10,
+            probeCooldownSec: 3600,
+            maxProbesPerDay: 1,
+          },
+        }),
+      }),
+    );
+    assert.equal(thirdRun.status, 200);
+    assert.equal(thirdRun.body.tokenBudgetAutoRemediation?.action, 'smart_deferral');
+    assert.equal(thirdRun.body.tokenBudgetAutoRemediation?.probeBlockedByCooldown, false);
+    assert.equal(thirdRun.body.tokenBudgetAutoRemediation?.probeBlockedByDailyCap, true);
+    assert.equal(thirdRun.body.tokenBudgetAutoRemediation?.probesUsedToday, 1);
   });
 });
 
@@ -743,6 +840,8 @@ test('GET /metrics exports read-model Prometheus metrics', async () => {
     assert.match(body, /soon_token_budget_probe_active\{mode="/);
     assert.match(body, /soon_token_budget_last_probe_unixtime/);
     assert.match(body, /soon_token_budget_probe_cooldown_remaining_seconds\{mode="/);
+    assert.match(body, /soon_token_budget_probe_daily_cap\{mode="/);
+    assert.match(body, /soon_token_budget_probe_daily_used\{mode="/);
   });
 });
 
