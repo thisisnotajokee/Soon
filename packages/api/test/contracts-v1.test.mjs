@@ -297,6 +297,60 @@ test('POST /automation/cycle applies capped token budget and skips over-budget c
   });
 });
 
+test('POST /automation/cycle triggers smart deferral when daily token budget is exhausted', async () => {
+  await withServer(async (baseUrl) => {
+    const day = '2036-05-01';
+
+    const firstRun = await readJson(
+      await fetch(`${baseUrl}/automation/cycle`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          now: `${day}T08:00:00.000Z`,
+          tokenPolicy: { mode: 'capped', budgetTokens: 12 },
+        }),
+      }),
+    );
+
+    assert.equal(firstRun.status, 200);
+    assert.equal(firstRun.body.tokenPolicy.mode, 'capped');
+    assert.equal(firstRun.body.tokenBudgetStatus?.remainingTokens, 0);
+
+    const secondRun = await readJson(
+      await fetch(`${baseUrl}/automation/cycle`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          now: `${day}T10:00:00.000Z`,
+          tokenPolicy: { mode: 'capped', budgetTokens: 12 },
+        }),
+      }),
+    );
+
+    assert.equal(secondRun.status, 200);
+    assert.equal(secondRun.body.tokenPolicy.mode, 'capped');
+    assert.equal(secondRun.body.tokenPolicy.budgetTokens, 0);
+    assert.equal(secondRun.body.tokenPolicy.selectedCount, 0);
+    assert.ok(Array.isArray(secondRun.body.decisions));
+    assert.equal(secondRun.body.decisions.length, 0);
+    assert.ok(secondRun.body.tokenPlan.every((item) => item.selected === false));
+    assert.ok(secondRun.body.tokenPlan.every((item) => item.skipReason === 'budget_exceeded'));
+    assert.equal(secondRun.body.degradation?.active, true);
+    assert.equal(secondRun.body.degradation?.mode, 'token_budget_exhausted_deferral');
+    assert.equal(secondRun.body.tokenBudgetAutoRemediation?.triggered, true);
+    assert.equal(secondRun.body.tokenBudgetAutoRemediation?.action, 'smart_deferral');
+    assert.ok(secondRun.body.alerts.some((alert) => alert.reason === 'token_budget_exhausted_deferral'));
+
+    const runtimeState = await readJson(
+      await fetch(`${baseUrl}/api/self-heal/runtime-state?key=token_budget_last_deferral_at`),
+    );
+    assert.equal(runtimeState.status, 200);
+    assert.equal(runtimeState.body.found, true);
+    assert.equal(runtimeState.body.runtimeState?.stateValue?.reason, 'daily_token_budget_exhausted');
+    assert.equal(runtimeState.body.runtimeState?.stateValue?.day, day);
+  });
+});
+
 test('GET /automation/runs/latest returns persisted runs', async () => {
   await withServer(async (baseUrl) => {
     const cycle = await readJson(
@@ -555,6 +609,8 @@ test('GET /metrics exports read-model Prometheus metrics', async () => {
     assert.match(body, /soon_token_budget_usage_pct\{mode="/);
     assert.match(body, /soon_token_budget_exhausted\{mode="/);
     assert.match(body, /soon_token_budget_policy_fallback_active\{mode="/);
+    assert.match(body, /soon_token_budget_deferral_active\{mode="/);
+    assert.match(body, /soon_token_budget_last_deferral_unixtime/);
   });
 });
 

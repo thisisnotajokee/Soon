@@ -1452,3 +1452,35 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Dodać etap 6: scenariusz samonaprawy przy `token_budget_exhausted` (automatyczne obniżenie intensywności cyklu / smart deferral) i test kontraktowy dla degradacji graceful.
+
+### Update (2026-04-16, etap 6 smart deferral przy token_budget_exhausted)
+
+1. `automation/cycle` dostał tryb degradacji graceful:
+   - gdy dzienny budżet tokenów jest wyczerpany, cykl przechodzi w `smart deferral`,
+   - `tokenPolicy` zostaje `capped` z `budgetTokens=0`,
+   - brak decyzji zakupowych (selected=0), plan oznacza pozycje jako `budget_exceeded`,
+   - technical alert ma reason: `token_budget_exhausted_deferral`.
+2. Dodano auto-remediację runtime-state:
+   - key: `token_budget_last_deferral_at`,
+   - payload: `timestamp`, `day`, `reason`, `deferredUntil`, `remainingTokens`,
+   - key jest dostępny przez `GET /api/self-heal/runtime-state`.
+3. Rozszerzono metryki:
+   - `soon_token_budget_deferral_active`
+   - `soon_token_budget_last_deferral_unixtime`
+4. Uporządkowano logikę alokacji tokenów:
+   - mode `capped` respektuje budżet `>= 0` (wcześniej `0` wpadało w `unbounded`).
+
+### Testy / weryfikacja
+
+1. Nowy kontrakt:
+   - `POST /automation/cycle triggers smart deferral when daily token budget is exhausted`.
+2. `npm run test:contracts` -> PASS (31/31).
+3. `npm run check` -> PASS.
+
+### Ryzyka
+
+1. Smart deferral jest obecnie deterministiczny (budżet 0 => pełny deferral); ewentualny future step to adaptive partial sampling (np. 1 candidate/slot) przy minimalnym budżecie.
+
+### Następny krok
+
+1. Dodać parametr policy dla `partial deferral` (np. `minProbeBudgetTokens`) i test A/B: pełny deferral vs probe-mode.

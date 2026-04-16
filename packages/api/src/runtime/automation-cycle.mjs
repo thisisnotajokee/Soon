@@ -36,8 +36,8 @@ function allocateTokenPlan(items, { mode = 'unbounded', budgetTokens = null } = 
     }))
     .sort((a, b) => b.priority - a.priority);
 
-  const constrained = mode === 'capped' && Number.isFinite(budgetTokens) && budgetTokens > 0;
-  let remaining = constrained ? Number(budgetTokens.toFixed(2)) : null;
+  const constrained = mode === 'capped' && Number.isFinite(budgetTokens) && budgetTokens >= 0;
+  let remaining = constrained ? Number(Math.max(0, budgetTokens).toFixed(2)) : null;
   let selectedCount = 0;
   let selectedTokenCost = 0;
 
@@ -89,7 +89,12 @@ function allocateTokenPlan(items, { mode = 'unbounded', budgetTokens = null } = 
 export function runAutomationCycle(trackings, options = {}) {
   const tokenPolicyMode = options?.tokenPolicyMode === 'capped' ? 'capped' : 'unbounded';
   const tokenBudgetRaw = Number(options?.budgetTokens);
-  const tokenBudget = Number.isFinite(tokenBudgetRaw) && tokenBudgetRaw > 0 ? tokenBudgetRaw : null;
+  const tokenBudget =
+    tokenPolicyMode === 'capped' && Number.isFinite(tokenBudgetRaw)
+      ? Number(Math.max(0, tokenBudgetRaw).toFixed(2))
+      : null;
+  const deferralActive = tokenPolicyMode === 'capped' && tokenBudget !== null && tokenBudget <= 0;
+  const deferredUntil = options?.deferredUntil ?? null;
   const items = trackings.map((tracking) => {
     const { score, confidence, avgNew, minNew } = scoreTracking(tracking);
     const tokenCost = Math.max(8, Object.keys(tracking.pricesNew ?? {}).length * 6);
@@ -135,18 +140,30 @@ export function runAutomationCycle(trackings, options = {}) {
     asin: 'system',
     kind: 'technical',
     channel: resolveAlertChannel('technical'),
-    reason: 'runtime-heartbeat',
+    reason: deferralActive ? 'token_budget_exhausted_deferral' : 'runtime-heartbeat',
+    deferredUntil: deferralActive ? deferredUntil : null,
   });
 
+  const executedSteps = ['scan', 'score', 'token-allocate', 'route-alerts', 'self-check'];
+  if (deferralActive) {
+    executedSteps.push('degrade-smart-deferral');
+  }
+
   return {
-    executedSteps: ['scan', 'score', 'token-allocate', 'route-alerts', 'self-check'],
+    executedSteps,
     tokenPolicy: {
-      mode: allocation.summary.budgetTokens === null ? 'unbounded' : 'capped',
+      mode: tokenPolicyMode,
       budgetTokens: allocation.summary.budgetTokens,
       selectedCount: allocation.summary.selected,
       skippedCount: allocation.summary.skipped,
       totalTokenCostSelected: allocation.summary.totalTokenCostSelected,
       remainingBudgetTokens: allocation.summary.remainingBudgetTokens,
+    },
+    degradation: {
+      active: deferralActive,
+      mode: deferralActive ? 'token_budget_exhausted_deferral' : 'none',
+      reason: deferralActive ? 'daily_token_budget_exhausted' : null,
+      deferredUntil: deferralActive ? deferredUntil : null,
     },
     tokenPlan,
     decisions,
