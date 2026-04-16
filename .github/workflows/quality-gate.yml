@@ -98,6 +98,7 @@ jobs:
       SOON_DOCTOR_EXPECT_STORAGE: postgres
       SOON_DOCTOR_EXPECT_READ_MODEL_MODE: async
       SOON_SELF_HEAL_TRIAGE_WARN_AS_ERROR: '1'
+      SOON_TOKEN_PROBE_RESET_OPS_KEY: ci-probe-reset-ops-key
 
     steps:
       - name: Checkout

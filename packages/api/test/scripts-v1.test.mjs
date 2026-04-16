@@ -132,7 +132,7 @@ test('doctor-summary renders self-heal triage section from triage artifact', asy
   await writeFile(triagePath, `${JSON.stringify(triageReport, null, 2)}\n`, 'utf8');
 
   const { stdout } = await execFileAsync(process.execPath, [DOCTOR_SUMMARY_SCRIPT, doctorPath, triagePath], {
-    env: process.env,
+    env: { ...process.env, SOON_TOKEN_PROBE_RESET_OPS_KEY: 'test-ops-key' },
   });
 
   assert.match(stdout, /### Self-heal Requeue Triage/);
