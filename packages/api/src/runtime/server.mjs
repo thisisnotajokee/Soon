@@ -262,6 +262,117 @@ function deriveAlertRoutingCooldownFromRuntimeState(runtimeState, { fallbackCool
   };
 }
 
+function toFiniteNumber(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function clamp01(value, fallback = 0) {
+  const numeric = toFiniteNumber(value);
+  if (numeric === null) return fallback;
+  return Math.max(0, Math.min(1, numeric));
+}
+
+function normalizeTokenBudgetItems(rawItems) {
+  if (!Array.isArray(rawItems)) {
+    return { error: 'items_required' };
+  }
+
+  const normalized = [];
+  for (let idx = 0; idx < rawItems.length; idx += 1) {
+    const raw = rawItems[idx] ?? {};
+    const asin = String(raw.asin ?? '').trim();
+    if (!asin) {
+      return { error: 'invalid_item', index: idx, reason: 'asin_required' };
+    }
+
+    const expectedValue = toFiniteNumber(raw.expectedValue);
+    if (expectedValue === null || expectedValue < 0) {
+      return { error: 'invalid_item', index: idx, asin, reason: 'expected_value_invalid' };
+    }
+
+    const tokenCost = toFiniteNumber(raw.tokenCost);
+    if (tokenCost === null || tokenCost <= 0) {
+      return { error: 'invalid_item', index: idx, asin, reason: 'token_cost_invalid' };
+    }
+
+    const confidence = clamp01(raw.confidence, 0);
+    const priority = Number(((expectedValue * confidence) / Math.max(1, tokenCost)).toFixed(6));
+    normalized.push({
+      asin,
+      expectedValue: Number(expectedValue.toFixed(2)),
+      confidence: Number(confidence.toFixed(4)),
+      tokenCost: Number(tokenCost.toFixed(2)),
+      priority,
+    });
+  }
+
+  if (normalized.length === 0) {
+    return { error: 'items_required' };
+  }
+
+  return { items: normalized };
+}
+
+function allocateTokenControlPlan({ items, budgetTokens = null }) {
+  const ranked = [...items].sort((a, b) => {
+    if (b.priority !== a.priority) return b.priority - a.priority;
+    if (a.tokenCost !== b.tokenCost) return a.tokenCost - b.tokenCost;
+    return a.asin.localeCompare(b.asin);
+  });
+
+  const constrained = Number.isFinite(budgetTokens);
+  let remaining = constrained ? Math.max(0, budgetTokens) : null;
+  let selectedCount = 0;
+  let skippedCount = 0;
+  let selectedTokenCost = 0;
+
+  const plan = ranked.map((item) => {
+    if (!constrained) {
+      selectedCount += 1;
+      selectedTokenCost += item.tokenCost;
+      return {
+        ...item,
+        selected: true,
+        skipReason: null,
+        remainingBudgetAfter: null,
+      };
+    }
+
+    if (item.tokenCost <= remaining) {
+      remaining = Number((remaining - item.tokenCost).toFixed(2));
+      selectedCount += 1;
+      selectedTokenCost += item.tokenCost;
+      return {
+        ...item,
+        selected: true,
+        skipReason: null,
+        remainingBudgetAfter: remaining,
+      };
+    }
+
+    skippedCount += 1;
+    return {
+      ...item,
+      selected: false,
+      skipReason: 'budget_exceeded',
+      remainingBudgetAfter: remaining,
+    };
+  });
+
+  return {
+    plan,
+    summary: {
+      requested: ranked.length,
+      selected: selectedCount,
+      skipped: skippedCount,
+      budgetTokens: constrained ? Number(budgetTokens.toFixed(2)) : null,
+      totalTokenCostSelected: Number(selectedTokenCost.toFixed(2)),
+      remainingBudgetTokens: constrained ? Number(Math.max(0, remaining).toFixed(2)) : null,
+    },
+  };
+}
+
 function aggregateTrendWindowFromDaily(items) {
   const totals = items.reduce(
     (acc, item) => {
@@ -543,6 +654,35 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           asin,
           thresholds: updated.thresholds,
           updatedAt: updated.updatedAt,
+        });
+      }
+
+      if (
+        method === 'POST' &&
+        (pathname === '/token-control/allocate' || pathname === '/api/token-control/allocate')
+      ) {
+        const body = await readJsonBody(req).catch(() => ({}));
+        const normalized = normalizeTokenBudgetItems(body?.items);
+        if (normalized.error) {
+          return sendJson(res, 400, {
+            error: normalized.error,
+            index: normalized.index ?? null,
+            asin: normalized.asin ?? null,
+            reason: normalized.reason ?? null,
+          });
+        }
+
+        const rawBudget = toFiniteNumber(body?.budgetTokens ?? body?.dailyBudgetTokens ?? body?.tokenBudget);
+        if (rawBudget !== null && rawBudget < 0) {
+          return sendJson(res, 400, { error: 'budget_tokens_invalid' });
+        }
+        const budgetTokens = rawBudget === null ? null : rawBudget;
+        const allocation = allocateTokenControlPlan({ items: normalized.items, budgetTokens });
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          budgetMode: budgetTokens === null ? 'unbounded' : 'capped',
+          ...allocation,
         });
       }
 

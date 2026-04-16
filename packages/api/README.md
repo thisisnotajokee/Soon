@@ -15,25 +15,26 @@ Minimalny runtime API v1 dla projektu `Soon`.
 2. `GET /trackings`
 3. `GET /products/:asin/detail`
 4. `POST /trackings/:asin/thresholds`
-5. `POST /automation/cycle`
-6. `GET /automation/runs/latest?limit=20`
-7. `GET /automation/runs/summary?limit=20`
-8. `GET /automation/runs/trends?days=30` (`24h`, `7d`, `30d`, source: daily read-model)
-9. `GET /automation/runs/daily?days=30` (read-model dzienny dashboardu)
-10. `GET /automation/read-model/status` (diagnostyka kolejki refreshu)
-11. `GET /metrics` (Prometheus/OpenTelemetry scrape endpoint)
-12. `POST /self-heal/run` (manualny trigger cyklu self-heal; anomalies + scoring priorytetów + retry policy)
-13. `GET /self-heal/runs/latest?limit=20` (historia self-heal runów; `playbookId + status + attempts/retries`)
-14. `POST /self-heal/retry/process` (ręczne przetworzenie due retry queue; body: `limit`, opcjonalnie `now`)
-15. `GET /self-heal/retry/status` (stan kolejki retry + dead-letter)
-16. `GET /self-heal/dead-letter?limit=20` (najnowsze wpisy dead-letter)
-17. `POST /self-heal/dead-letter/requeue` (ręczne przywrócenie dead-letter do retry queue; body: `deadLetterId`)
+5. `POST /token-control/allocate` lub `POST /api/token-control/allocate` (priorytetyzacja kandydatów + opcjonalny limit `budgetTokens`)
+6. `POST /automation/cycle`
+7. `GET /automation/runs/latest?limit=20`
+8. `GET /automation/runs/summary?limit=20`
+9. `GET /automation/runs/trends?days=30` (`24h`, `7d`, `30d`, source: daily read-model)
+10. `GET /automation/runs/daily?days=30` (read-model dzienny dashboardu)
+11. `GET /automation/read-model/status` (diagnostyka kolejki refreshu)
+12. `GET /metrics` (Prometheus/OpenTelemetry scrape endpoint)
+13. `POST /self-heal/run` (manualny trigger cyklu self-heal; anomalies + scoring priorytetów + retry policy)
+14. `GET /self-heal/runs/latest?limit=20` (historia self-heal runów; `playbookId + status + attempts/retries`)
+15. `POST /self-heal/retry/process` (ręczne przetworzenie due retry queue; body: `limit`, opcjonalnie `now`)
+16. `GET /self-heal/retry/status` (stan kolejki retry + dead-letter)
+17. `GET /self-heal/dead-letter?limit=20` (najnowsze wpisy dead-letter)
+18. `POST /self-heal/dead-letter/requeue` (ręczne przywrócenie dead-letter do retry queue; body: `deadLetterId`)
 : jeśli wpis był już wcześniej przywrócony (`status != dead_letter`), endpoint zwraca `409 dead_letter_not_pending`
-18. `POST /self-heal/dead-letter/requeue-bulk` (hurtowe requeue: `deadLetterIds[]` albo fallback do najnowszych `limit`; opcjonalnie `now`; summary: `requested|requeued|conflicts|missing`; gdy `conflicts>0` lub `missing>0` odpowiedź zawiera `operationalAlert`)
-19. `GET /self-heal/requeue-audit?limit=20&reason=manual_requeue&from=<iso>&to=<iso>` (historia manualnych requeue z filtrami)
-20. `GET /self-heal/requeue-audit/summary?days=7` (agregaty audit: `total`, `byReason`, `byPlaybook`, `daily`)
-21. `GET /api/runtime-self-heal-status` (operacyjny status runtime self-heal: retry queue, dead-letter, latest run, signals)
-22. `GET /api/check-alert-status?limit=20` (kontrola separacji kanałów alertów: purchase->Telegram, technical->Discord)
+19. `POST /self-heal/dead-letter/requeue-bulk` (hurtowe requeue: `deadLetterIds[]` albo fallback do najnowszych `limit`; opcjonalnie `now`; summary: `requested|requeued|conflicts|missing`; gdy `conflicts>0` lub `missing>0` odpowiedź zawiera `operationalAlert`)
+20. `GET /self-heal/requeue-audit?limit=20&reason=manual_requeue&from=<iso>&to=<iso>` (historia manualnych requeue z filtrami)
+21. `GET /self-heal/requeue-audit/summary?days=7` (agregaty audit: `total`, `byReason`, `byPlaybook`, `daily`)
+22. `GET /api/runtime-self-heal-status` (operacyjny status runtime self-heal: retry queue, dead-letter, latest run, signals)
+23. `GET /api/check-alert-status?limit=20` (kontrola separacji kanałów alertów: purchase->Telegram, technical->Discord)
 
 ## Storage mode
 
