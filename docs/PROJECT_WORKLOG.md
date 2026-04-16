@@ -1146,3 +1146,33 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Dodać kontrolkę operacyjną (CLI/script) do szybkiego odczytu `/api/self-heal/runtime-state` i alarmowania, gdy cooldown utrzymuje się nienaturalnie długo.
+
+### Update (2026-04-16, self-heal runtime-state CLI watchdog)
+
+1. Dodano nowy skrypt operacyjny:
+   - `packages/api/scripts/self-heal-runtime-state-check.mjs`
+   - odczyt: `GET /api/self-heal/runtime-state?key=alert_routing_last_remediation_at`
+   - tryby wyjścia:
+     - `PASS` (exit `0`) gdy cooldown nie jest aktywny lub poniżej progów,
+     - `WARN` (exit `1`) gdy `cooldownRemainingSec >= cooldownWarnSec`,
+     - `CRIT` (exit `2`) gdy `cooldownRemainingSec >= cooldownCritSec`.
+2. Dodano skrypty npm:
+   - `npm run ops:self-heal:runtime-state:check`
+   - `npm run ops:self-heal:runtime-state:check:json`
+3. Dodano testy skryptowe:
+   - PASS dla nieaktywnego cooldown,
+   - WARN dla aktywnego cooldown powyżej progu ostrzegawczego.
+
+### Testy / weryfikacja
+
+1. `npm run test:scripts` -> PASS.
+
+### Ryzyka
+
+1. Progi domyślne (`warn=1800s`, `crit=7200s`) mogą wymagać strojenia per środowisko; można je nadpisać env:
+   - `SOON_SELF_HEAL_COOLDOWN_WARN_SEC`,
+   - `SOON_SELF_HEAL_COOLDOWN_CRIT_SEC`.
+
+### Następny krok
+
+1. Dodać ten watchdog do quality-gate/cron jako osobny check operacyjny (np. nightly + alert przy `WARN/CRIT`).
