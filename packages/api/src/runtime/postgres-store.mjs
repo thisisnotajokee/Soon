@@ -1569,6 +1569,217 @@ export function createPostgresStore({
     };
   }
 
+  async function recordTokenAllocationSnapshot(payload = {}) {
+    await ensureInit();
+
+    const summary = payload?.summary ?? {};
+    const runId = payload?.runId ?? null;
+    const budgetMode = payload?.budgetMode ?? 'unbounded';
+    const budgetTokens = summary?.budgetTokens ?? null;
+    const requested = Number(summary?.requested ?? 0);
+    const selected = Number(summary?.selected ?? 0);
+    const skipped = Number(summary?.skipped ?? 0);
+    const totalTokenCostSelected = Number(summary?.totalTokenCostSelected ?? 0);
+    const remainingBudgetTokens = summary?.remainingBudgetTokens ?? null;
+
+    const snapshotRes = await pool.query(
+      `
+      INSERT INTO soon_token_allocation_snapshot (
+        run_id,
+        budget_mode,
+        budget_tokens,
+        requested_count,
+        selected_count,
+        skipped_count,
+        total_token_cost_selected,
+        remaining_budget_tokens
+      )
+      VALUES (
+        $1::uuid,
+        $2,
+        $3::numeric,
+        $4::int,
+        $5::int,
+        $6::int,
+        $7::numeric,
+        $8::numeric
+      )
+      RETURNING id, run_id, budget_mode, budget_tokens, requested_count, selected_count, skipped_count, total_token_cost_selected, remaining_budget_tokens, created_at
+    `,
+      [
+        runId,
+        budgetMode,
+        budgetTokens,
+        requested,
+        selected,
+        skipped,
+        totalTokenCostSelected,
+        remainingBudgetTokens,
+      ],
+    );
+
+    const snapshotRow = snapshotRes.rows[0];
+    const snapshotId = Number(snapshotRow.id);
+    const plan = Array.isArray(payload?.plan) ? payload.plan : [];
+
+    for (const item of plan) {
+      await pool.query(
+        `
+        INSERT INTO soon_token_allocation_snapshot_item (
+          snapshot_id,
+          asin,
+          expected_value,
+          confidence,
+          token_cost,
+          priority,
+          selected,
+          skip_reason,
+          remaining_budget_after
+        )
+        VALUES (
+          $1::bigint,
+          $2,
+          $3::numeric,
+          $4::numeric,
+          $5::numeric,
+          $6::numeric,
+          $7::boolean,
+          $8,
+          $9::numeric
+        )
+      `,
+        [
+          snapshotId,
+          String(item?.asin ?? ''),
+          Number(item?.expectedValue ?? 0),
+          Number(item?.confidence ?? 0),
+          Number(item?.tokenCost ?? 0),
+          Number(item?.priority ?? 0),
+          Boolean(item?.selected),
+          item?.skipReason ?? null,
+          item?.remainingBudgetAfter ?? null,
+        ],
+      );
+    }
+
+    return {
+      snapshotId: String(snapshotId),
+      runId: snapshotRow.run_id ?? null,
+      budgetMode: snapshotRow.budget_mode,
+      summary: {
+        requested: Number(snapshotRow.requested_count ?? 0),
+        selected: Number(snapshotRow.selected_count ?? 0),
+        skipped: Number(snapshotRow.skipped_count ?? 0),
+        budgetTokens: toNumber(snapshotRow.budget_tokens),
+        totalTokenCostSelected: toNumber(snapshotRow.total_token_cost_selected, 0),
+        remainingBudgetTokens: toNumber(snapshotRow.remaining_budget_tokens),
+      },
+      plan: plan.map((item) => ({
+        asin: String(item?.asin ?? ''),
+        expectedValue: Number(item?.expectedValue ?? 0),
+        confidence: Number(item?.confidence ?? 0),
+        tokenCost: Number(item?.tokenCost ?? 0),
+        priority: Number(item?.priority ?? 0),
+        selected: Boolean(item?.selected),
+        skipReason: item?.skipReason ?? null,
+        remainingBudgetAfter:
+          item?.remainingBudgetAfter === null || item?.remainingBudgetAfter === undefined
+            ? null
+            : Number(item.remainingBudgetAfter),
+      })),
+      createdAt: snapshotRow.created_at.toISOString(),
+    };
+  }
+
+  async function listLatestTokenAllocationSnapshots(limit = 20) {
+    await ensureInit();
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+
+    const snapshotsRes = await pool.query(
+      `
+      SELECT
+        id,
+        run_id,
+        budget_mode,
+        budget_tokens,
+        requested_count,
+        selected_count,
+        skipped_count,
+        total_token_cost_selected,
+        remaining_budget_tokens,
+        created_at
+      FROM soon_token_allocation_snapshot
+      ORDER BY created_at DESC, id DESC
+      LIMIT $1
+    `,
+      [safeLimit],
+    );
+
+    const snapshots = snapshotsRes.rows.map((row) => ({
+      snapshotId: String(row.id),
+      runId: row.run_id ?? null,
+      budgetMode: row.budget_mode,
+      summary: {
+        requested: Number(row.requested_count ?? 0),
+        selected: Number(row.selected_count ?? 0),
+        skipped: Number(row.skipped_count ?? 0),
+        budgetTokens: toNumber(row.budget_tokens),
+        totalTokenCostSelected: toNumber(row.total_token_cost_selected, 0),
+        remainingBudgetTokens: toNumber(row.remaining_budget_tokens),
+      },
+      plan: [],
+      createdAt: row.created_at.toISOString(),
+    }));
+
+    if (!snapshots.length) {
+      return snapshots;
+    }
+
+    const snapshotIds = snapshots.map((item) => Number(item.snapshotId)).filter(Number.isFinite);
+    const itemsRes = await pool.query(
+      `
+      SELECT
+        snapshot_id,
+        asin,
+        expected_value,
+        confidence,
+        token_cost,
+        priority,
+        selected,
+        skip_reason,
+        remaining_budget_after,
+        id
+      FROM soon_token_allocation_snapshot_item
+      WHERE snapshot_id = ANY($1::bigint[])
+      ORDER BY snapshot_id DESC, id ASC
+    `,
+      [snapshotIds],
+    );
+
+    const bySnapshot = new Map();
+    for (const row of itemsRes.rows) {
+      const key = String(row.snapshot_id);
+      const current = bySnapshot.get(key) ?? [];
+      current.push({
+        asin: row.asin,
+        expectedValue: toNumber(row.expected_value, 0),
+        confidence: toNumber(row.confidence, 0),
+        tokenCost: toNumber(row.token_cost, 0),
+        priority: toNumber(row.priority, 0),
+        selected: Boolean(row.selected),
+        skipReason: row.skip_reason ?? null,
+        remainingBudgetAfter: toNumber(row.remaining_budget_after),
+      });
+      bySnapshot.set(key, current);
+    }
+
+    for (const snapshot of snapshots) {
+      snapshot.plan = bySnapshot.get(snapshot.snapshotId) ?? [];
+    }
+
+    return snapshots;
+  }
+
   async function getRuntimeState(stateKey) {
     await ensureInit();
     const key = String(stateKey ?? '').trim();
@@ -1637,6 +1848,8 @@ export function createPostgresStore({
     requeueSelfHealDeadLetters,
     listSelfHealRequeueAudit,
     getSelfHealRequeueAuditSummary,
+    recordTokenAllocationSnapshot,
+    listLatestTokenAllocationSnapshots,
     getRuntimeState,
     setRuntimeState,
     async close() {

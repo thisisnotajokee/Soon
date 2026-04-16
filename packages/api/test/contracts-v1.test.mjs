@@ -96,6 +96,7 @@ test('POST /api/token-control/allocate ranks candidates and applies token budget
     assert.equal(allocation.status, 200);
     assert.equal(allocation.body.status, 'ok');
     assert.equal(allocation.body.budgetMode, 'capped');
+    assert.ok(allocation.body.snapshotId);
     assert.equal(allocation.body.summary.requested, 3);
     assert.equal(allocation.body.summary.selected, 1);
     assert.equal(allocation.body.summary.skipped, 2);
@@ -106,6 +107,34 @@ test('POST /api/token-control/allocate ranks candidates and applies token budget
     assert.equal(allocation.body.plan[1].asin, 'C-MID');
     assert.equal(allocation.body.plan[1].selected, false);
     assert.equal(allocation.body.plan[1].skipReason, 'budget_exceeded');
+  });
+});
+
+test('GET /token-control/snapshots/latest returns persisted token allocation snapshots', async () => {
+  await withServer(async (baseUrl) => {
+    await readJson(
+      await fetch(`${baseUrl}/token-control/allocate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          budgetTokens: 30,
+          items: [
+            { asin: 'B0AAATEST1', expectedValue: 120, confidence: 0.7, tokenCost: 12 },
+            { asin: 'B0AAATEST2', expectedValue: 80, confidence: 0.6, tokenCost: 8 },
+          ],
+        }),
+      }),
+    );
+
+    const snapshots = await readJson(await fetch(`${baseUrl}/api/token-control/snapshots/latest?limit=5`));
+    assert.equal(snapshots.status, 200);
+    assert.ok(Array.isArray(snapshots.body.items));
+    assert.ok(snapshots.body.count >= 1);
+    assert.ok(snapshots.body.items[0].snapshotId);
+    assert.ok(['unbounded', 'capped'].includes(snapshots.body.items[0].budgetMode));
+    assert.ok(Array.isArray(snapshots.body.items[0].plan));
+    assert.ok(snapshots.body.items[0].plan.length >= 1);
+    assert.ok(typeof snapshots.body.items[0].summary.requested === 'number');
   });
 });
 

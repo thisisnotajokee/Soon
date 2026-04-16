@@ -223,6 +223,7 @@ export function createInMemoryStore() {
   const selfHealRetryQueue = [];
   const selfHealDeadLetters = [];
   const selfHealRequeueAudit = [];
+  const tokenAllocationSnapshots = [];
   const runtimeState = new Map();
   let selfHealManualRequeueTotal = 0;
 
@@ -660,6 +661,55 @@ export function createInMemoryStore() {
     return { stateKey: key, ...entry };
   }
 
+  async function recordTokenAllocationSnapshot(payload = {}) {
+    const snapshot = {
+      snapshotId: randomUUID(),
+      runId: payload.runId ?? null,
+      budgetMode: payload.budgetMode ?? 'unbounded',
+      summary: {
+        requested: Number(payload?.summary?.requested ?? 0),
+        selected: Number(payload?.summary?.selected ?? 0),
+        skipped: Number(payload?.summary?.skipped ?? 0),
+        budgetTokens:
+          payload?.summary?.budgetTokens === null || payload?.summary?.budgetTokens === undefined
+            ? null
+            : Number(payload.summary.budgetTokens),
+        totalTokenCostSelected: Number(payload?.summary?.totalTokenCostSelected ?? 0),
+        remainingBudgetTokens:
+          payload?.summary?.remainingBudgetTokens === null || payload?.summary?.remainingBudgetTokens === undefined
+            ? null
+            : Number(payload.summary.remainingBudgetTokens),
+      },
+      plan: Array.isArray(payload.plan)
+        ? payload.plan.map((item) => ({
+            asin: String(item.asin ?? ''),
+            expectedValue: Number(item.expectedValue ?? 0),
+            confidence: Number(item.confidence ?? 0),
+            tokenCost: Number(item.tokenCost ?? 0),
+            priority: Number(item.priority ?? 0),
+            selected: Boolean(item.selected),
+            skipReason: item.skipReason ?? null,
+            remainingBudgetAfter:
+              item.remainingBudgetAfter === null || item.remainingBudgetAfter === undefined
+                ? null
+                : Number(item.remainingBudgetAfter),
+          }))
+        : [],
+      createdAt: new Date().toISOString(),
+    };
+
+    tokenAllocationSnapshots.unshift(snapshot);
+    if (tokenAllocationSnapshots.length > 200) {
+      tokenAllocationSnapshots.length = 200;
+    }
+    return snapshot;
+  }
+
+  async function listLatestTokenAllocationSnapshots(limit = 20) {
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+    return tokenAllocationSnapshots.slice(0, safeLimit);
+  }
+
   return {
     mode: 'in-memory',
     listTrackings,
@@ -682,6 +732,8 @@ export function createInMemoryStore() {
     getSelfHealRequeueAuditSummary,
     getRuntimeState,
     setRuntimeState,
+    recordTokenAllocationSnapshot,
+    listLatestTokenAllocationSnapshots,
     async close() {
       // no-op
     },

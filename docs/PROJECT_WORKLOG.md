@@ -10,6 +10,43 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ---
 
+## 2026-04-16 — Token Control Plane v2 (snapshot persistence)
+
+### Zakres
+
+1. Dodano migrację `011_token_allocation_snapshots.sql`:
+- `soon_token_allocation_snapshot`,
+- `soon_token_allocation_snapshot_item`.
+2. Dodano zapis snapshotów po `POST /token-control/allocate` (memory + postgres store).
+3. Dodano endpoint odczytu:
+- `GET /token-control/snapshots/latest`,
+- alias `GET /api/token-control/snapshots/latest`.
+4. Rozszerzono kontrakty HTTP o test snapshotów.
+5. Zaktualizowano README API o nowy endpoint.
+
+### Kluczowe decyzje
+
+1. Snapshot zapisuje zarówno summary, jak i pełny plan pozycji (selected/skipped).
+2. Persistencja snapshotów jest niezależna od `automation cycle runId` (na tym etapie `runId=null`).
+3. V2 buduje bazę pod kolejne spięcie z automatyką i read-model tokenów.
+
+### Testy / weryfikacja
+
+1. `npm run test:contracts` -> do uruchomienia po zmianach.
+2. `npm run check` -> do uruchomienia po zmianach.
+
+### Ryzyka
+
+1. Brak jeszcze metryk operacyjnych dla token snapshotów (`/metrics` bez serii token-control).
+2. Brak retencji/cleanup snapshotów (na razie rośnie historia).
+
+### Następny krok
+
+1. Podpiąć token snapshoty do `automation/cycle` z realnym `runId`.
+2. Dodać metryki token-control (`selected/skipped/budget usage`) do `GET /metrics`.
+
+---
+
 ## 2026-04-16 — Token Control Plane v1 (kontrakt + endpoint)
 
 ### Zakres
