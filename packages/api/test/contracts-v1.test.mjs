@@ -202,6 +202,88 @@ test('GET /api/token-control/budget/status returns daily token budget status and
   });
 });
 
+test('GET /api/token-control/probe-policy returns current config and auto-tune diagnostics', async () => {
+  await withServer(async (baseUrl) => {
+    const day = '2036-05-06';
+    const previousDay = '2036-05-05';
+
+    await readJson(
+      await fetch(`${baseUrl}/automation/cycle`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          now: `${previousDay}T08:00:00.000Z`,
+          tokenPolicy: {
+            mode: 'capped',
+            budgetTokens: 12,
+            probeBudgetTokens: 10,
+            probeCooldownSec: 300,
+            maxProbesPerDay: 4,
+            autoTuneProbePolicy: true,
+          },
+        }),
+      }),
+    );
+
+    const firstRun = await readJson(
+      await fetch(`${baseUrl}/automation/cycle`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          now: `${day}T08:00:00.000Z`,
+          tokenPolicy: {
+            mode: 'capped',
+            budgetTokens: 12,
+            probeBudgetTokens: 10,
+            probeCooldownSec: 300,
+            maxProbesPerDay: 4,
+            autoTuneProbePolicy: true,
+          },
+        }),
+      }),
+    );
+    assert.equal(firstRun.status, 200);
+
+    const secondRun = await readJson(
+      await fetch(`${baseUrl}/automation/cycle`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          now: `${day}T10:00:00.000Z`,
+          tokenPolicy: {
+            mode: 'capped',
+            budgetTokens: 12,
+            probeBudgetTokens: 10,
+            probeCooldownSec: 300,
+            maxProbesPerDay: 4,
+            autoTuneProbePolicy: true,
+          },
+        }),
+      }),
+    );
+    assert.equal(secondRun.status, 200);
+    assert.equal(secondRun.body.tokenBudgetAutoRemediation?.action, 'smart_probe');
+
+    const diagnostics = await readJson(
+      await fetch(
+        `${baseUrl}/api/token-control/probe-policy?day=${day}&mode=capped&budgetTokens=12&probeCooldownSec=300&maxProbesPerDay=4&autoTuneProbePolicy=1`,
+      ),
+    );
+    assert.equal(diagnostics.status, 200);
+    assert.equal(diagnostics.body.status, 'ok');
+    assert.equal(diagnostics.body.day, day);
+    assert.equal(diagnostics.body.tokenPolicyConfig?.autoTuneProbePolicy, true);
+    assert.equal(diagnostics.body.derivedAutoTuneDecision?.enabled, true);
+    assert.equal(diagnostics.body.derivedAutoTuneDecision?.pressureBand, 'critical');
+    assert.ok(diagnostics.body.derivedAutoTuneDecision?.probeCooldownSec >= 43200);
+    assert.equal(diagnostics.body.derivedAutoTuneDecision?.maxProbesPerDay, 1);
+    assert.equal(diagnostics.body.lastAutoTuneDecision?.found, true);
+    assert.equal(diagnostics.body.lastAutoTuneDecision?.autoTuneEnabled, true);
+    assert.equal(diagnostics.body.lastAutoTuneDecision?.autoTuneApplied, true);
+    assert.equal(diagnostics.body.lastAutoTuneDecision?.pressureBand, 'critical');
+  });
+});
+
 test('POST /token-control/allocate validates payload shape', async () => {
   await withServer(async (baseUrl) => {
     const missingItems = await readJson(

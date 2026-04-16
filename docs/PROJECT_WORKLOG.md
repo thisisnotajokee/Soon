@@ -1616,3 +1616,34 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Dodać endpoint diagnostyczny policy (`/api/token-control/probe-policy`) z current config + ostatnia decyzja auto-tune dla operacyjnej obserwowalności.
+
+### Update (2026-04-16, etap 11 probe-policy diagnostics endpoint)
+
+1. Dodano endpoint diagnostyczny:
+   - `GET /token-control/probe-policy`
+   - `GET /api/token-control/probe-policy`
+2. Endpoint zwraca:
+   - `tokenPolicyConfig` (effective config + autotune flags),
+   - `tokenBudgetStatus` dla wybranego dnia,
+   - `tokenBudgetStatusPreviousDay` (trend reference),
+   - `probeCooldown` (runtime-state cooldown snapshot),
+   - `derivedAutoTuneDecision` (decyzja wyliczona „na teraz”),
+   - `lastAutoTuneDecision` (ostatnia decyzja persisted w runtime-state probe).
+3. Runtime-state probe (`token_budget_last_probe_at`) rozszerzono o persisted metadata autotune:
+   - `autoTuneEnabled`, `autoTuneApplied`, `autoTuneReason`, `autoTunePressureBand`,
+   - `autoTuneUsagePct`, `autoTunePreviousUsagePct`, `autoTuneUsageDeltaPct`.
+4. Kontrakty:
+   - nowy test `GET /api/token-control/probe-policy returns current config and auto-tune diagnostics`.
+
+### Testy / weryfikacja
+
+1. `npm run test:contracts` -> do uruchomienia po wdrożeniu etapu 11.
+2. `npm run check` -> do uruchomienia po wdrożeniu etapu 11.
+
+### Ryzyka
+
+1. `lastAutoTuneDecision` zależy od wystąpienia `smart_probe`; jeśli ostatnie runy kończyły się deferral bez probe, persisted decision może być historyczna.
+
+### Następny krok
+
+1. Dodać minimalny endpoint operacyjny resetu probe runtime-state (manualny maintenance) z audytem i guardrailami.
