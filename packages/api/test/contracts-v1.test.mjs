@@ -446,6 +446,35 @@ test('POST /api/token-control/probe-policy/reset enforces ops key when configure
     }
   }
 });
+
+test('GET /api/token-control/probe-policy/reset-auth/status reports auth guard mode', async () => {
+  const previousOpsKey = process.env.SOON_TOKEN_PROBE_RESET_OPS_KEY;
+  try {
+    delete process.env.SOON_TOKEN_PROBE_RESET_OPS_KEY;
+    await withServer(async (baseUrl) => {
+      const openMode = await readJson(await fetch(`${baseUrl}/api/token-control/probe-policy/reset-auth/status`));
+      assert.equal(openMode.status, 200);
+      assert.equal(openMode.body.status, 'ok');
+      assert.equal(openMode.body.endpoint, 'token-control/probe-policy/reset');
+      assert.equal(openMode.body.auth?.opsKeyRequired, false);
+      assert.ok(Array.isArray(openMode.body.auth?.acceptedHeaders));
+    });
+
+    process.env.SOON_TOKEN_PROBE_RESET_OPS_KEY = 'contracts-ops-reset-key';
+    await withServer(async (baseUrl) => {
+      const guardedMode = await readJson(await fetch(`${baseUrl}/api/token-control/probe-policy/reset-auth/status`));
+      assert.equal(guardedMode.status, 200);
+      assert.equal(guardedMode.body.auth?.opsKeyRequired, true);
+      assert.ok(Array.isArray(guardedMode.body.auth?.acceptedHeaders));
+    });
+  } finally {
+    if (previousOpsKey === undefined) {
+      delete process.env.SOON_TOKEN_PROBE_RESET_OPS_KEY;
+    } else {
+      process.env.SOON_TOKEN_PROBE_RESET_OPS_KEY = previousOpsKey;
+    }
+  }
+});
 test('POST /token-control/allocate validates payload shape', async () => {
   await withServer(async (baseUrl) => {
     const missingItems = await readJson(

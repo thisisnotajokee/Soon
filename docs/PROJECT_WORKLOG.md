@@ -1710,3 +1710,27 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Dodać osobny endpoint `GET /api/token-control/probe-policy/reset-auth/status` (bez ujawniania sekretu), aby monitoring wiedział czy guard jest aktywny.
+
+### Update (2026-04-16, etap 14 reset-auth status endpoint)
+
+1. Dodano endpoint statusowy guardu auth:
+   - `GET /token-control/probe-policy/reset-auth/status`
+   - `GET /api/token-control/probe-policy/reset-auth/status`
+2. Endpoint zwraca wyłącznie diagnostykę operacyjną (bez sekretów):
+   - `auth.opsKeyRequired` (`true/false`),
+   - `auth.acceptedHeaders` (`x-soon-ops-key`, `x-ops-key`, `authorization: bearer`).
+3. Kontrakty rozszerzone o test:
+   - `GET /api/token-control/probe-policy/reset-auth/status reports auth guard mode`
+   - scenariusze: bez klucza (`false`) i z kluczem (`true`).
+
+### Testy / weryfikacja
+
+1. `npm run test:contracts` -> PASS (38/38).
+
+### Ryzyka
+
+1. Endpoint statusowy nie weryfikuje poprawności klucza (intencjonalnie) — raportuje tylko czy guard jest aktywny.
+
+### Następny krok
+
+1. Dodać `doctor` check: FAIL w CI/PROD, gdy `SOON_TOKEN_PROBE_RESET_OPS_KEY` nie jest ustawiony.
