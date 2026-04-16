@@ -27,7 +27,20 @@ function formatList(items) {
   return items.map((item) => `\`${item}\``).join(', ');
 }
 
-function buildMarkdown(report, path) {
+function isProdLikeRuntime() {
+  const candidates = [
+    process.env.NODE_ENV,
+    process.env.SOON_ENV,
+    process.env.DEPLOY_ENV,
+    process.env.ENVIRONMENT,
+  ];
+  return candidates.some((value) => {
+    const normalized = String(value ?? '').trim().toLowerCase();
+    return normalized === 'prod' || normalized === 'production';
+  });
+}
+
+function buildMarkdown(report, path, securityGuard) {
   const status = report?.readModel?.status ?? {};
   const metrics = report?.metrics ?? {};
   const checker = report?.alertCheck ?? {};
@@ -71,6 +84,10 @@ function buildMarkdown(report, path) {
     `- Expected read-model mode: \`${checks.expectedReadModelMode ?? 'n/a'}\``,
     `- Read-model mode matches: \`${checks.readModelModeMatches ?? 'n/a'}\``,
     `- Expectation findings: \`${expectationFindings.length}\``,
+    '',
+    '### Security Guards',
+    `- Probe reset ops key required: \`${securityGuard.probeResetOpsKeyRequired}\``,
+    `- Probe reset ops key configured: \`${securityGuard.probeResetOpsKeyConfigured}\``,
   ].join('\n');
 }
 
@@ -112,6 +129,11 @@ async function main() {
   const pathArg = process.argv[2] || DEFAULT_PATH;
   const triagePathArg = process.argv[3] || DEFAULT_TRIAGE_PATH;
   const requireTriage = parseBoolean(process.env.SOON_DOCTOR_SUMMARY_REQUIRE_TRIAGE, false);
+  const requireProbeResetOpsKey = parseBoolean(
+    process.env.SOON_DOCTOR_SUMMARY_REQUIRE_PROBE_RESET_OPS_KEY,
+    parseBoolean(process.env.CI, false) || isProdLikeRuntime(),
+  );
+  const probeResetOpsKeyConfigured = String(process.env.SOON_TOKEN_PROBE_RESET_OPS_KEY ?? '').trim().length > 0;
   const path = resolve(pathArg);
   const triagePath = resolve(triagePathArg);
   const raw = await readFile(path, 'utf8');
@@ -123,7 +145,15 @@ async function main() {
   if (requireTriage && !validateTriageShape(triage)) {
     throw new Error(`required triage artifact has invalid shape: ${triagePathArg}`);
   }
-  const markdown = `${buildMarkdown(report, pathArg)}\n${buildTriageMarkdown(triage, triagePathArg)}`;
+  if (requireProbeResetOpsKey && !probeResetOpsKeyConfigured) {
+    throw new Error(
+      'required env missing: SOON_TOKEN_PROBE_RESET_OPS_KEY (doctor-summary strict mode for CI/PROD)',
+    );
+  }
+  const markdown = `${buildMarkdown(report, pathArg, {
+    probeResetOpsKeyRequired: requireProbeResetOpsKey,
+    probeResetOpsKeyConfigured,
+  })}\n${buildTriageMarkdown(triage, triagePathArg)}`;
   process.stdout.write(`${markdown}\n`);
 }
 
