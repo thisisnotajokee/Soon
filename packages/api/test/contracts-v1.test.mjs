@@ -204,8 +204,8 @@ test('GET /api/token-control/budget/status returns daily token budget status and
 
 test('GET /api/token-control/probe-policy returns current config and auto-tune diagnostics', async () => {
   await withServer(async (baseUrl) => {
-    const day = '2036-05-06';
-    const previousDay = '2036-05-05';
+    const day = '2036-05-01';
+    const previousDay = '2036-04-30';
 
     await readJson(
       await fetch(`${baseUrl}/automation/cycle`, {
