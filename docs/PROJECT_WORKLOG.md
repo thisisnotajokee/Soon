@@ -1516,3 +1516,34 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Odpalić `npm run test:contracts` i `npm run check`, potem merge etapu 7.
+
+### Update (2026-04-16, etap 8 cooldown-guarded smart probe)
+
+1. Token probe przeszedł z reguły „1x/dzień” na regułę cooldown:
+   - nowy parametr policy: `tokenPolicy.probeCooldownSec`,
+   - nowy ENV fallback: `SOON_TOKEN_EXHAUSTED_PROBE_COOLDOWN_SEC` (default `86400`).
+2. `POST /automation/cycle` rozszerzono o cooldown telemetry:
+   - `tokenBudgetAutoRemediation.probeCooldownSec`,
+   - `tokenBudgetAutoRemediation.probeCooldownRemainingSec`,
+   - `tokenBudgetAutoRemediation.probeBlockedByCooldown`.
+3. Runtime-state probe dostał explicit cooldown metadata:
+   - `token_budget_last_probe_at.stateValue.cooldownSec`.
+4. Endpoint `GET /api/self-heal/runtime-state` dla key `token_budget_last_probe_at` zwraca teraz `cooldown`.
+5. Prometheus rozszerzony o metrykę:
+   - `soon_token_budget_probe_cooldown_remaining_seconds`.
+6. Kontrakty:
+   - nowy test: drugi `smart_probe` po wygaśnięciu cooldown,
+   - dodatkowe asercje telemetry probe + metryki cooldown.
+
+### Testy / weryfikacja
+
+1. `npm run test:contracts` -> do uruchomienia po wdrożeniu etapu 8.
+2. `npm run check` -> do uruchomienia po wdrożeniu etapu 8.
+
+### Ryzyka
+
+1. Cooldown opiera się o timestamp ostatniego probe; jeśli potrzebny będzie limit hybrydowy (np. max N probe/dzień + cooldown), to trzeba dodać licznik per day-window.
+
+### Następny krok
+
+1. Dodać limit hybrydowy `maxProbesPerDay` i kontrakt dla kombinacji `cooldown + max/day`.

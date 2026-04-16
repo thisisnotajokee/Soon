@@ -32,6 +32,7 @@ function resolveStore() {
 const ALERT_ROUTING_REMEDIATION_STATE_KEY = 'alert_routing_last_remediation_at';
 const TOKEN_BUDGET_DEFERRAL_STATE_KEY = 'token_budget_last_deferral_at';
 const TOKEN_BUDGET_PROBE_STATE_KEY = 'token_budget_last_probe_at';
+const TOKEN_BUDGET_PROBE_DEFAULT_COOLDOWN_SEC = 24 * 60 * 60;
 const RUNTIME_STATE_ALLOWLIST = new Set([
   ALERT_ROUTING_REMEDIATION_STATE_KEY,
   TOKEN_BUDGET_DEFERRAL_STATE_KEY,
@@ -460,6 +461,13 @@ function resolveAutomationTokenPolicyConfig(rawConfig = null) {
   const parsedProbeBudget = toFiniteNumber(probeBudgetSource);
   const probeBudgetTokens =
     parsedProbeBudget !== null && parsedProbeBudget > 0 ? Number(parsedProbeBudget.toFixed(2)) : null;
+  const fallbackProbeCooldownSec = clampInt(
+    process.env.SOON_TOKEN_EXHAUSTED_PROBE_COOLDOWN_SEC,
+    TOKEN_BUDGET_PROBE_DEFAULT_COOLDOWN_SEC,
+    0,
+    7 * 24 * 60 * 60,
+  );
+  const probeCooldownSec = clampInt(rawConfig?.probeCooldownSec, fallbackProbeCooldownSec, 0, 7 * 24 * 60 * 60);
 
   if (requestedMode === 'capped' && budgetTokens === null) {
     return {
@@ -467,6 +475,7 @@ function resolveAutomationTokenPolicyConfig(rawConfig = null) {
       mode: 'unbounded',
       budgetTokens: null,
       probeBudgetTokens: null,
+      probeCooldownSec,
       fallbackReason: 'invalid_or_missing_budget',
     };
   }
@@ -476,7 +485,37 @@ function resolveAutomationTokenPolicyConfig(rawConfig = null) {
     mode: requestedMode,
     budgetTokens,
     probeBudgetTokens,
+    probeCooldownSec,
     fallbackReason: null,
+  };
+}
+
+function deriveTokenBudgetProbeCooldownFromRuntimeState(
+  runtimeState,
+  {
+    fallbackCooldownSec = TOKEN_BUDGET_PROBE_DEFAULT_COOLDOWN_SEC,
+    nowMs = Date.now(),
+    overrideCooldownSec = null,
+  } = {},
+) {
+  const stateValue = runtimeState?.stateValue ?? {};
+  const rawTimestamp = stateValue?.timestamp ?? stateValue?.at ?? null;
+  const lastProbeAtMs = Number.isFinite(Date.parse(rawTimestamp ?? '')) ? Date.parse(rawTimestamp) : 0;
+  const overrideCooldown = toFiniteNumber(overrideCooldownSec);
+  const cooldownSec =
+    overrideCooldown !== null
+      ? clampInt(overrideCooldown, fallbackCooldownSec, 0, 7 * 24 * 60 * 60)
+      : clampInt(stateValue?.cooldownSec, fallbackCooldownSec, 0, 7 * 24 * 60 * 60);
+  const cooldownRemainingMs =
+    cooldownSec > 0 && lastProbeAtMs > 0 ? Math.max(0, lastProbeAtMs + cooldownSec * 1000 - nowMs) : 0;
+
+  return {
+    lastProbeAtMs,
+    lastProbeAt: lastProbeAtMs > 0 ? new Date(lastProbeAtMs).toISOString() : null,
+    cooldownSec,
+    cooldownActive: cooldownRemainingMs > 0,
+    cooldownRemainingMs,
+    cooldownRemainingSec: Math.ceil(cooldownRemainingMs / 1000),
   };
 }
 
@@ -768,6 +807,7 @@ function renderTokenBudgetPrometheusMetrics(
   tokenPolicyConfig = null,
   deferralRuntimeState = null,
   probeRuntimeState = null,
+  probeCooldownState = null,
 ) {
   const mode = escapePromLabel(status?.mode ?? tokenPolicyConfig?.mode ?? 'unbounded');
   const budgetTokens = toPromNumber(status?.budgetTokens);
@@ -787,6 +827,7 @@ function renderTokenBudgetPrometheusMetrics(
   const probeForCurrentDay = probeDay === String(status?.day ?? '');
   const probeActive = exhausted && probeForCurrentDay ? 1 : 0;
   const probeTs = toPromUnixTs(probeState?.timestamp ?? null);
+  const probeCooldownRemainingSec = toPromNumber(probeCooldownState?.cooldownRemainingSec);
 
   const lines = [
     '# HELP soon_token_budget_daily_limit_tokens Daily token budget limit (0 means unbounded).',
@@ -819,6 +860,9 @@ function renderTokenBudgetPrometheusMetrics(
     '# HELP soon_token_budget_last_probe_unixtime Last smart-probe activation timestamp (unix seconds, 0 when absent).',
     '# TYPE soon_token_budget_last_probe_unixtime gauge',
     `soon_token_budget_last_probe_unixtime ${probeTs}`,
+    '# HELP soon_token_budget_probe_cooldown_remaining_seconds Remaining cooldown before next smart probe activation.',
+    '# TYPE soon_token_budget_probe_cooldown_remaining_seconds gauge',
+    `soon_token_budget_probe_cooldown_remaining_seconds{mode="${mode}",day="${day}"} ${probeCooldownRemainingSec}`,
   ];
 
   return `${lines.join('\n')}\n`;
@@ -995,15 +1039,34 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           action: 'none',
           reason: null,
           deferredUntil: null,
+          probeCooldownSec: clampInt(
+            tokenPolicyConfig?.probeCooldownSec,
+            TOKEN_BUDGET_PROBE_DEFAULT_COOLDOWN_SEC,
+            0,
+            7 * 24 * 60 * 60,
+          ),
+          probeCooldownRemainingSec: 0,
+          probeBlockedByCooldown: false,
           stateKey: null,
           stateUpdatedAt: null,
         };
         if (tokenBudgetExhaustedBefore) {
           const probeBudgetTokens = toFiniteNumber(tokenPolicyConfig?.probeBudgetTokens);
           const probeState = store.getRuntimeState ? await store.getRuntimeState(TOKEN_BUDGET_PROBE_STATE_KEY) : null;
-          const probeUsedToday = String(probeState?.stateValue?.day ?? '').trim() === budgetDay;
+          const probeCooldownState = deriveTokenBudgetProbeCooldownFromRuntimeState(probeState, {
+            fallbackCooldownSec: tokenBudgetAutoRemediation.probeCooldownSec,
+            nowMs: startTs,
+            overrideCooldownSec: tokenBudgetAutoRemediation.probeCooldownSec,
+          });
+          const probeAllowedByCooldown = !probeCooldownState.cooldownActive;
+          tokenBudgetAutoRemediation = {
+            ...tokenBudgetAutoRemediation,
+            probeCooldownSec: probeCooldownState.cooldownSec,
+            probeCooldownRemainingSec: probeCooldownState.cooldownRemainingSec,
+            probeBlockedByCooldown: probeBudgetTokens !== null && probeBudgetTokens > 0 && !probeAllowedByCooldown,
+          };
 
-          if (probeBudgetTokens !== null && probeBudgetTokens > 0 && !probeUsedToday) {
+          if (probeBudgetTokens !== null && probeBudgetTokens > 0 && probeAllowedByCooldown) {
             tokenPolicyApplied = {
               ...tokenPolicyApplied,
               budgetTokens: Number(probeBudgetTokens.toFixed(2)),
@@ -1022,6 +1085,7 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
                 day: budgetDay,
                 reason: 'daily_token_budget_exhausted',
                 probeBudgetTokens: tokenPolicyApplied.budgetTokens,
+                cooldownSec: tokenBudgetAutoRemediation.probeCooldownSec,
                 windowResetAt: tokenBudgetStatusBefore?.windowResetAt ?? null,
               });
               tokenBudgetAutoRemediation.stateUpdatedAt = runtimeState?.updatedAt ?? null;
@@ -1452,10 +1516,24 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
 
         const runtimeState = await store.getRuntimeState(key);
         const fallbackCooldownSec = clampInt(process.env.SOON_ALERT_ROUTING_REMEDIATION_COOLDOWN_SEC, 120, 0, 86400);
-        const cooldown =
-          key === ALERT_ROUTING_REMEDIATION_STATE_KEY
-            ? deriveAlertRoutingCooldownFromRuntimeState(runtimeState, { fallbackCooldownSec, nowMs: Date.now() })
-            : null;
+        const fallbackProbeCooldownSec = clampInt(
+          process.env.SOON_TOKEN_EXHAUSTED_PROBE_COOLDOWN_SEC,
+          TOKEN_BUDGET_PROBE_DEFAULT_COOLDOWN_SEC,
+          0,
+          7 * 24 * 60 * 60,
+        );
+        let cooldown = null;
+        if (key === ALERT_ROUTING_REMEDIATION_STATE_KEY) {
+          cooldown = deriveAlertRoutingCooldownFromRuntimeState(runtimeState, {
+            fallbackCooldownSec,
+            nowMs: Date.now(),
+          });
+        } else if (key === TOKEN_BUDGET_PROBE_STATE_KEY) {
+          cooldown = deriveTokenBudgetProbeCooldownFromRuntimeState(runtimeState, {
+            fallbackCooldownSec: fallbackProbeCooldownSec,
+            nowMs: Date.now(),
+          });
+        }
 
         return sendJson(res, 200, {
           status: 'ok',
@@ -1566,11 +1644,16 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           const tokenBudgetProbeState = store.getRuntimeState
             ? await store.getRuntimeState(TOKEN_BUDGET_PROBE_STATE_KEY)
             : null;
+          const tokenBudgetProbeCooldown = deriveTokenBudgetProbeCooldownFromRuntimeState(tokenBudgetProbeState, {
+            fallbackCooldownSec: tokenPolicyConfig?.probeCooldownSec ?? TOKEN_BUDGET_PROBE_DEFAULT_COOLDOWN_SEC,
+            nowMs: Date.now(),
+          });
           payload += renderTokenBudgetPrometheusMetrics(
             tokenBudgetStatus,
             tokenPolicyConfig,
             tokenBudgetDeferralState,
             tokenBudgetProbeState,
+            tokenBudgetProbeCooldown,
           );
         }
         res.writeHead(200, {
