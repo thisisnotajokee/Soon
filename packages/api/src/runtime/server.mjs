@@ -373,30 +373,72 @@ function allocateTokenControlPlan({ items, budgetTokens = null }) {
   };
 }
 
-function buildUnboundedTokenSnapshotFromPlan(tokenPlan = []) {
+function buildTokenSnapshotFromPlan(tokenPlan = [], { budgetMode = 'unbounded', budgetTokens = null } = {}) {
   const normalizedPlan = (Array.isArray(tokenPlan) ? tokenPlan : []).map((item) => ({
     asin: String(item?.asin ?? ''),
     expectedValue: Number(item?.expectedValue ?? 0),
     confidence: Number(item?.confidence ?? 0),
     tokenCost: Number(item?.tokenCost ?? 0),
     priority: Number(item?.priority ?? 0),
-    selected: true,
-    skipReason: null,
-    remainingBudgetAfter: null,
+    selected: item?.selected !== false,
+    skipReason: item?.skipReason ?? null,
+    remainingBudgetAfter:
+      item?.remainingBudgetAfter === null || item?.remainingBudgetAfter === undefined
+        ? null
+        : Number(item.remainingBudgetAfter),
   }));
 
-  const totalTokenCostSelected = normalizedPlan.reduce((acc, item) => acc + item.tokenCost, 0);
+  const selectedCount = normalizedPlan.filter((item) => item.selected).length;
+  const totalTokenCostSelected = normalizedPlan
+    .filter((item) => item.selected)
+    .reduce((acc, item) => acc + item.tokenCost, 0);
+  const normalizedBudgetMode = budgetMode === 'capped' && Number.isFinite(Number(budgetTokens)) && Number(budgetTokens) > 0
+    ? 'capped'
+    : 'unbounded';
+
   return {
-    budgetMode: 'unbounded',
+    budgetMode: normalizedBudgetMode,
     summary: {
       requested: normalizedPlan.length,
-      selected: normalizedPlan.length,
-      skipped: 0,
-      budgetTokens: null,
+      selected: selectedCount,
+      skipped: normalizedPlan.length - selectedCount,
+      budgetTokens: normalizedBudgetMode === 'capped' ? Number(Number(budgetTokens).toFixed(2)) : null,
       totalTokenCostSelected: Number(totalTokenCostSelected.toFixed(2)),
-      remainingBudgetTokens: null,
+      remainingBudgetTokens:
+        normalizedBudgetMode === 'capped'
+          ? normalizedPlan.length > 0
+            ? normalizedPlan[normalizedPlan.length - 1].remainingBudgetAfter
+            : Number(Number(budgetTokens ?? 0).toFixed(2))
+          : null,
     },
     plan: normalizedPlan,
+  };
+}
+
+function resolveAutomationTokenPolicyConfig(rawConfig = null) {
+  const modeSource = rawConfig?.mode ?? process.env.SOON_TOKEN_POLICY_MODE ?? 'unbounded';
+  const rawMode = String(modeSource)
+    .trim()
+    .toLowerCase();
+  const requestedMode = rawMode === 'capped' ? 'capped' : 'unbounded';
+  const budgetSource = rawConfig?.budgetTokens ?? process.env.SOON_TOKEN_DAILY_BUDGET;
+  const parsedBudget = toFiniteNumber(budgetSource);
+  const budgetTokens = parsedBudget !== null && parsedBudget > 0 ? Number(parsedBudget.toFixed(2)) : null;
+
+  if (requestedMode === 'capped' && budgetTokens === null) {
+    return {
+      requestedMode,
+      mode: 'unbounded',
+      budgetTokens: null,
+      fallbackReason: 'invalid_or_missing_budget',
+    };
+  }
+
+  return {
+    requestedMode,
+    mode: requestedMode,
+    budgetTokens,
+    fallbackReason: null,
   };
 }
 
@@ -791,20 +833,28 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
       }
 
       if (method === 'POST' && pathname === '/automation/cycle') {
+        const body = await readJsonBody(req).catch(() => ({}));
         const startedAt = new Date().toISOString();
         const trackings = await store.listTrackings();
-        const cycle = runAutomationCycle(trackings);
+        const tokenPolicyConfig = resolveAutomationTokenPolicyConfig(body?.tokenPolicy ?? null);
+        const cycle = runAutomationCycle(trackings, {
+          tokenPolicyMode: tokenPolicyConfig.mode,
+          budgetTokens: tokenPolicyConfig.budgetTokens,
+        });
         const finishedAt = new Date().toISOString();
 
         const persisted = store.recordAutomationCycle
           ? await store.recordAutomationCycle({
               cycle,
-              trackingCount: trackings.length,
+              trackingCount: Number(cycle?.tokenPolicy?.selectedCount ?? trackings.length),
               startedAt,
               finishedAt,
             })
           : null;
-        const tokenSnapshotInput = buildUnboundedTokenSnapshotFromPlan(cycle.tokenPlan);
+        const tokenSnapshotInput = buildTokenSnapshotFromPlan(cycle.tokenPlan, {
+          budgetMode: cycle?.tokenPolicy?.mode ?? tokenPolicyConfig.mode,
+          budgetTokens: cycle?.tokenPolicy?.budgetTokens ?? tokenPolicyConfig.budgetTokens,
+        });
         const tokenSnapshot = store.recordTokenAllocationSnapshot
           ? await store.recordTokenAllocationSnapshot({
               runId: persisted?.runId ?? null,
@@ -816,6 +866,7 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           status: 'ok',
           runId: persisted?.runId ?? null,
           tokenSnapshotId: tokenSnapshot?.snapshotId ?? null,
+          tokenPolicyConfig,
           ...cycle,
           persisted,
         });

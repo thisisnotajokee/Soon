@@ -189,6 +189,8 @@ test('POST /automation/cycle enforces alert channel policy', async () => {
     assert.equal(status, 200);
     assert.equal(body.status, 'ok');
     assert.ok(body.tokenSnapshotId);
+    assert.ok(body.tokenPolicy);
+    assert.ok(['unbounded', 'capped'].includes(body.tokenPolicy.mode));
     assert.ok(Array.isArray(body.alerts));
     assert.ok(body.alerts.length >= 1);
 
@@ -200,6 +202,33 @@ test('POST /automation/cycle enforces alert channel policy', async () => {
         assert.equal(alert.channel, 'discord');
       }
     }
+  });
+});
+
+test('POST /automation/cycle applies capped token budget and skips over-budget candidates', async () => {
+  await withServer(async (baseUrl) => {
+    const { status, body } = await readJson(
+      await fetch(`${baseUrl}/automation/cycle`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          tokenPolicy: { mode: 'capped', budgetTokens: 12 },
+        }),
+      }),
+    );
+
+    assert.equal(status, 200);
+    assert.equal(body.status, 'ok');
+    assert.equal(body.tokenPolicy.mode, 'capped');
+    assert.equal(body.tokenPolicy.budgetTokens, 12);
+    assert.ok(body.tokenPolicy.selectedCount >= 0);
+    assert.ok(body.tokenPolicy.skippedCount >= 1);
+    assert.ok(Array.isArray(body.tokenPlan));
+    assert.ok(body.tokenPlan.some((item) => item.selected === false));
+    assert.ok(body.tokenPlan.some((item) => item.skipReason === 'budget_exceeded'));
+
+    const selectedAsins = new Set(body.tokenPlan.filter((item) => item.selected).map((item) => item.asin));
+    assert.ok(body.decisions.every((decision) => selectedAsins.has(decision.asin)));
   });
 });
 

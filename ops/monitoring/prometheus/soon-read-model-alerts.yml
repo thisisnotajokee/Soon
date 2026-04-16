@@ -95,3 +95,25 @@ groups:
         annotations:
           summary: "Soon alert routing policy critical violation"
           description: "High volume of alert routing policy violations detected."
+
+      - alert: SoonTokenBudgetPressureWarn
+        expr: soon_token_control_budget_limited == 1 and soon_token_control_budget_usage_pct > 90
+        for: 5m
+        labels:
+          severity: warning
+          team: soon-platform
+          channel: discord-ops
+        annotations:
+          summary: "Soon token budget pressure warning"
+          description: "Token budget usage is above 90% for over 5 minutes."
+
+      - alert: SoonTokenBudgetExhaustedCritical
+        expr: soon_token_control_budget_limited == 1 and soon_token_control_skipped_count > 0
+        for: 2m
+        labels:
+          severity: critical
+          team: soon-platform
+          channel: discord-ops
+        annotations:
+          summary: "Soon token budget exhausted"
+          description: "Token budget is capped and candidates are being skipped."
