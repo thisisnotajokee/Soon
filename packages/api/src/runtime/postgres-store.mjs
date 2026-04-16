@@ -146,6 +146,27 @@ function toDayKey(value) {
   return new Date(parsed).toISOString().slice(0, 10);
 }
 
+function toBudgetTokens(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Number(parsed.toFixed(2));
+}
+
+function toAmountTokens(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Number(parsed.toFixed(2));
+}
+
+function startOfDayIso(dayKey) {
+  return `${dayKey}T00:00:00.000Z`;
+}
+
+function nextDayIso(dayKey) {
+  const parsed = Date.parse(`${dayKey}T00:00:00.000Z`);
+  return new Date(parsed + 24 * 60 * 60 * 1000).toISOString();
+}
+
 export function createPostgresStore({
   connectionString = process.env.SOON_DATABASE_URL,
   ssl = process.env.SOON_DATABASE_SSL === '1' ? { rejectUnauthorized: false } : undefined,
@@ -172,22 +193,28 @@ export function createPostgresStore({
   let refreshTotalErrors = 0;
 
   async function seedIfEmpty() {
-    const countRes = await pool.query('SELECT COUNT(*)::int AS count FROM soon_tracking');
-    if (countRes.rows[0].count > 0) {
-      return;
-    }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock(51827601)');
 
-    for (const item of SEEDED_TRACKINGS) {
-      await pool.query(
+      const countRes = await client.query('SELECT COUNT(*)::int AS count FROM soon_tracking');
+      if (countRes.rows[0].count > 0) {
+        await client.query('COMMIT');
+        return;
+      }
+
+      for (const item of SEEDED_TRACKINGS) {
+        await client.query(
         `
         INSERT INTO soon_tracking (asin, title, created_at, updated_at)
         VALUES ($1, $2, now(), now())
         ON CONFLICT (asin) DO UPDATE SET title = EXCLUDED.title, updated_at = now()
       `,
-        [item.asin, item.title],
-      );
+          [item.asin, item.title],
+        );
 
-      await pool.query(
+        await client.query(
         `
         INSERT INTO soon_tracking_threshold (
           asin,
@@ -204,17 +231,17 @@ export function createPostgresStore({
           target_price_used = EXCLUDED.target_price_used,
           updated_at = now()
       `,
-        [
-          item.asin,
-          item.thresholdDropPct ?? null,
-          item.thresholdRisePct ?? null,
-          item.targetPriceNew ?? null,
-          item.targetPriceUsed ?? null,
-        ],
-      );
+          [
+            item.asin,
+            item.thresholdDropPct ?? null,
+            item.thresholdRisePct ?? null,
+            item.targetPriceNew ?? null,
+            item.targetPriceUsed ?? null,
+          ],
+        );
 
-      for (const [market, price] of Object.entries(item.pricesNew ?? {})) {
-        await pool.query(
+        for (const [market, price] of Object.entries(item.pricesNew ?? {})) {
+          await client.query(
           `
           INSERT INTO soon_tracking_price (asin, market, condition, price, currency, updated_at)
           VALUES ($1, $2, 'new', $3, 'EUR', now())
@@ -223,12 +250,12 @@ export function createPostgresStore({
             currency = EXCLUDED.currency,
             updated_at = now()
         `,
-          [item.asin, market, price],
-        );
-      }
+            [item.asin, market, price],
+          );
+        }
 
-      for (const [market, price] of Object.entries(item.pricesUsed ?? {})) {
-        await pool.query(
+        for (const [market, price] of Object.entries(item.pricesUsed ?? {})) {
+          await client.query(
           `
           INSERT INTO soon_tracking_price (asin, market, condition, price, currency, updated_at)
           VALUES ($1, $2, 'used', $3, 'EUR', now())
@@ -237,21 +264,29 @@ export function createPostgresStore({
             currency = EXCLUDED.currency,
             updated_at = now()
         `,
-          [item.asin, market, price],
-        );
-      }
+            [item.asin, market, price],
+          );
+        }
 
-      const base = item.pricesNew?.de ?? Object.values(item.pricesNew ?? {})[0] ?? 100;
-      const history = sampleHistory(base);
-      for (const point of history) {
-        await pool.query(
+        const base = item.pricesNew?.de ?? Object.values(item.pricesNew ?? {})[0] ?? 100;
+        const history = sampleHistory(base);
+        for (const point of history) {
+          await client.query(
           `
           INSERT INTO soon_price_history (asin, market, condition, price, currency, recorded_at)
           VALUES ($1, 'de', 'new', $2, 'EUR', $3::timestamptz)
         `,
-          [item.asin, point.value, point.ts],
-        );
+            [item.asin, point.value, point.ts],
+          );
+        }
       }
+
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
     }
   }
 
@@ -1828,6 +1863,92 @@ export function createPostgresStore({
     };
   }
 
+  async function getTokenDailyBudgetStatus({ day, budgetTokens } = {}) {
+    await ensureInit();
+    const dayKey = toDayKey(day ?? new Date().toISOString());
+    const normalizedBudget = toBudgetTokens(budgetTokens);
+
+    const res = await pool.query(
+      `
+      SELECT day, budget_tokens, consumed_tokens, updated_at
+      FROM soon_token_daily_budget_ledger
+      WHERE day = $1::date
+    `,
+      [dayKey],
+    );
+
+    const row = res.rows[0] ?? null;
+    const consumedRaw = row ? Number(row.consumed_tokens ?? 0) : 0;
+    const consumed =
+      normalizedBudget === null
+        ? Number(Math.max(0, consumedRaw).toFixed(2))
+        : Number(Math.min(normalizedBudget, Math.max(0, consumedRaw)).toFixed(2));
+    const remaining =
+      normalizedBudget === null ? null : Number(Math.max(0, normalizedBudget - consumed).toFixed(2));
+    const usagePct =
+      normalizedBudget === null || normalizedBudget <= 0
+        ? 0
+        : Number(((consumed / normalizedBudget) * 100).toFixed(2));
+
+    return {
+      day: dayKey,
+      mode: normalizedBudget === null ? 'unbounded' : 'capped',
+      budgetTokens: normalizedBudget,
+      consumedTokens: consumed,
+      remainingTokens: remaining,
+      usagePct,
+      exhausted: normalizedBudget !== null ? remaining <= 0 : false,
+      windowStartedAt: startOfDayIso(dayKey),
+      windowResetAt: nextDayIso(dayKey),
+      updatedAt: row
+        ? row.updated_at?.toISOString?.() ?? new Date(row.updated_at).toISOString()
+        : new Date().toISOString(),
+    };
+  }
+
+  async function consumeTokenDailyBudget({ day, budgetTokens, amountTokens } = {}) {
+    await ensureInit();
+    const dayKey = toDayKey(day ?? new Date().toISOString());
+    const normalizedBudget = toBudgetTokens(budgetTokens);
+    if (normalizedBudget === null) {
+      return getTokenDailyBudgetStatus({ day: dayKey, budgetTokens: null });
+    }
+
+    const amount = toAmountTokens(amountTokens);
+    if (amount <= 0) {
+      return getTokenDailyBudgetStatus({ day: dayKey, budgetTokens: normalizedBudget });
+    }
+
+    await pool.query(
+      `
+      INSERT INTO soon_token_daily_budget_ledger (
+        day,
+        budget_tokens,
+        consumed_tokens,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        $1::date,
+        $2::numeric,
+        LEAST($2::numeric, $3::numeric),
+        now(),
+        now()
+      )
+      ON CONFLICT (day) DO UPDATE SET
+        budget_tokens = EXCLUDED.budget_tokens,
+        consumed_tokens = LEAST(
+          EXCLUDED.budget_tokens,
+          GREATEST(0, soon_token_daily_budget_ledger.consumed_tokens + EXCLUDED.consumed_tokens)
+        ),
+        updated_at = now()
+    `,
+      [dayKey, normalizedBudget, amount],
+    );
+
+    return getTokenDailyBudgetStatus({ day: dayKey, budgetTokens: normalizedBudget });
+  }
+
   return {
     mode: 'postgres',
     listTrackings,
@@ -1852,6 +1973,8 @@ export function createPostgresStore({
     listLatestTokenAllocationSnapshots,
     getRuntimeState,
     setRuntimeState,
+    getTokenDailyBudgetStatus,
+    consumeTokenDailyBudget,
     async close() {
       await flushDailyReadModelRefresh();
       await pool.end();

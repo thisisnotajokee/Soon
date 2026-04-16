@@ -110,6 +110,32 @@ function dayKeyFromTimestamp(ts) {
   return new Date(ts).toISOString().slice(0, 10);
 }
 
+function parseTimestampInput(raw, fallback = null) {
+  if (raw === null || raw === undefined || raw === '') return fallback;
+  const asNumber = Number(raw);
+  if (Number.isFinite(asNumber)) {
+    return asNumber;
+  }
+  const parsed = Date.parse(String(raw));
+  if (!Number.isFinite(parsed)) return null;
+  return parsed;
+}
+
+function resolveDayKeyInput(raw, fallbackTs = Date.now()) {
+  if (raw === null || raw === undefined || raw === '') {
+    return dayKeyFromTimestamp(fallbackTs);
+  }
+
+  const dayLiteral = String(raw).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dayLiteral)) {
+    return dayLiteral;
+  }
+
+  const ts = parseTimestampInput(raw);
+  if (ts === null) return null;
+  return dayKeyFromTimestamp(ts);
+}
+
 function toPromNumber(value, fallback = 0) {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
@@ -725,6 +751,40 @@ function renderTokenControlPrometheusMetrics(snapshot) {
   return `${lines.join('\n')}\n`;
 }
 
+function renderTokenBudgetPrometheusMetrics(status, tokenPolicyConfig = null) {
+  const mode = escapePromLabel(status?.mode ?? tokenPolicyConfig?.mode ?? 'unbounded');
+  const budgetTokens = toPromNumber(status?.budgetTokens);
+  const consumedTokens = toPromNumber(status?.consumedTokens);
+  const remainingTokens = toPromNumber(status?.remainingTokens);
+  const usagePct = toPromNumber(status?.usagePct);
+  const exhausted = Boolean(status?.exhausted);
+  const fallbackActive = tokenPolicyConfig?.fallbackReason ? 1 : 0;
+  const day = escapePromLabel(status?.day ?? 'unknown');
+
+  const lines = [
+    '# HELP soon_token_budget_daily_limit_tokens Daily token budget limit (0 means unbounded).',
+    '# TYPE soon_token_budget_daily_limit_tokens gauge',
+    `soon_token_budget_daily_limit_tokens{mode="${mode}",day="${day}"} ${budgetTokens}`,
+    '# HELP soon_token_budget_consumed_tokens Consumed tokens in current daily budget window.',
+    '# TYPE soon_token_budget_consumed_tokens gauge',
+    `soon_token_budget_consumed_tokens{mode="${mode}",day="${day}"} ${consumedTokens}`,
+    '# HELP soon_token_budget_remaining_tokens Remaining tokens in current daily budget window (0 means exhausted or unbounded).',
+    '# TYPE soon_token_budget_remaining_tokens gauge',
+    `soon_token_budget_remaining_tokens{mode="${mode}",day="${day}"} ${remainingTokens}`,
+    '# HELP soon_token_budget_usage_pct Daily token budget usage percent.',
+    '# TYPE soon_token_budget_usage_pct gauge',
+    `soon_token_budget_usage_pct{mode="${mode}",day="${day}"} ${usagePct}`,
+    '# HELP soon_token_budget_exhausted Whether daily token budget is exhausted (1=true).',
+    '# TYPE soon_token_budget_exhausted gauge',
+    `soon_token_budget_exhausted{mode="${mode}",day="${day}"} ${exhausted ? 1 : 0}`,
+    '# HELP soon_token_budget_policy_fallback_active Whether token policy fallback to unbounded is active due to invalid capped config.',
+    '# TYPE soon_token_budget_policy_fallback_active gauge',
+    `soon_token_budget_policy_fallback_active{mode="${mode}"} ${fallbackActive}`,
+  ];
+
+  return `${lines.join('\n')}\n`;
+}
+
 export function createSoonApiServer({ store = resolveStore() } = {}) {
   let lastAlertRoutingRemediationAtMs = 0;
 
@@ -832,14 +892,66 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         return sendJson(res, 200, { items, count: items.length });
       }
 
+      if (
+        method === 'GET' &&
+        (pathname === '/token-control/budget/status' || pathname === '/api/token-control/budget/status')
+      ) {
+        if (!store.getTokenDailyBudgetStatus) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const config = resolveAutomationTokenPolicyConfig({
+          mode: url.searchParams.get('mode') ?? undefined,
+          budgetTokens: url.searchParams.get('budgetTokens') ?? undefined,
+        });
+        const dayKey = resolveDayKeyInput(url.searchParams.get('day') ?? null, Date.now());
+        if (!dayKey) {
+          return sendJson(res, 400, { error: 'invalid_day' });
+        }
+
+        const tokenBudgetStatus = await store.getTokenDailyBudgetStatus({
+          day: dayKey,
+          budgetTokens: config.budgetTokens,
+        });
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          day: dayKey,
+          tokenPolicyConfig: config,
+          tokenBudgetStatus,
+        });
+      }
+
       if (method === 'POST' && pathname === '/automation/cycle') {
         const body = await readJsonBody(req).catch(() => ({}));
-        const startedAt = new Date().toISOString();
+        const startTs = parseTimestampInput(body?.now, Date.now());
+        if (startTs === null) {
+          return sendJson(res, 400, { error: 'invalid_now' });
+        }
+
+        const startedAt = new Date(startTs).toISOString();
+        const budgetDay = dayKeyFromTimestamp(startedAt);
         const trackings = await store.listTrackings();
         const tokenPolicyConfig = resolveAutomationTokenPolicyConfig(body?.tokenPolicy ?? null);
+        let tokenBudgetStatusBefore = null;
+        let tokenPolicyApplied = { ...tokenPolicyConfig };
+        if (tokenPolicyApplied.mode === 'capped' && store.getTokenDailyBudgetStatus) {
+          tokenBudgetStatusBefore = await store.getTokenDailyBudgetStatus({
+            day: budgetDay,
+            budgetTokens: tokenPolicyApplied.budgetTokens,
+          });
+          const remaining = toFiniteNumber(tokenBudgetStatusBefore?.remainingTokens);
+          tokenPolicyApplied = {
+            ...tokenPolicyApplied,
+            budgetTokens:
+              remaining !== null
+                ? Number(Math.max(0, remaining).toFixed(2))
+                : tokenPolicyApplied.budgetTokens,
+          };
+        }
         const cycle = runAutomationCycle(trackings, {
-          tokenPolicyMode: tokenPolicyConfig.mode,
-          budgetTokens: tokenPolicyConfig.budgetTokens,
+          tokenPolicyMode: tokenPolicyApplied.mode,
+          budgetTokens: tokenPolicyApplied.budgetTokens,
         });
         const finishedAt = new Date().toISOString();
 
@@ -852,8 +964,8 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
             })
           : null;
         const tokenSnapshotInput = buildTokenSnapshotFromPlan(cycle.tokenPlan, {
-          budgetMode: cycle?.tokenPolicy?.mode ?? tokenPolicyConfig.mode,
-          budgetTokens: cycle?.tokenPolicy?.budgetTokens ?? tokenPolicyConfig.budgetTokens,
+          budgetMode: cycle?.tokenPolicy?.mode ?? tokenPolicyApplied.mode,
+          budgetTokens: cycle?.tokenPolicy?.budgetTokens ?? tokenPolicyApplied.budgetTokens,
         });
         const tokenSnapshot = store.recordTokenAllocationSnapshot
           ? await store.recordTokenAllocationSnapshot({
@@ -861,12 +973,23 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
               ...tokenSnapshotInput,
             })
           : null;
+        let tokenBudgetStatusAfter = tokenBudgetStatusBefore;
+        if (tokenPolicyApplied.mode === 'capped' && store.consumeTokenDailyBudget) {
+          tokenBudgetStatusAfter = await store.consumeTokenDailyBudget({
+            day: budgetDay,
+            budgetTokens: tokenPolicyConfig.budgetTokens,
+            amountTokens: cycle?.tokenPolicy?.totalTokenCostSelected ?? 0,
+          });
+        }
 
         return sendJson(res, 200, {
           status: 'ok',
           runId: persisted?.runId ?? null,
           tokenSnapshotId: tokenSnapshot?.snapshotId ?? null,
           tokenPolicyConfig,
+          tokenPolicyApplied,
+          tokenBudgetStatusBefore,
+          tokenBudgetStatus: tokenBudgetStatusAfter,
           ...cycle,
           persisted,
         });
@@ -1328,6 +1451,14 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         if (store.listLatestTokenAllocationSnapshots) {
           const tokenSnapshots = await store.listLatestTokenAllocationSnapshots(1);
           payload += renderTokenControlPrometheusMetrics(tokenSnapshots[0] ?? null);
+        }
+        if (store.getTokenDailyBudgetStatus) {
+          const tokenPolicyConfig = resolveAutomationTokenPolicyConfig();
+          const tokenBudgetStatus = await store.getTokenDailyBudgetStatus({
+            day: new Date().toISOString(),
+            budgetTokens: tokenPolicyConfig.budgetTokens,
+          });
+          payload += renderTokenBudgetPrometheusMetrics(tokenBudgetStatus, tokenPolicyConfig);
         }
         res.writeHead(200, {
           'content-type': 'text/plain; version=0.0.4; charset=utf-8',

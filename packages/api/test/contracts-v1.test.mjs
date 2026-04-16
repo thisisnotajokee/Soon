@@ -138,6 +138,70 @@ test('GET /token-control/snapshots/latest returns persisted token allocation sna
   });
 });
 
+test('GET /api/token-control/budget/status returns daily token budget status and window reset', async () => {
+  await withServer(async (baseUrl) => {
+    const dayOne = '2036-04-16';
+    const dayTwo = '2036-04-17';
+
+    const initial = await readJson(
+      await fetch(`${baseUrl}/api/token-control/budget/status?mode=capped&budgetTokens=20&day=${dayOne}`),
+    );
+    assert.equal(initial.status, 200);
+    assert.equal(initial.body.tokenBudgetStatus.day, dayOne);
+    assert.equal(initial.body.tokenBudgetStatus.mode, 'capped');
+    assert.equal(initial.body.tokenBudgetStatus.budgetTokens, 20);
+    assert.equal(initial.body.tokenBudgetStatus.consumedTokens, 0);
+    assert.equal(initial.body.tokenBudgetStatus.remainingTokens, 20);
+
+    const runOne = await readJson(
+      await fetch(`${baseUrl}/automation/cycle`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          now: `${dayOne}T08:00:00.000Z`,
+          tokenPolicy: { mode: 'capped', budgetTokens: 20 },
+        }),
+      }),
+    );
+    assert.equal(runOne.status, 200);
+    assert.ok(Number(runOne.body.tokenPolicy.totalTokenCostSelected) > 0);
+
+    const afterOne = await readJson(
+      await fetch(`${baseUrl}/api/token-control/budget/status?mode=capped&budgetTokens=20&day=${dayOne}`),
+    );
+    assert.equal(afterOne.status, 200);
+    assert.ok(afterOne.body.tokenBudgetStatus.consumedTokens > 0);
+    assert.ok(afterOne.body.tokenBudgetStatus.remainingTokens < 20);
+
+    const runTwo = await readJson(
+      await fetch(`${baseUrl}/automation/cycle`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          now: `${dayOne}T12:00:00.000Z`,
+          tokenPolicy: { mode: 'capped', budgetTokens: 20 },
+        }),
+      }),
+    );
+    assert.equal(runTwo.status, 200);
+
+    const afterTwo = await readJson(
+      await fetch(`${baseUrl}/api/token-control/budget/status?mode=capped&budgetTokens=20&day=${dayOne}`),
+    );
+    assert.equal(afterTwo.status, 200);
+    assert.ok(afterTwo.body.tokenBudgetStatus.consumedTokens >= afterOne.body.tokenBudgetStatus.consumedTokens);
+    assert.ok(afterTwo.body.tokenBudgetStatus.remainingTokens <= afterOne.body.tokenBudgetStatus.remainingTokens);
+
+    const nextDay = await readJson(
+      await fetch(`${baseUrl}/api/token-control/budget/status?mode=capped&budgetTokens=20&day=${dayTwo}`),
+    );
+    assert.equal(nextDay.status, 200);
+    assert.equal(nextDay.body.tokenBudgetStatus.day, dayTwo);
+    assert.equal(nextDay.body.tokenBudgetStatus.consumedTokens, 0);
+    assert.equal(nextDay.body.tokenBudgetStatus.remainingTokens, 20);
+  });
+});
+
 test('POST /token-control/allocate validates payload shape', async () => {
   await withServer(async (baseUrl) => {
     const missingItems = await readJson(
@@ -212,6 +276,7 @@ test('POST /automation/cycle applies capped token budget and skips over-budget c
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
+          now: '2036-04-18T12:00:00.000Z',
           tokenPolicy: { mode: 'capped', budgetTokens: 12 },
         }),
       }),
@@ -484,6 +549,12 @@ test('GET /metrics exports read-model Prometheus metrics', async () => {
     assert.match(body, /soon_token_control_selected_count\{budget_mode="/);
     assert.match(body, /soon_token_control_skipped_count\{budget_mode="/);
     assert.match(body, /soon_token_control_budget_usage_pct\{budget_mode="/);
+    assert.match(body, /soon_token_budget_daily_limit_tokens\{mode="/);
+    assert.match(body, /soon_token_budget_consumed_tokens\{mode="/);
+    assert.match(body, /soon_token_budget_remaining_tokens\{mode="/);
+    assert.match(body, /soon_token_budget_usage_pct\{mode="/);
+    assert.match(body, /soon_token_budget_exhausted\{mode="/);
+    assert.match(body, /soon_token_budget_policy_fallback_active\{mode="/);
   });
 });
 

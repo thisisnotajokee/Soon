@@ -117,3 +117,25 @@ groups:
         annotations:
           summary: "Soon token budget exhausted"
           description: "Token budget is capped and candidates are being skipped."
+
+      - alert: SoonTokenDailyBudgetPressureWarn
+        expr: soon_token_budget_daily_limit_tokens > 0 and soon_token_budget_usage_pct > 90
+        for: 5m
+        labels:
+          severity: warning
+          team: soon-platform
+          channel: discord-ops
+        annotations:
+          summary: "Soon daily token budget pressure warning"
+          description: "Daily token budget usage exceeded 90% for over 5 minutes."
+
+      - alert: SoonTokenDailyBudgetExhaustedCritical
+        expr: soon_token_budget_daily_limit_tokens > 0 and soon_token_budget_exhausted == 1
+        for: 2m
+        labels:
+          severity: critical
+          team: soon-platform
+          channel: discord-ops
+        annotations:
+          summary: "Soon daily token budget exhausted"
+          description: "Daily token budget is fully consumed."
