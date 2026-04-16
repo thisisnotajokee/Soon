@@ -33,6 +33,8 @@ const ALERT_ROUTING_REMEDIATION_STATE_KEY = 'alert_routing_last_remediation_at';
 const TOKEN_BUDGET_DEFERRAL_STATE_KEY = 'token_budget_last_deferral_at';
 const TOKEN_BUDGET_PROBE_STATE_KEY = 'token_budget_last_probe_at';
 const TOKEN_BUDGET_PROBE_DEFAULT_COOLDOWN_SEC = 24 * 60 * 60;
+const TOKEN_BUDGET_PROBE_AUTOTUNE_FALLBACK_MIN_COOLDOWN_SEC = 6 * 60 * 60;
+const TOKEN_BUDGET_PROBE_AUTOTUNE_FALLBACK_HIGH_COOLDOWN_SEC = 12 * 60 * 60;
 const RUNTIME_STATE_ALLOWLIST = new Set([
   ALERT_ROUTING_REMEDIATION_STATE_KEY,
   TOKEN_BUDGET_DEFERRAL_STATE_KEY,
@@ -261,6 +263,104 @@ function clampInt(value, fallback, min, max) {
   return Math.max(min, Math.min(max, rounded));
 }
 
+function parseBooleanInput(value, fallback = false) {
+  if (value === null || value === undefined || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on') return true;
+  if (normalized === '0' || normalized === 'false' || normalized === 'no' || normalized === 'off') return false;
+  return fallback;
+}
+
+function shiftDayKey(dayKey, offsetDays = 0) {
+  const parsed = Date.parse(`${String(dayKey).trim()}T00:00:00.000Z`);
+  if (!Number.isFinite(parsed)) return null;
+  return dayKeyFromTimestamp(parsed + offsetDays * 24 * 60 * 60 * 1000);
+}
+
+function deriveTokenBudgetProbeAutoTunePolicy({
+  enabled = false,
+  usagePct = 0,
+  previousUsagePct = null,
+  probeCooldownSec = TOKEN_BUDGET_PROBE_DEFAULT_COOLDOWN_SEC,
+  maxProbesPerDay = 1,
+  minCooldownSec = TOKEN_BUDGET_PROBE_AUTOTUNE_FALLBACK_MIN_COOLDOWN_SEC,
+  highCooldownSec = TOKEN_BUDGET_PROBE_AUTOTUNE_FALLBACK_HIGH_COOLDOWN_SEC,
+} = {}) {
+  const safeUsagePct = Number(Math.max(0, toPromNumber(usagePct, 0)).toFixed(2));
+  const previousUsage = toFiniteNumber(previousUsagePct);
+  const safePreviousUsagePct = previousUsage === null ? null : Number(Math.max(0, previousUsage).toFixed(2));
+  const usageDeltaPct =
+    safePreviousUsagePct === null ? null : Number((safeUsagePct - safePreviousUsagePct).toFixed(2));
+  const baseCooldownSec = clampInt(probeCooldownSec, TOKEN_BUDGET_PROBE_DEFAULT_COOLDOWN_SEC, 0, 7 * 24 * 60 * 60);
+  const baseMaxProbesPerDay = clampInt(maxProbesPerDay, 1, 0, 100);
+  const minCooldownFloorSec = clampInt(
+    minCooldownSec,
+    TOKEN_BUDGET_PROBE_AUTOTUNE_FALLBACK_MIN_COOLDOWN_SEC,
+    0,
+    7 * 24 * 60 * 60,
+  );
+  const highCooldownFloorSec = clampInt(
+    highCooldownSec,
+    Math.max(minCooldownFloorSec, TOKEN_BUDGET_PROBE_AUTOTUNE_FALLBACK_HIGH_COOLDOWN_SEC),
+    0,
+    7 * 24 * 60 * 60,
+  );
+  const mediumCooldownFloorSec = Math.max(0, Math.floor(minCooldownFloorSec / 2));
+
+  let pressureBand = 'low';
+  if (safeUsagePct >= 95 || (usageDeltaPct !== null && usageDeltaPct >= 20)) {
+    pressureBand = 'critical';
+  } else if (safeUsagePct >= 85 || (usageDeltaPct !== null && usageDeltaPct >= 10)) {
+    pressureBand = 'high';
+  } else if (safeUsagePct >= 70 || (usageDeltaPct !== null && usageDeltaPct >= 5)) {
+    pressureBand = 'medium';
+  }
+
+  if (!enabled) {
+    return {
+      enabled: false,
+      applied: false,
+      reason: 'disabled',
+      pressureBand,
+      usagePct: safeUsagePct,
+      previousUsagePct: safePreviousUsagePct,
+      usageDeltaPct,
+      probeCooldownSec: baseCooldownSec,
+      maxProbesPerDay: baseMaxProbesPerDay,
+    };
+  }
+
+  let tunedProbeCooldownSec = baseCooldownSec;
+  let tunedMaxProbesPerDay = baseMaxProbesPerDay;
+  let reason = 'stable_budget_pressure';
+  if (pressureBand === 'critical') {
+    tunedProbeCooldownSec = Math.max(tunedProbeCooldownSec, highCooldownFloorSec);
+    tunedMaxProbesPerDay = Math.min(tunedMaxProbesPerDay, 1);
+    reason = 'critical_budget_pressure';
+  } else if (pressureBand === 'high') {
+    tunedProbeCooldownSec = Math.max(tunedProbeCooldownSec, minCooldownFloorSec);
+    tunedMaxProbesPerDay = Math.min(tunedMaxProbesPerDay, 2);
+    reason = 'high_budget_pressure';
+  } else if (pressureBand === 'medium') {
+    tunedProbeCooldownSec = Math.max(tunedProbeCooldownSec, mediumCooldownFloorSec);
+    tunedMaxProbesPerDay = Math.min(tunedMaxProbesPerDay, 3);
+    reason = 'rising_budget_pressure';
+  }
+
+  return {
+    enabled: true,
+    applied: tunedProbeCooldownSec !== baseCooldownSec || tunedMaxProbesPerDay !== baseMaxProbesPerDay,
+    reason,
+    pressureBand,
+    usagePct: safeUsagePct,
+    previousUsagePct: safePreviousUsagePct,
+    usageDeltaPct,
+    probeCooldownSec: tunedProbeCooldownSec,
+    maxProbesPerDay: tunedMaxProbesPerDay,
+  };
+}
+
 function resolveAlertRoutingRemediationConfig(rawConfig) {
   const rawMode = String(rawConfig?.mode ?? 'latest').trim().toLowerCase();
   const mode = rawMode === 'off' || rawMode === 'window' || rawMode === 'latest' ? rawMode : 'latest';
@@ -470,6 +570,32 @@ function resolveAutomationTokenPolicyConfig(rawConfig = null) {
   const probeCooldownSec = clampInt(rawConfig?.probeCooldownSec, fallbackProbeCooldownSec, 0, 7 * 24 * 60 * 60);
   const fallbackProbeMaxPerDay = clampInt(process.env.SOON_TOKEN_EXHAUSTED_PROBE_MAX_PER_DAY, 1, 0, 100);
   const maxProbesPerDay = clampInt(rawConfig?.maxProbesPerDay, fallbackProbeMaxPerDay, 0, 100);
+  const fallbackAutoTuneProbePolicy = parseBooleanInput(process.env.SOON_TOKEN_EXHAUSTED_PROBE_AUTOTUNE_ENABLED, false);
+  const autoTuneProbePolicy = parseBooleanInput(rawConfig?.autoTuneProbePolicy, fallbackAutoTuneProbePolicy);
+  const fallbackProbeAutoTuneMinCooldownSec = clampInt(
+    process.env.SOON_TOKEN_EXHAUSTED_PROBE_AUTOTUNE_MIN_COOLDOWN_SEC,
+    TOKEN_BUDGET_PROBE_AUTOTUNE_FALLBACK_MIN_COOLDOWN_SEC,
+    0,
+    7 * 24 * 60 * 60,
+  );
+  const probeAutoTuneMinCooldownSec = clampInt(
+    rawConfig?.probeAutoTuneMinCooldownSec,
+    fallbackProbeAutoTuneMinCooldownSec,
+    0,
+    7 * 24 * 60 * 60,
+  );
+  const fallbackProbeAutoTuneHighCooldownSec = clampInt(
+    process.env.SOON_TOKEN_EXHAUSTED_PROBE_AUTOTUNE_HIGH_COOLDOWN_SEC,
+    Math.max(probeAutoTuneMinCooldownSec, TOKEN_BUDGET_PROBE_AUTOTUNE_FALLBACK_HIGH_COOLDOWN_SEC),
+    0,
+    7 * 24 * 60 * 60,
+  );
+  const probeAutoTuneHighCooldownSec = clampInt(
+    rawConfig?.probeAutoTuneHighCooldownSec,
+    fallbackProbeAutoTuneHighCooldownSec,
+    0,
+    7 * 24 * 60 * 60,
+  );
 
   if (requestedMode === 'capped' && budgetTokens === null) {
     return {
@@ -479,6 +605,9 @@ function resolveAutomationTokenPolicyConfig(rawConfig = null) {
       probeBudgetTokens: null,
       probeCooldownSec,
       maxProbesPerDay,
+      autoTuneProbePolicy,
+      probeAutoTuneMinCooldownSec,
+      probeAutoTuneHighCooldownSec,
       fallbackReason: 'invalid_or_missing_budget',
     };
   }
@@ -490,6 +619,9 @@ function resolveAutomationTokenPolicyConfig(rawConfig = null) {
     probeBudgetTokens,
     probeCooldownSec,
     maxProbesPerDay,
+    autoTuneProbePolicy,
+    probeAutoTuneMinCooldownSec,
+    probeAutoTuneHighCooldownSec,
     fallbackReason: null,
   };
 }
@@ -833,6 +965,7 @@ function renderTokenBudgetPrometheusMetrics(
   const probeTs = toPromUnixTs(probeState?.timestamp ?? null);
   const probeCooldownRemainingSec = toPromNumber(probeCooldownState?.cooldownRemainingSec);
   const maxProbesPerDay = toPromNumber(tokenPolicyConfig?.maxProbesPerDay);
+  const autoTuneEnabled = tokenPolicyConfig?.autoTuneProbePolicy ? 1 : 0;
   const probeUsedToday = probeForCurrentDay
     ? Number.isFinite(Number(probeState?.probesForDay))
       ? Math.max(0, Math.floor(Number(probeState?.probesForDay)))
@@ -879,6 +1012,9 @@ function renderTokenBudgetPrometheusMetrics(
     '# HELP soon_token_budget_probe_daily_used Number of smart probes used in current day window.',
     '# TYPE soon_token_budget_probe_daily_used gauge',
     `soon_token_budget_probe_daily_used{mode="${mode}",day="${day}"} ${probeUsedToday}`,
+    '# HELP soon_token_budget_probe_autotune_enabled Whether probe policy autotune is enabled (1=true).',
+    '# TYPE soon_token_budget_probe_autotune_enabled gauge',
+    `soon_token_budget_probe_autotune_enabled{mode="${mode}"} ${autoTuneEnabled}`,
   ];
 
   return `${lines.join('\n')}\n`;
@@ -1048,6 +1184,25 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
                 : tokenPolicyApplied.budgetTokens,
           };
         }
+        let tokenBudgetUsagePreviousDay = null;
+        if (tokenPolicyApplied.mode === 'capped' && tokenBudgetStatusBefore && store.getTokenDailyBudgetStatus) {
+          const previousDay = shiftDayKey(budgetDay, -1);
+          if (previousDay) {
+            tokenBudgetUsagePreviousDay = await store.getTokenDailyBudgetStatus({
+              day: previousDay,
+              budgetTokens: tokenBudgetStatusBefore?.budgetTokens ?? tokenPolicyConfig?.budgetTokens,
+            });
+          }
+        }
+        const probePolicyAutoTune = deriveTokenBudgetProbeAutoTunePolicy({
+          enabled: Boolean(tokenPolicyConfig?.autoTuneProbePolicy),
+          usagePct: tokenBudgetStatusBefore?.usagePct ?? 0,
+          previousUsagePct: tokenBudgetUsagePreviousDay?.usagePct ?? null,
+          probeCooldownSec: tokenPolicyConfig?.probeCooldownSec,
+          maxProbesPerDay: tokenPolicyConfig?.maxProbesPerDay,
+          minCooldownSec: tokenPolicyConfig?.probeAutoTuneMinCooldownSec,
+          highCooldownSec: tokenPolicyConfig?.probeAutoTuneHighCooldownSec,
+        });
         const tokenBudgetExhaustedBefore = tokenPolicyApplied.mode === 'capped' && Boolean(tokenBudgetStatusBefore?.exhausted);
         let tokenBudgetAutoRemediation = {
           checked: tokenPolicyApplied.mode === 'capped',
@@ -1055,13 +1210,22 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           action: 'none',
           reason: null,
           deferredUntil: null,
-          probeCooldownSec: clampInt(
+          configuredProbeCooldownSec: clampInt(
             tokenPolicyConfig?.probeCooldownSec,
             TOKEN_BUDGET_PROBE_DEFAULT_COOLDOWN_SEC,
             0,
             7 * 24 * 60 * 60,
           ),
-          maxProbesPerDay: clampInt(tokenPolicyConfig?.maxProbesPerDay, 1, 0, 100),
+          configuredMaxProbesPerDay: clampInt(tokenPolicyConfig?.maxProbesPerDay, 1, 0, 100),
+          probeCooldownSec: probePolicyAutoTune.probeCooldownSec,
+          maxProbesPerDay: probePolicyAutoTune.maxProbesPerDay,
+          probePolicyAutoTuneEnabled: probePolicyAutoTune.enabled,
+          probePolicyAutoTuneApplied: probePolicyAutoTune.applied,
+          probePolicyAutoTuneReason: probePolicyAutoTune.reason,
+          probePolicyPressureBand: probePolicyAutoTune.pressureBand,
+          probePolicyUsagePct: probePolicyAutoTune.usagePct,
+          probePolicyPreviousUsagePct: probePolicyAutoTune.previousUsagePct,
+          probePolicyUsageDeltaPct: probePolicyAutoTune.usageDeltaPct,
           probesUsedToday: 0,
           probesUsedAfterAction: 0,
           probeCooldownRemainingSec: 0,
