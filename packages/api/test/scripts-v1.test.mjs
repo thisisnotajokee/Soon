@@ -132,10 +132,11 @@ test('doctor-summary renders self-heal triage section from triage artifact', asy
   await writeFile(triagePath, `${JSON.stringify(triageReport, null, 2)}\n`, 'utf8');
 
   const { stdout } = await execFileAsync(process.execPath, [DOCTOR_SUMMARY_SCRIPT, doctorPath, triagePath], {
-    env: process.env,
+    env: { ...process.env, SOON_TOKEN_PROBE_RESET_OPS_KEY: 'test-ops-key' },
   });
 
   assert.match(stdout, /### Self-heal Requeue Triage/);
+  assert.match(stdout, /### Security Guards/);
   assert.match(stdout, /Overall: `WARN`/);
   assert.match(stdout, /Warn as error: `true`/);
   assert.match(stdout, /Bulk conflicts\/missing: `1\/0`/);
@@ -162,6 +163,77 @@ test('doctor-summary fails in strict mode when triage artifact is missing', asyn
     }),
     /required triage artifact missing/,
   );
+});
+
+test('doctor-summary fails in CI strict mode when probe reset ops key is missing', async () => {
+  const tmpDir = await mkdtemp(join(os.tmpdir(), 'soon-doctor-summary-ops-key-missing-'));
+  const doctorPath = join(tmpDir, 'doctor.json');
+  const triagePath = join(tmpDir, 'triage.json');
+
+  const doctorReport = {
+    overall: 'PASS',
+    checkedAt: new Date().toISOString(),
+    health: { status: 'ok', storage: 'postgres', service: 'soon-api' },
+    readModel: { status: { mode: 'async', pendingCount: 0, inFlight: false, totalErrors: 0 } },
+    metrics: { refreshMode: 'async', found: ['a'], missing: [] },
+    alertCheck: { ok: true, result: { overall: 'PASS', findings: [] } },
+    expectations: { checks: {}, findings: [] },
+  };
+  const triageReport = {
+    overall: 'PASS',
+    policy: { warnAsError: false },
+    findings: [],
+    bulk: { summary: { requested: 1, requeued: 1, conflicts: 0, missing: 0 } },
+  };
+
+  await writeFile(doctorPath, `${JSON.stringify(doctorReport, null, 2)}\n`, 'utf8');
+  await writeFile(triagePath, `${JSON.stringify(triageReport, null, 2)}\n`, 'utf8');
+
+  await assert.rejects(
+    execFileAsync(process.execPath, [DOCTOR_SUMMARY_SCRIPT, doctorPath, triagePath], {
+      env: {
+        ...process.env,
+        CI: '1',
+        SOON_TOKEN_PROBE_RESET_OPS_KEY: '',
+      },
+    }),
+    /required env missing: SOON_TOKEN_PROBE_RESET_OPS_KEY/,
+  );
+});
+
+test('doctor-summary passes in CI strict mode when probe reset ops key is configured', async () => {
+  const tmpDir = await mkdtemp(join(os.tmpdir(), 'soon-doctor-summary-ops-key-present-'));
+  const doctorPath = join(tmpDir, 'doctor.json');
+  const triagePath = join(tmpDir, 'triage.json');
+
+  const doctorReport = {
+    overall: 'PASS',
+    checkedAt: new Date().toISOString(),
+    health: { status: 'ok', storage: 'postgres', service: 'soon-api' },
+    readModel: { status: { mode: 'async', pendingCount: 0, inFlight: false, totalErrors: 0 } },
+    metrics: { refreshMode: 'async', found: ['a'], missing: [] },
+    alertCheck: { ok: true, result: { overall: 'PASS', findings: [] } },
+    expectations: { checks: {}, findings: [] },
+  };
+  const triageReport = {
+    overall: 'PASS',
+    policy: { warnAsError: false },
+    findings: [],
+    bulk: { summary: { requested: 1, requeued: 1, conflicts: 0, missing: 0 } },
+  };
+
+  await writeFile(doctorPath, `${JSON.stringify(doctorReport, null, 2)}\n`, 'utf8');
+  await writeFile(triagePath, `${JSON.stringify(triageReport, null, 2)}\n`, 'utf8');
+
+  const { stdout } = await execFileAsync(process.execPath, [DOCTOR_SUMMARY_SCRIPT, doctorPath, triagePath], {
+    env: {
+      ...process.env,
+      CI: '1',
+      SOON_TOKEN_PROBE_RESET_OPS_KEY: 'contracts-ops-key',
+    },
+  });
+  assert.match(stdout, /Probe reset ops key required: `true`/);
+  assert.match(stdout, /Probe reset ops key configured: `true`/);
 });
 
 test('self-heal-triage-validate fails when required fields are missing', async () => {

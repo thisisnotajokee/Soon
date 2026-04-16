@@ -1734,3 +1734,32 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Dodać `doctor` check: FAIL w CI/PROD, gdy `SOON_TOKEN_PROBE_RESET_OPS_KEY` nie jest ustawiony.
+
+### Update (2026-04-16, etap 15 doctor-summary security gate dla probe reset ops key)
+
+1. Rozszerzono `packages/api/scripts/doctor-summary.mjs`:
+   - w trybie CI/PROD (`CI=1` lub `NODE_ENV/SOON_ENV/DEPLOY_ENV/ENVIRONMENT=prod|production`) wymagany jest `SOON_TOKEN_PROBE_RESET_OPS_KEY`,
+   - brak klucza kończy `doctor-summary` błędem:
+     `required env missing: SOON_TOKEN_PROBE_RESET_OPS_KEY`.
+2. Dodano override konfiguracyjny:
+   - `SOON_DOCTOR_SUMMARY_REQUIRE_PROBE_RESET_OPS_KEY=0|1`
+   - (domyślnie auto: strict w CI/PROD, relaxed lokalnie).
+3. `doctor-summary` raportuje teraz sekcję:
+   - `Security Guards`
+   - `Probe reset ops key required/configured`.
+4. Testy skryptowe rozszerzone:
+   - fail w CI strict mode przy braku klucza,
+   - pass w CI strict mode przy ustawionym kluczu.
+5. `README.md` doprecyzowano o politykę strict security gate w `make doctor` / `doctor-summary`.
+
+### Testy / weryfikacja
+
+1. `npm run test:scripts` -> PASS.
+
+### Ryzyka
+
+1. PR-y CI bez skonfigurowanego `SOON_TOKEN_PROBE_RESET_OPS_KEY` będą od teraz blokowane (intencjonalny quality gate).
+
+### Następny krok
+
+1. Ustawić `SOON_TOKEN_PROBE_RESET_OPS_KEY` w secretach repo/environment produkcyjnym i potwierdzić green CI na `quality-gate`.
