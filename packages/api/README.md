@@ -61,6 +61,7 @@ Minimalny runtime API v1 dla projektu `Soon`.
 15. `SOON_TOKEN_PROBE_RESET_COOLDOWN_SEC=<int>` (cooldown dla manualnego resetu probe runtime-state; domyślnie `300`)
 16. `SOON_TOKEN_PROBE_RESET_OPS_KEY=<secret>` (opcjonalny klucz operacyjny zabezpieczający endpoint resetu probe; gdy pusty, endpoint działa bez auth key)
 17. `SOON_TOKEN_PROBE_RESET_ROTATION_GRACE_SEC=<int>` (domyślny grace window dla staged rotacji klucza resetu probe; domyślnie `3600`, min `60`, max `604800`)
+18. `SOON_PROBE_RESET_PREFLIGHT_REQUIRE_GUARD=0|1` (opcjonalny strict mode dla preflight skryptu rotacji; domyślnie auto: strict w CI/PROD, relaxed lokalnie)
 
 ## Observability
 
@@ -85,6 +86,10 @@ Minimalny runtime API v1 dla projektu `Soon`.
    - `ops/reports/doctor/self-heal-triage.json` (gdy uruchamiane przez `make doctor`)
 13. Self-heal triage artifact validator:
    - `npm run ops:self-heal:triage:validate -- ops/reports/doctor/self-heal-triage.json`
+14. Probe reset ops key preflight:
+   - `npm run ops:probe-reset:preflight`
+15. Probe reset ops key preflight JSON:
+   - `npm run ops:probe-reset:preflight:json`
 
 ## Runbook: dead-letter bulk requeue
 

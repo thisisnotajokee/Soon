@@ -1821,3 +1821,33 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Dodać helper skrypt CLI do preflight check rotacji (status + sanity check auth) przed wykonaniem `rotate`.
+
+### Update (2026-04-16, etap 18 probe reset rotation preflight helper)
+
+1. Dodano nowy skrypt operacyjny:
+   - `packages/api/scripts/probe-reset-ops-key-preflight.mjs`
+2. Skrypt wykonuje preflight przed rotacją:
+   - sprawdza `GET /api/token-control/probe-policy/reset-auth/status`,
+   - wykonuje sanity auth check na `POST /api/token-control/probe-policy/reset` bez realnego resetu (intencjonalnie invalid confirm).
+3. Dodano skrypty npm:
+   - `npm run ops:probe-reset:preflight`
+   - `npm run ops:probe-reset:preflight:json`
+4. Dodano testy skryptowe:
+   - PASS gdy guard aktywny i auth sanity przechodzi,
+   - CRIT gdy guard wymaga klucza, a klucz lokalnie nie jest ustawiony.
+5. Dokumentacja:
+   - `packages/api/README.md` (komendy + env),
+   - `docs/PROBE_RESET_OPS_KEY_ROTATION_RUNBOOK_V1.md` (krok pre-check).
+
+### Testy / weryfikacja
+
+1. `npm run test:scripts` -> PASS.
+2. `npm run check` -> PASS.
+
+### Ryzyka
+
+1. Jeśli endpoint resetu zmieni kolejność walidacji/auth, sanity check może wymagać dostosowania kodów statusu akceptowanych jako auth-ok.
+
+### Następny krok
+
+1. Dodać mały artifact preflight (JSON report path) pod `ops/reports/doctor/` do łatwej integracji z workflow dispatch.
