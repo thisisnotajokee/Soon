@@ -18,26 +18,27 @@ Minimalny runtime API v1 dla projektu `Soon`.
 5. `POST /token-control/allocate` lub `POST /api/token-control/allocate` (priorytetyzacja kandydatów + opcjonalny limit `budgetTokens`)
 6. `GET /token-control/snapshots/latest` lub `GET /api/token-control/snapshots/latest` (ostatnie snapshoty alokacji tokenów)
 7. `GET /token-control/budget/status` lub `GET /api/token-control/budget/status` (status dziennego budżetu tokenów; opcjonalnie `day`, `mode`, `budgetTokens`)
-8. `GET /token-control/probe-policy` lub `GET /api/token-control/probe-policy` (diagnostyka probe policy: current config, budget status bieżącego i poprzedniego dnia, derived auto-tune decision, cooldown snapshot, last persisted auto-tune decision z runtime-state)
-9. `POST /automation/cycle` (zapisuje run + token snapshot wg policy, zwraca `tokenSnapshotId`; opcjonalny override body: `tokenPolicy.mode`, `tokenPolicy.budgetTokens`, `tokenPolicy.probeBudgetTokens`, `tokenPolicy.probeCooldownSec`, `tokenPolicy.maxProbesPerDay`, `tokenPolicy.autoTuneProbePolicy`, `tokenPolicy.probeAutoTuneMinCooldownSec`, `tokenPolicy.probeAutoTuneHighCooldownSec`, `now`; policy capped bierze realny `remainingTokens` dnia; przy `token_budget_exhausted` aktywuje `smart probe` (cooldown + dzienny cap) lub fallback `smart deferral`; gdy `autoTuneProbePolicy=true` system dostraja probe cooldown/cap na bazie presji budżetu `usagePct + trend dzienny`, zapisując runtime-state key `token_budget_last_probe_at` / `token_budget_last_deferral_at`)
-9. `GET /automation/runs/latest?limit=20`
-10. `GET /automation/runs/summary?limit=20`
-11. `GET /automation/runs/trends?days=30` (`24h`, `7d`, `30d`, source: daily read-model)
-12. `GET /automation/runs/daily?days=30` (read-model dzienny dashboardu)
-13. `GET /automation/read-model/status` (diagnostyka kolejki refreshu)
-14. `GET /metrics` (Prometheus/OpenTelemetry scrape endpoint)
-15. `POST /self-heal/run` (manualny trigger cyklu self-heal; anomalies + scoring priorytetów + retry policy)
-16. `GET /self-heal/runs/latest?limit=20` (historia self-heal runów; `playbookId + status + attempts/retries`)
-17. `POST /self-heal/retry/process` (ręczne przetworzenie due retry queue; body: `limit`, opcjonalnie `now`)
-18. `GET /self-heal/retry/status` (stan kolejki retry + dead-letter)
-19. `GET /self-heal/dead-letter?limit=20` (najnowsze wpisy dead-letter)
-20. `POST /self-heal/dead-letter/requeue` (ręczne przywrócenie dead-letter do retry queue; body: `deadLetterId`)
+8. `GET /token-control/probe-policy` lub `GET /api/token-control/probe-policy` (diagnostyka probe policy: effective config, budget status bieżącego i poprzedniego dnia, derived auto-tune decision, cooldown snapshot, last auto-tune decision, last reset audit)
+9. `POST /token-control/probe-policy/reset` lub `POST /api/token-control/probe-policy/reset` (manualny reset runtime-state probe z guardrailami; body: `confirm`, `reason`, opcjonalnie `actor`, `dryRun`, `now`; confirmation literal: `RESET_TOKEN_BUDGET_PROBE_STATE`)
+10. `POST /automation/cycle` (zapisuje run + token snapshot wg policy, zwraca `tokenSnapshotId`; opcjonalny override body: `tokenPolicy.mode`, `tokenPolicy.budgetTokens`, `tokenPolicy.probeBudgetTokens`, `tokenPolicy.probeCooldownSec`, `tokenPolicy.maxProbesPerDay`, `tokenPolicy.autoTuneProbePolicy`, `tokenPolicy.probeAutoTuneMinCooldownSec`, `tokenPolicy.probeAutoTuneHighCooldownSec`, `now`; policy capped bierze realny `remainingTokens` dnia; przy `token_budget_exhausted` aktywuje `smart probe` (cooldown + dzienny cap) lub fallback `smart deferral`; gdy `autoTuneProbePolicy=true` system dostraja probe cooldown/cap na bazie presji budżetu `usagePct + trend dzienny`, zapisując runtime-state key `token_budget_last_probe_at` / `token_budget_last_deferral_at`)
+11. `GET /automation/runs/latest?limit=20`
+12. `GET /automation/runs/summary?limit=20`
+13. `GET /automation/runs/trends?days=30` (`24h`, `7d`, `30d`, source: daily read-model)
+14. `GET /automation/runs/daily?days=30` (read-model dzienny dashboardu)
+15. `GET /automation/read-model/status` (diagnostyka kolejki refreshu)
+16. `GET /metrics` (Prometheus/OpenTelemetry scrape endpoint)
+17. `POST /self-heal/run` (manualny trigger cyklu self-heal; anomalies + scoring priorytetów + retry policy)
+18. `GET /self-heal/runs/latest?limit=20` (historia self-heal runów; `playbookId + status + attempts/retries`)
+19. `POST /self-heal/retry/process` (ręczne przetworzenie due retry queue; body: `limit`, opcjonalnie `now`)
+20. `GET /self-heal/retry/status` (stan kolejki retry + dead-letter)
+21. `GET /self-heal/dead-letter?limit=20` (najnowsze wpisy dead-letter)
+22. `POST /self-heal/dead-letter/requeue` (ręczne przywrócenie dead-letter do retry queue; body: `deadLetterId`)
 : jeśli wpis był już wcześniej przywrócony (`status != dead_letter`), endpoint zwraca `409 dead_letter_not_pending`
-21. `POST /self-heal/dead-letter/requeue-bulk` (hurtowe requeue: `deadLetterIds[]` albo fallback do najnowszych `limit`; opcjonalnie `now`; summary: `requested|requeued|conflicts|missing`; gdy `conflicts>0` lub `missing>0` odpowiedź zawiera `operationalAlert`)
-22. `GET /self-heal/requeue-audit?limit=20&reason=manual_requeue&from=<iso>&to=<iso>` (historia manualnych requeue z filtrami)
-23. `GET /self-heal/requeue-audit/summary?days=7` (agregaty audit: `total`, `byReason`, `byPlaybook`, `daily`)
-24. `GET /api/runtime-self-heal-status` (operacyjny status runtime self-heal: retry queue, dead-letter, latest run, signals)
-25. `GET /api/check-alert-status?limit=20` (kontrola separacji kanałów alertów: purchase->Telegram, technical->Discord)
+23. `POST /self-heal/dead-letter/requeue-bulk` (hurtowe requeue: `deadLetterIds[]` albo fallback do najnowszych `limit`; opcjonalnie `now`; summary: `requested|requeued|conflicts|missing`; gdy `conflicts>0` lub `missing>0` odpowiedź zawiera `operationalAlert`)
+24. `GET /self-heal/requeue-audit?limit=20&reason=manual_requeue&from=<iso>&to=<iso>` (historia manualnych requeue z filtrami)
+25. `GET /self-heal/requeue-audit/summary?days=7` (agregaty audit: `total`, `byReason`, `byPlaybook`, `daily`)
+26. `GET /api/runtime-self-heal-status` (operacyjny status runtime self-heal: retry queue, dead-letter, latest run, signals)
+27. `GET /api/check-alert-status?limit=20` (kontrola separacji kanałów alertów: purchase->Telegram, technical->Discord)
 
 ## Storage mode
 
@@ -55,6 +56,7 @@ Minimalny runtime API v1 dla projektu `Soon`.
 12. `SOON_TOKEN_EXHAUSTED_PROBE_AUTOTUNE_ENABLED=0|1` (opcjonalny auto-tuning probe cooldown/cap; domyślnie `0`)
 13. `SOON_TOKEN_EXHAUSTED_PROBE_AUTOTUNE_MIN_COOLDOWN_SEC=<int>` (opcjonalny minimalny cooldown floor dla wysokiej presji; domyślnie `21600`)
 14. `SOON_TOKEN_EXHAUSTED_PROBE_AUTOTUNE_HIGH_COOLDOWN_SEC=<int>` (opcjonalny cooldown floor dla krytycznej presji; domyślnie `43200`)
+15. `SOON_TOKEN_PROBE_RESET_COOLDOWN_SEC=<int>` (cooldown dla manualnego resetu probe runtime-state; domyślnie `300`)
 
 ## Observability
 

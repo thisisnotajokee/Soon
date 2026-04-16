@@ -23,6 +23,13 @@ async function readJson(response) {
   return { status: response.status, body };
 }
 
+const TEST_DAY_SEED = Math.floor(Math.random() * 10000);
+function testDay(offset = 0) {
+  return new Date(Date.UTC(2036, 0, 1) + (TEST_DAY_SEED + offset) * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+}
+
 test('GET /health returns service status and modules', async () => {
   await withServer(async (baseUrl) => {
     const { status, body } = await readJson(await fetch(`${baseUrl}/health`));
@@ -140,8 +147,8 @@ test('GET /token-control/snapshots/latest returns persisted token allocation sna
 
 test('GET /api/token-control/budget/status returns daily token budget status and window reset', async () => {
   await withServer(async (baseUrl) => {
-    const dayOne = '2036-04-16';
-    const dayTwo = '2036-04-17';
+    const dayOne = testDay(0);
+    const dayTwo = testDay(1);
 
     const initial = await readJson(
       await fetch(`${baseUrl}/api/token-control/budget/status?mode=capped&budgetTokens=20&day=${dayOne}`),
@@ -204,8 +211,8 @@ test('GET /api/token-control/budget/status returns daily token budget status and
 
 test('GET /api/token-control/probe-policy returns current config and auto-tune diagnostics', async () => {
   await withServer(async (baseUrl) => {
-    const day = '2036-05-01';
-    const previousDay = '2036-04-30';
+    const day = testDay(20);
+    const previousDay = testDay(19);
 
     await readJson(
       await fetch(`${baseUrl}/automation/cycle`, {
@@ -284,6 +291,97 @@ test('GET /api/token-control/probe-policy returns current config and auto-tune d
   });
 });
 
+test('POST /api/token-control/probe-policy/reset resets probe runtime state with guardrails and audit', async () => {
+  await withServer(async (baseUrl) => {
+    const day = testDay(40);
+
+    await readJson(
+      await fetch(`${baseUrl}/automation/cycle`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          now: `${day}T08:00:00.000Z`,
+          tokenPolicy: { mode: 'capped', budgetTokens: 12, probeBudgetTokens: 10 },
+        }),
+      }),
+    );
+    await readJson(
+      await fetch(`${baseUrl}/automation/cycle`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          now: `${day}T10:00:00.000Z`,
+          tokenPolicy: { mode: 'capped', budgetTokens: 12, probeBudgetTokens: 10 },
+        }),
+      }),
+    );
+
+    const badConfirm = await readJson(
+      await fetch(`${baseUrl}/api/token-control/probe-policy/reset`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          now: `${day}T11:00:00.000Z`,
+          confirm: 'wrong',
+          reason: 'manual reset for test',
+          actor: 'contracts-test',
+        }),
+      }),
+    );
+    assert.equal(badConfirm.status, 400);
+    assert.equal(badConfirm.body.error, 'reset_confirmation_required');
+
+    const reset = await readJson(
+      await fetch(`${baseUrl}/api/token-control/probe-policy/reset`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          now: `${day}T11:00:00.000Z`,
+          confirm: 'RESET_TOKEN_BUDGET_PROBE_STATE',
+          reason: 'manual reset for test',
+          actor: 'contracts-test',
+        }),
+      }),
+    );
+    assert.equal(reset.status, 200);
+    assert.equal(reset.body.reset, true);
+    assert.equal(reset.body.probeRuntimeState?.stateValue?.reason, 'manual_probe_runtime_state_reset');
+    assert.equal(reset.body.probeRuntimeState?.stateValue?.probesForDay, 0);
+    assert.equal(reset.body.probeRuntimeState?.stateValue?.cooldownSec, 0);
+    assert.equal(reset.body.probeRuntimeState?.stateValue?.resetBy, 'contracts-test');
+
+    const runtimeState = await readJson(
+      await fetch(`${baseUrl}/api/self-heal/runtime-state?key=token_budget_last_probe_at`),
+    );
+    assert.equal(runtimeState.status, 200);
+    assert.equal(runtimeState.body.found, true);
+    assert.equal(runtimeState.body.runtimeState?.stateValue?.reason, 'manual_probe_runtime_state_reset');
+    assert.equal(runtimeState.body.runtimeState?.stateValue?.probesForDay, 0);
+
+    const cooldownBlocked = await readJson(
+      await fetch(`${baseUrl}/api/token-control/probe-policy/reset`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          now: `${day}T11:01:00.000Z`,
+          confirm: 'RESET_TOKEN_BUDGET_PROBE_STATE',
+          reason: 'manual reset for test second try',
+          actor: 'contracts-test',
+        }),
+      }),
+    );
+    assert.equal(cooldownBlocked.status, 409);
+    assert.equal(cooldownBlocked.body.error, 'reset_cooldown_active');
+
+    const diagnostics = await readJson(
+      await fetch(`${baseUrl}/api/token-control/probe-policy?day=${day}&mode=capped&budgetTokens=12`),
+    );
+    assert.equal(diagnostics.status, 200);
+    assert.equal(diagnostics.body.lastProbeResetAudit?.found, true);
+    assert.equal(diagnostics.body.lastProbeResetAudit?.actor, 'contracts-test');
+    assert.equal(diagnostics.body.lastProbeResetAudit?.action, 'token_budget_probe_state_reset');
+  });
+});
 test('POST /token-control/allocate validates payload shape', async () => {
   await withServer(async (baseUrl) => {
     const missingItems = await readJson(
@@ -358,7 +456,7 @@ test('POST /automation/cycle applies capped token budget and skips over-budget c
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          now: '2036-04-18T12:00:00.000Z',
+          now: `${testDay(2)}T12:00:00.000Z`,
           tokenPolicy: { mode: 'capped', budgetTokens: 12 },
         }),
       }),
@@ -381,7 +479,7 @@ test('POST /automation/cycle applies capped token budget and skips over-budget c
 
 test('POST /automation/cycle triggers smart deferral when daily token budget is exhausted', async () => {
   await withServer(async (baseUrl) => {
-    const day = '2036-05-01';
+    const day = testDay(50);
 
     const firstRun = await readJson(
       await fetch(`${baseUrl}/automation/cycle`, {
@@ -435,7 +533,7 @@ test('POST /automation/cycle triggers smart deferral when daily token budget is 
 
 test('POST /automation/cycle uses one-shot smart probe before fallback deferral when budget is exhausted', async () => {
   await withServer(async (baseUrl) => {
-    const day = '2036-05-02';
+    const day = testDay(51);
 
     const firstRun = await readJson(
       await fetch(`${baseUrl}/automation/cycle`, {
@@ -508,7 +606,7 @@ test('POST /automation/cycle uses one-shot smart probe before fallback deferral 
 
 test('POST /automation/cycle allows second smart probe after cooldown elapses', async () => {
   await withServer(async (baseUrl) => {
-    const day = '2036-05-03';
+    const day = testDay(52);
 
     const firstRun = await readJson(
       await fetch(`${baseUrl}/automation/cycle`, {
@@ -595,7 +693,7 @@ test('POST /automation/cycle allows second smart probe after cooldown elapses', 
 
 test('POST /automation/cycle blocks probe by daily cap even after cooldown elapsed', async () => {
   await withServer(async (baseUrl) => {
-    const day = '2036-05-04';
+    const day = testDay(53);
 
     const firstRun = await readJson(
       await fetch(`${baseUrl}/automation/cycle`, {
@@ -661,7 +759,7 @@ test('POST /automation/cycle blocks probe by daily cap even after cooldown elaps
 
 test('POST /automation/cycle autotunes probe policy under high token-pressure conditions', async () => {
   await withServer(async (baseUrl) => {
-    const day = '2036-05-05';
+    const day = testDay(54);
 
     const firstRun = await readJson(
       await fetch(`${baseUrl}/automation/cycle`, {

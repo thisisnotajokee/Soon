@@ -1637,8 +1637,8 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ### Testy / weryfikacja
 
-1. `npm run test:contracts` -> do uruchomienia po wdrożeniu etapu 11.
-2. `npm run check` -> do uruchomienia po wdrożeniu etapu 11.
+1. `npm run test:contracts` -> PASS.
+2. `npm run check` -> PASS.
 
 ### Ryzyka
 
@@ -1646,4 +1646,38 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ### Następny krok
 
-1. Dodać minimalny endpoint operacyjny resetu probe runtime-state (manualny maintenance) z audytem i guardrailami.
+1. Dodać manualny reset `token_budget_last_probe_at` z audytem i guardrailami.
+
+### Update (2026-04-16, etap 12 manual probe runtime-state reset + audit)
+
+1. Dodano operacyjny endpoint resetu probe runtime-state:
+   - `POST /token-control/probe-policy/reset`
+   - `POST /api/token-control/probe-policy/reset`
+2. Guardraile resetu:
+   - wymagane potwierdzenie `confirm=RESET_TOKEN_BUDGET_PROBE_STATE`,
+   - wymagany `reason` (min. 8 znaków),
+   - cooldown resetów (`SOON_TOKEN_PROBE_RESET_COOLDOWN_SEC`, default `300`),
+   - opcjonalny `dryRun=true`.
+3. Audit resetu persisted:
+   - nowy runtime-state key: `token_budget_probe_reset_audit_last`,
+   - zapis: `timestamp`, `actor`, `reason`, `action`, `cooldownSec`, `previousProbeTimestamp`, `lastKnownProbesForDay`.
+4. Endpoint diagnostyczny policy (`/api/token-control/probe-policy`) rozszerzono o:
+   - `lastProbeResetAudit`.
+5. Runtime-state probe resetuje się do neutralnego stanu (bez aktywnego cooldown i bez dziennego licznika).
+
+### Testy / weryfikacja
+
+1. `POST /api/token-control/probe-policy/reset`:
+   - brak potwierdzenia -> `400 reset_confirmation_required`,
+   - poprawny reset -> `200`,
+   - ponowny reset w cooldown -> `409 reset_cooldown_active`.
+2. `GET /api/token-control/probe-policy`:
+   - zwraca `lastProbeResetAudit`.
+
+### Ryzyka
+
+1. Endpoint resetu jest celowo „mocny” operacyjnie; nadużywanie może maskować realne problemy tuningowe, dlatego cooldown i audit są obowiązkowe.
+
+### Następny krok
+
+1. Dodać prosty RBAC/ops key dla endpointu reset (gdy API będzie wystawione publicznie).
