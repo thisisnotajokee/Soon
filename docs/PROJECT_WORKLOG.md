@@ -10,6 +10,44 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ---
 
+## 2026-04-16 — Token Control Plane v3 (automation runId + metrics)
+
+### Zakres
+
+1. `POST /automation/cycle` zapisuje teraz również snapshot tokenów i zwraca `tokenSnapshotId`.
+2. Snapshot automatyki jest wiązany z realnym `runId` z `soon_hunter_run`.
+3. Dodano metryki token-control do `GET /metrics`:
+- `soon_token_control_snapshot_present`,
+- `soon_token_control_selected_count`,
+- `soon_token_control_skipped_count`,
+- `soon_token_control_budget_usage_pct` (+ pozostałe `soon_token_control_*`).
+4. Rozszerzono kontrakty HTTP o:
+- asercję `tokenSnapshotId` dla `automation/cycle`,
+- asercję eksportu metryk token-control.
+
+### Kluczowe decyzje
+
+1. `automation/cycle` traktujemy jako canonical source snapshotu dla trybu unbounded.
+2. Metryki token-control są emitowane zawsze (nawet gdy brak snapshotu, wartości 0 i `budget_mode=\"none\"`).
+3. Nie zmieniamy jeszcze algorytmu automatyki na capped budget — to osobny etap polityki budżetowej.
+
+### Testy / weryfikacja
+
+1. `npm run test:contracts` -> do uruchomienia po commit.
+2. `npm run check` -> do uruchomienia po commit.
+
+### Ryzyka
+
+1. Snapshot w `automation/cycle` jest obecnie unbounded, więc `budget_usage_pct=0`.
+2. Brak alertowania na skoki `skipped_count` dla trybu capped (do dodania gdy capped wejdzie do cyklu).
+
+### Następny krok
+
+1. Wprowadzić capped budget policy do `automation/cycle` i użyć endpointu token-control jako source decyzji.
+2. Dodać guardrail alertów Prometheus dla token budget utilization.
+
+---
+
 ## 2026-04-16 — Token Control Plane v2 (snapshot persistence)
 
 ### Zakres
