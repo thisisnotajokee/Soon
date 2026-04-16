@@ -14,8 +14,11 @@ jobs:
       SOON_ALERT_BASE_URL: ${{ secrets.SOON_RUNTIME_BASE_URL }}
       SOON_RUNTIME_BEARER_TOKEN: ${{ secrets.SOON_RUNTIME_BEARER_TOKEN }}
       SOON_RUNTIME_API_KEY: ${{ secrets.SOON_RUNTIME_API_KEY }}
+      SOON_TOKEN_PROBE_RESET_OPS_KEY: ${{ secrets.SOON_RUNTIME_PROBE_RESET_OPS_KEY }}
       SOON_SELF_HEAL_COOLDOWN_WARN_SEC: ${{ vars.SOON_SELF_HEAL_COOLDOWN_WARN_SEC || '1800' }}
       SOON_SELF_HEAL_COOLDOWN_CRIT_SEC: ${{ vars.SOON_SELF_HEAL_COOLDOWN_CRIT_SEC || '7200' }}
+      SOON_PROBE_RESET_PREFLIGHT_REQUIRE_GUARD: ${{ vars.SOON_PROBE_RESET_PREFLIGHT_REQUIRE_GUARD || '0' }}
+      SOON_PROBE_RESET_PREFLIGHT_WARN_AS_ERROR: ${{ vars.SOON_PROBE_RESET_PREFLIGHT_WARN_AS_ERROR || '0' }}
 
     steps:
       - name: Checkout
@@ -44,11 +47,18 @@ jobs:
           mkdir -p ops/reports/doctor
           npm run -s ops:self-heal:runtime-state:check:json > ops/reports/doctor/runtime-state-watchdog.json
 
+      - name: Run probe-reset preflight watchdog
+        run: |
+          set -euo pipefail
+          mkdir -p ops/reports/doctor
+          npm run -s ops:probe-reset:preflight:json -- --out ops/reports/doctor/probe-reset-preflight.json
+
       - name: Publish watchdog summary
         if: always()
         run: |
           set -euo pipefail
           REPORT_PATH="ops/reports/doctor/runtime-state-watchdog.json"
+          PREFLIGHT_PATH="ops/reports/doctor/probe-reset-preflight.json"
           echo "## Runtime-state Watchdog" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           if [ -s "$REPORT_PATH" ]; then
@@ -56,13 +66,23 @@ jobs:
           else
             echo "- Artifact missing: \`$REPORT_PATH\`" >> "$GITHUB_STEP_SUMMARY"
           fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Probe-reset Preflight" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ -s "$PREFLIGHT_PATH" ]; then
+            node -e "const fs=require('node:fs'); const p=process.argv[1]; const d=JSON.parse(fs.readFileSync(p,'utf8')); console.log('- Overall: `'\"'\"''+String(d.overall||'unknown')+'`'); console.log('- Base URL: `'\"'\"''+String(d.baseUrl||'unknown')+'`'); console.log('- Guard required policy: `'\"'\"''+(d.policy?.requireGuard?'true':'false')+'`'); console.log('- Guard active in runtime: `'\"'\"''+(d.status?.auth?.opsKeyRequired?'true':'false')+'`'); console.log('- Local ops key configured: `'\"'\"''+(d.auth?.localOpsKeyConfigured?'true':'false')+'`'); console.log('- Auth sanity ok: `'\"'\"''+(d.auth?.sanity?.ok?'true':'false')+'`'); console.log('- Findings: `'\"'\"''+String((d.findings||[]).length)+'`');" "$PREFLIGHT_PATH" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Artifact missing: \`$PREFLIGHT_PATH\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload watchdog artifact
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: runtime-state-watchdog-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ops/reports/doctor/runtime-state-watchdog.json
+          path: |
+            ops/reports/doctor/runtime-state-watchdog.json
+            ops/reports/doctor/probe-reset-preflight.json
           if-no-files-found: warn
 
   watchdog-disabled:
@@ -77,3 +97,7 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- Status: \`disabled\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- To enable: set repository variable \`SOON_RUNTIME_WATCHDOG_ENABLED=1\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Probe-reset Preflight" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Status: \`disabled\`" >> "$GITHUB_STEP_SUMMARY"

@@ -1851,3 +1851,34 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Dodać mały artifact preflight (JSON report path) pod `ops/reports/doctor/` do łatwej integracji z workflow dispatch.
+
+### Update (2026-04-16, etap 19 preflight artifact + workflow dispatch integration)
+
+1. Rozszerzono `probe-reset-ops-key-preflight` o artifact output:
+   - CLI arg: `--out <path>`
+   - ENV: `SOON_PROBE_RESET_PREFLIGHT_OUT=<path>`
+   - zapis JSON z metadanymi (`overall`, `findings`, `auth`, `status`, `artifactPath`).
+2. Dodano policy dla ostrzeżeń:
+   - `SOON_PROBE_RESET_PREFLIGHT_WARN_AS_ERROR=0|1` (default `0`).
+3. Workflow `runtime-state-watchdog` rozszerzono o krok:
+   - uruchomienie preflight i zapis `ops/reports/doctor/probe-reset-preflight.json`,
+   - publikacja sekcji summary `Probe-reset Preflight`,
+   - upload obu artifactów (`runtime-state-watchdog.json` + `probe-reset-preflight.json`).
+4. Testy skryptowe rozszerzone:
+   - walidacja zapisu artifactu przy `--out`.
+5. Dokumentacja:
+   - `packages/api/README.md` (nowe ENV),
+   - `docs/PROBE_RESET_OPS_KEY_ROTATION_RUNBOOK_V1.md` (przykład artifact flow).
+
+### Testy / weryfikacja
+
+1. `npm run test:scripts` -> PASS.
+2. `npm run check` -> PASS.
+
+### Ryzyka
+
+1. Workflow watchdog wymaga poprawnego `SOON_RUNTIME_BASE_URL`; bez dostępnego runtime endpointu krok preflight zwróci `CHECK_FAILED` (intencjonalny fail-fast).
+
+### Następny krok
+
+1. Dodać `quality-gate` optional preflight artifact publish (tylko gdy obecny secret `SOON_RUNTIME_PROBE_RESET_OPS_KEY`).

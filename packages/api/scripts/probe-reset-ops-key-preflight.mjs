@@ -1,6 +1,11 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+
 const DEFAULTS = {
   baseUrl: 'http://127.0.0.1:3100',
   requestTimeoutMs: 8000,
+  outPath: null,
+  warnAsError: false,
 };
 
 function toNumber(value, fallback) {
@@ -33,11 +38,16 @@ function parseSettingsFromEnv() {
     requestTimeoutMs: toNumber(process.env.SOON_ALERT_REQUEST_TIMEOUT_MS, DEFAULTS.requestTimeoutMs),
     opsKey: String(process.env.SOON_TOKEN_PROBE_RESET_OPS_KEY ?? '').trim(),
     requireGuard: parseBoolean(process.env.SOON_PROBE_RESET_PREFLIGHT_REQUIRE_GUARD, fallbackRequireGuard),
+    warnAsError: parseBoolean(process.env.SOON_PROBE_RESET_PREFLIGHT_WARN_AS_ERROR, DEFAULTS.warnAsError),
   };
 }
 
 function parseArgs(argv) {
-  return { json: argv.includes('--json') };
+  const outIndex = argv.indexOf('--out');
+  return {
+    json: argv.includes('--json'),
+    outPath: outIndex >= 0 ? String(argv[outIndex + 1] ?? '').trim() || null : null,
+  };
 }
 
 async function fetchJson(baseUrl, path, timeoutMs) {
@@ -156,7 +166,7 @@ function evaluate(statusPayload, authSanity, settings) {
   const hasCrit = findings.some((finding) => finding.severity === 'CRIT');
   const hasWarn = findings.some((finding) => finding.severity === 'WARN');
   const overall = hasCrit ? 'CRIT' : hasWarn ? 'WARN' : 'PASS';
-  const exitCode = hasCrit ? 2 : hasWarn ? 1 : 0;
+  const exitCode = hasCrit ? 2 : hasWarn ? (settings.warnAsError ? 1 : 0) : 0;
 
   return { overall, exitCode, findings };
 }
@@ -164,11 +174,14 @@ function evaluate(statusPayload, authSanity, settings) {
 function printHuman(result) {
   console.log(`[Soon/probe-reset-preflight] ${result.overall}`);
   console.log(
-    `[Soon/probe-reset-preflight] baseUrl=${result.baseUrl} opsKeyRequired=${result.status?.auth?.opsKeyRequired ? '1' : '0'} localOpsKey=${result.auth.localOpsKeyConfigured ? '1' : '0'} requireGuard=${result.policy.requireGuard ? '1' : '0'}`,
+    `[Soon/probe-reset-preflight] baseUrl=${result.baseUrl} opsKeyRequired=${result.status?.auth?.opsKeyRequired ? '1' : '0'} localOpsKey=${result.auth.localOpsKeyConfigured ? '1' : '0'} requireGuard=${result.policy.requireGuard ? '1' : '0'} warnAsError=${result.policy.warnAsError ? '1' : '0'}`,
   );
   console.log(
     `[Soon/probe-reset-preflight] authSanity attempted=${result.auth.sanity.attempted ? '1' : '0'} ok=${result.auth.sanity.ok ? '1' : '0'} status=${result.auth.sanity.status ?? 'n/a'}`,
   );
+  if (result.artifactPath) {
+    console.log(`[Soon/probe-reset-preflight] artifact=${result.artifactPath}`);
+  }
   if (!result.findings.length) {
     console.log('[Soon/probe-reset-preflight] no findings');
     return;
@@ -181,6 +194,8 @@ function printHuman(result) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const settings = parseSettingsFromEnv();
+  const outPath = args.outPath || process.env.SOON_PROBE_RESET_PREFLIGHT_OUT || DEFAULTS.outPath;
+  const resolvedOutPath = outPath ? resolve(outPath) : null;
   const status = await fetchJson(
     settings.baseUrl,
     '/api/token-control/probe-policy/reset-auth/status',
@@ -194,6 +209,7 @@ async function main() {
     baseUrl: settings.baseUrl,
     policy: {
       requireGuard: settings.requireGuard,
+      warnAsError: settings.warnAsError,
     },
     auth: {
       localOpsKeyConfigured: Boolean(settings.opsKey),
@@ -202,7 +218,13 @@ async function main() {
     status,
     overall: evaluated.overall,
     findings: evaluated.findings,
+    artifactPath: resolvedOutPath,
   };
+
+  if (resolvedOutPath) {
+    await mkdir(dirname(resolvedOutPath), { recursive: true });
+    await writeFile(resolvedOutPath, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
+  }
 
   if (args.json) {
     console.log(JSON.stringify(result, null, 2));

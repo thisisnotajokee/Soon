@@ -19,6 +19,8 @@ Runbook definiuje bezpieczną rotację klucza `SOON_TOKEN_PROBE_RESET_OPS_KEY` d
 1. **Pre-check**
    - uruchom preflight helper:  
      `npm run ops:probe-reset:preflight`
+   - opcjonalnie zapisz artifact JSON:  
+     `SOON_PROBE_RESET_PREFLIGHT_OUT=ops/reports/doctor/probe-reset-preflight.json npm run ops:probe-reset:preflight`
    - potwierdź, że guard jest aktywny:  
      `GET /api/token-control/probe-policy/reset-auth/status`
    - oczekiwane: `auth.opsKeyRequired=true`.
