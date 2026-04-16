@@ -1934,3 +1934,33 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Po potwierdzeniu obecności `SOON_TOKEN_PROBE_RESET_OPS_KEY` w repo usunąć fallback `SOON_RUNTIME_PROBE_RESET_OPS_KEY` z workflow.
+
+### Update (2026-04-16, etap 22 pre-removal signal for fallback decommission)
+
+1. Dodano jawny sygnał źródła sekretu preflight (`secretSource`) w artifact:
+   - `canonical`
+   - `legacy_fallback`
+   - `missing`
+   - `unknown` (domyślny fallback lokalny bez wskazania źródła).
+2. `runtime-state-watchdog`:
+   - wyznacza i eksportuje `SOON_PROBE_RESET_OPS_KEY_SOURCE`,
+   - raportuje `Secret source` w `GITHUB_STEP_SUMMARY`.
+3. `quality-gate` (`postgres`):
+   - przy braku secretu zapisuje artifact `auth.secretSource=missing`,
+   - przy uruchomieniu preflight z secretem oznacza `secretSource=canonical`,
+   - summary pokazuje `Secret source`.
+4. Testy skryptowe:
+   - rozszerzono asercję artifactu preflight o pole `auth.secretSource`.
+
+### Testy / weryfikacja
+
+1. `npm run test:scripts` -> PASS.
+2. `npm run check` -> PASS.
+
+### Ryzyka
+
+1. Dla lokalnego uruchomienia bez jawnego `SOON_PROBE_RESET_OPS_KEY_SOURCE` pole zostaje `unknown` (intencjonalne; brak wpływu na CI).
+
+### Następny krok
+
+1. Po minimum 1 zielonym cyklu watchdoga z `secretSource=canonical` usunąć legacy fallback z `runtime-state-watchdog.yml`.

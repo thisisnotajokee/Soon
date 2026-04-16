@@ -52,10 +52,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ops/reports/doctor
+          PROBE_RESET_SECRET_SOURCE="missing"
           if [ -z "${SOON_TOKEN_PROBE_RESET_OPS_KEY:-}" ] && [ -n "${SOON_RUNTIME_PROBE_RESET_OPS_KEY_LEGACY:-}" ]; then
             echo "[watchdog] using legacy fallback secret SOON_RUNTIME_PROBE_RESET_OPS_KEY (migrate to SOON_TOKEN_PROBE_RESET_OPS_KEY)"
             export SOON_TOKEN_PROBE_RESET_OPS_KEY="$SOON_RUNTIME_PROBE_RESET_OPS_KEY_LEGACY"
+            PROBE_RESET_SECRET_SOURCE="legacy_fallback"
+          elif [ -n "${SOON_TOKEN_PROBE_RESET_OPS_KEY:-}" ]; then
+            PROBE_RESET_SECRET_SOURCE="canonical"
           fi
+          export SOON_PROBE_RESET_OPS_KEY_SOURCE="$PROBE_RESET_SECRET_SOURCE"
           npm run -s ops:probe-reset:preflight:json -- --out ops/reports/doctor/probe-reset-preflight.json
 
       - name: Publish watchdog summary
@@ -75,7 +80,7 @@ jobs:
           echo "## Probe-reset Preflight" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           if [ -s "$PREFLIGHT_PATH" ]; then
-            node -e "const fs=require('node:fs'); const p=process.argv[1]; const d=JSON.parse(fs.readFileSync(p,'utf8')); console.log('- Overall: `'\"'\"''+String(d.overall||'unknown')+'`'); console.log('- Base URL: `'\"'\"''+String(d.baseUrl||'unknown')+'`'); console.log('- Guard required policy: `'\"'\"''+(d.policy?.requireGuard?'true':'false')+'`'); console.log('- Guard active in runtime: `'\"'\"''+(d.status?.auth?.opsKeyRequired?'true':'false')+'`'); console.log('- Local ops key configured: `'\"'\"''+(d.auth?.localOpsKeyConfigured?'true':'false')+'`'); console.log('- Auth sanity ok: `'\"'\"''+(d.auth?.sanity?.ok?'true':'false')+'`'); console.log('- Findings: `'\"'\"''+String((d.findings||[]).length)+'`');" "$PREFLIGHT_PATH" >> "$GITHUB_STEP_SUMMARY"
+            node -e "const fs=require('node:fs'); const p=process.argv[1]; const d=JSON.parse(fs.readFileSync(p,'utf8')); console.log('- Overall: `'\"'\"''+String(d.overall||'unknown')+'`'); console.log('- Base URL: `'\"'\"''+String(d.baseUrl||'unknown')+'`'); console.log('- Guard required policy: `'\"'\"''+(d.policy?.requireGuard?'true':'false')+'`'); console.log('- Guard active in runtime: `'\"'\"''+(d.status?.auth?.opsKeyRequired?'true':'false')+'`'); console.log('- Local ops key configured: `'\"'\"''+(d.auth?.localOpsKeyConfigured?'true':'false')+'`'); console.log('- Secret source: `'\"'\"''+String(d.auth?.secretSource||'unknown')+'`'); console.log('- Auth sanity ok: `'\"'\"''+(d.auth?.sanity?.ok?'true':'false')+'`'); console.log('- Findings: `'\"'\"''+String((d.findings||[]).length)+'`');" "$PREFLIGHT_PATH" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "- Artifact missing: \`$PREFLIGHT_PATH\`" >> "$GITHUB_STEP_SUMMARY"
           fi

@@ -205,7 +205,7 @@ jobs:
           mkdir -p ops/reports/doctor
 
           if [ -z "${SOON_TOKEN_PROBE_RESET_OPS_KEY:-}" ]; then
-            node -e "const fs=require('node:fs'); const p=process.argv[1]; const payload={checkedAt:new Date().toISOString(), overall:'SKIPPED', reason:'missing_secret', secretName:'SOON_TOKEN_PROBE_RESET_OPS_KEY'}; fs.writeFileSync(p, JSON.stringify(payload,null,2)+'\n');" "$PREFLIGHT_PATH"
+            node -e "const fs=require('node:fs'); const p=process.argv[1]; const payload={checkedAt:new Date().toISOString(), overall:'SKIPPED', reason:'missing_secret', secretName:'SOON_TOKEN_PROBE_RESET_OPS_KEY', auth:{secretSource:'missing'}}; fs.writeFileSync(p, JSON.stringify(payload,null,2)+'\n');" "$PREFLIGHT_PATH"
             echo "[CI] probe-reset preflight skipped (missing secret SOON_TOKEN_PROBE_RESET_OPS_KEY)"
             exit 0
           fi
@@ -213,6 +213,7 @@ jobs:
           make up
           trap 'make down' EXIT
           set +e
+          export SOON_PROBE_RESET_OPS_KEY_SOURCE="canonical"
           SOON_PROBE_RESET_PREFLIGHT_OUT="$PREFLIGHT_PATH" npm run -s ops:probe-reset:preflight
           PREFLIGHT_EXIT=$?
           set -e
@@ -228,7 +229,7 @@ jobs:
           echo "### Probe-reset Preflight" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           if [ -s "$PREFLIGHT_PATH" ]; then
-            node -e "const fs=require('node:fs'); const p=process.argv[1]; const d=JSON.parse(fs.readFileSync(p,'utf8')); console.log('- Overall: `'\"'\"''+String(d.overall||'unknown')+'`'); if (d.reason) console.log('- Reason: `'\"'\"''+String(d.reason)+'`'); if (d.baseUrl) console.log('- Base URL: `'\"'\"''+String(d.baseUrl)+'`'); if (d.status?.auth) console.log('- Guard active in runtime: `'\"'\"''+(d.status.auth.opsKeyRequired?'true':'false')+'`'); if (d.auth?.localOpsKeyConfigured!==undefined) console.log('- Local ops key configured: `'\"'\"''+(d.auth.localOpsKeyConfigured?'true':'false')+'`'); if (d.auth?.sanity) console.log('- Auth sanity ok: `'\"'\"''+(d.auth.sanity.ok?'true':'false')+'`'); console.log('- Findings: `'\"'\"''+String((d.findings||[]).length)+'`');" "$PREFLIGHT_PATH" >> "$GITHUB_STEP_SUMMARY"
+            node -e "const fs=require('node:fs'); const p=process.argv[1]; const d=JSON.parse(fs.readFileSync(p,'utf8')); console.log('- Overall: `'\"'\"''+String(d.overall||'unknown')+'`'); if (d.reason) console.log('- Reason: `'\"'\"''+String(d.reason)+'`'); if (d.baseUrl) console.log('- Base URL: `'\"'\"''+String(d.baseUrl)+'`'); if (d.status?.auth) console.log('- Guard active in runtime: `'\"'\"''+(d.status.auth.opsKeyRequired?'true':'false')+'`'); if (d.auth?.localOpsKeyConfigured!==undefined) console.log('- Local ops key configured: `'\"'\"''+(d.auth.localOpsKeyConfigured?'true':'false')+'`'); if (d.auth?.secretSource) console.log('- Secret source: `'\"'\"''+String(d.auth.secretSource)+'`'); if (d.auth?.sanity) console.log('- Auth sanity ok: `'\"'\"''+(d.auth.sanity.ok?'true':'false')+'`'); console.log('- Findings: `'\"'\"''+String((d.findings||[]).length)+'`');" "$PREFLIGHT_PATH" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "- Artifact missing: \`$PREFLIGHT_PATH\`" >> "$GITHUB_STEP_SUMMARY"
           fi

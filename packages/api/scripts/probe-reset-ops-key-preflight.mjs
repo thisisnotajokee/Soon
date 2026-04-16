@@ -37,6 +37,7 @@ function parseSettingsFromEnv() {
     baseUrl: process.env.SOON_ALERT_BASE_URL || DEFAULTS.baseUrl,
     requestTimeoutMs: toNumber(process.env.SOON_ALERT_REQUEST_TIMEOUT_MS, DEFAULTS.requestTimeoutMs),
     opsKey: String(process.env.SOON_TOKEN_PROBE_RESET_OPS_KEY ?? '').trim(),
+    secretSource: String(process.env.SOON_PROBE_RESET_OPS_KEY_SOURCE ?? '').trim() || 'unknown',
     requireGuard: parseBoolean(process.env.SOON_PROBE_RESET_PREFLIGHT_REQUIRE_GUARD, fallbackRequireGuard),
     warnAsError: parseBoolean(process.env.SOON_PROBE_RESET_PREFLIGHT_WARN_AS_ERROR, DEFAULTS.warnAsError),
   };
@@ -174,7 +175,7 @@ function evaluate(statusPayload, authSanity, settings) {
 function printHuman(result) {
   console.log(`[Soon/probe-reset-preflight] ${result.overall}`);
   console.log(
-    `[Soon/probe-reset-preflight] baseUrl=${result.baseUrl} opsKeyRequired=${result.status?.auth?.opsKeyRequired ? '1' : '0'} localOpsKey=${result.auth.localOpsKeyConfigured ? '1' : '0'} requireGuard=${result.policy.requireGuard ? '1' : '0'} warnAsError=${result.policy.warnAsError ? '1' : '0'}`,
+    `[Soon/probe-reset-preflight] baseUrl=${result.baseUrl} opsKeyRequired=${result.status?.auth?.opsKeyRequired ? '1' : '0'} localOpsKey=${result.auth.localOpsKeyConfigured ? '1' : '0'} source=${result.auth.secretSource} requireGuard=${result.policy.requireGuard ? '1' : '0'} warnAsError=${result.policy.warnAsError ? '1' : '0'}`,
   );
   console.log(
     `[Soon/probe-reset-preflight] authSanity attempted=${result.auth.sanity.attempted ? '1' : '0'} ok=${result.auth.sanity.ok ? '1' : '0'} status=${result.auth.sanity.status ?? 'n/a'}`,
@@ -213,6 +214,7 @@ async function main() {
     },
     auth: {
       localOpsKeyConfigured: Boolean(settings.opsKey),
+      secretSource: settings.secretSource,
       sanity: authSanity,
     },
     status,

@@ -502,6 +502,7 @@ test('probe-reset-ops-key-preflight writes artifact report when --out is provide
       const parsed = JSON.parse(await readFile(outPath, 'utf8'));
       assert.equal(parsed.overall, 'PASS');
       assert.equal(parsed.auth.localOpsKeyConfigured, true);
+      assert.equal(parsed.auth.secretSource, 'unknown');
       assert.equal(parsed.artifactPath, outPath);
     },
     { requiredOpsKey: token, opsKeyRequired: true },
