@@ -492,12 +492,20 @@ function resolveAutomationTokenPolicyConfig(rawConfig = null) {
 
 function deriveTokenBudgetProbeCooldownFromRuntimeState(
   runtimeState,
-  { fallbackCooldownSec = TOKEN_BUDGET_PROBE_DEFAULT_COOLDOWN_SEC, nowMs = Date.now() } = {},
+  {
+    fallbackCooldownSec = TOKEN_BUDGET_PROBE_DEFAULT_COOLDOWN_SEC,
+    nowMs = Date.now(),
+    overrideCooldownSec = null,
+  } = {},
 ) {
   const stateValue = runtimeState?.stateValue ?? {};
   const rawTimestamp = stateValue?.timestamp ?? stateValue?.at ?? null;
   const lastProbeAtMs = Number.isFinite(Date.parse(rawTimestamp ?? '')) ? Date.parse(rawTimestamp) : 0;
-  const cooldownSec = clampInt(stateValue?.cooldownSec, fallbackCooldownSec, 0, 7 * 24 * 60 * 60);
+  const overrideCooldown = toFiniteNumber(overrideCooldownSec);
+  const cooldownSec =
+    overrideCooldown !== null
+      ? clampInt(overrideCooldown, fallbackCooldownSec, 0, 7 * 24 * 60 * 60)
+      : clampInt(stateValue?.cooldownSec, fallbackCooldownSec, 0, 7 * 24 * 60 * 60);
   const cooldownRemainingMs =
     cooldownSec > 0 && lastProbeAtMs > 0 ? Math.max(0, lastProbeAtMs + cooldownSec * 1000 - nowMs) : 0;
 
@@ -1048,6 +1056,7 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           const probeCooldownState = deriveTokenBudgetProbeCooldownFromRuntimeState(probeState, {
             fallbackCooldownSec: tokenBudgetAutoRemediation.probeCooldownSec,
             nowMs: startTs,
+            overrideCooldownSec: tokenBudgetAutoRemediation.probeCooldownSec,
           });
           const probeAllowedByCooldown = !probeCooldownState.cooldownActive;
           tokenBudgetAutoRemediation = {
