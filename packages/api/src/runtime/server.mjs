@@ -1359,7 +1359,7 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           probeBudgetTokens: null,
           cooldownSec: 0,
           probesForDay: 0,
-          maxProbesPerDay: 0,
+          maxProbesPerDay: null,
           autoTuneEnabled: false,
           autoTuneApplied: false,
           autoTuneReason: 'manual_reset',
