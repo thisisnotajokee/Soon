@@ -158,11 +158,21 @@ jobs:
         if: always()
         run: npm run -s ops:self-heal:triage:validate -- ops/reports/doctor/self-heal-triage.json
 
+      - name: Validate probe reset ops key secret (postgres)
+        if: always()
+        env:
+          SOON_TOKEN_PROBE_RESET_OPS_KEY: ${{ secrets.SOON_TOKEN_PROBE_RESET_OPS_KEY }}
+        run: |
+          if [ -z "${SOON_TOKEN_PROBE_RESET_OPS_KEY:-}" ]; then
+            echo "[CI] missing required secret: SOON_TOKEN_PROBE_RESET_OPS_KEY" >&2
+            exit 1
+          fi
+
       - name: Publish doctor summary (postgres)
         if: always()
         env:
           SOON_DOCTOR_SUMMARY_REQUIRE_TRIAGE: '1'
-          SOON_TOKEN_PROBE_RESET_OPS_KEY: ci-probe-reset-ops-key
+          SOON_TOKEN_PROBE_RESET_OPS_KEY: ${{ secrets.SOON_TOKEN_PROBE_RESET_OPS_KEY }}
         run: |
           if [ -f ops/reports/doctor/latest.json ]; then
             npm run -s obs:doctor:summary -- ops/reports/doctor/latest.json ops/reports/doctor/self-heal-triage.json >> "$GITHUB_STEP_SUMMARY"
