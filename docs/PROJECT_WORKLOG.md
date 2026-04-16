@@ -1882,3 +1882,32 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Dodać `quality-gate` optional preflight artifact publish (tylko gdy obecny secret `SOON_RUNTIME_PROBE_RESET_OPS_KEY`).
+
+### Update (2026-04-16, etap 20 optional preflight artifact publish w quality-gate)
+
+1. Workflow `quality-gate.yml` rozszerzono o probe-reset preflight artifact flow w jobie `postgres`:
+   - krok `Probe-reset preflight smoke (postgres, optional secret)`,
+   - artifact path: `ops/reports/doctor/probe-reset-preflight.json`.
+2. Logika optional:
+   - gdy brak `SOON_TOKEN_PROBE_RESET_OPS_KEY`, krok zapisuje artifact `overall=SKIPPED` i nie failuje na tym etapie,
+   - gdy secret jest obecny, wykonywany jest realny preflight (`npm run ops:probe-reset:preflight`) z zapisem artifactu.
+3. Dodano summary publish:
+   - sekcja `Probe-reset Preflight` w `GITHUB_STEP_SUMMARY`.
+4. Upload artifactów rozszerzono:
+   - `ops/reports/doctor/probe-reset-preflight.json`.
+
+### Testy / weryfikacja
+
+1. Walidacja lokalna:
+   - `npm run test:scripts` -> PASS.
+   - `npm run check` -> PASS.
+2. CI:
+   - regresja workflow quality-gate pokryta przez standardowe checki PR.
+
+### Ryzyka
+
+1. Jeśli secret jest obecny, preflight może ujawnić realne problemy auth/guard i zatrzymać etap (intencjonalne fail-fast).
+
+### Następny krok
+
+1. Ujednolicić nazwę secretu probe-reset między watchdog i quality-gate (`SOON_RUNTIME_PROBE_RESET_OPS_KEY` vs `SOON_TOKEN_PROBE_RESET_OPS_KEY`) i zrobić migrację na jedną nazwę.
