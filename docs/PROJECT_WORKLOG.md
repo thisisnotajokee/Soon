@@ -1205,3 +1205,28 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 ### Następny krok
 
 1. Ustawić `SOON_RUNTIME_BASE_URL` + ewentualne progi repo vars i uruchomić `runtime-state-watchdog` ręcznie (`workflow_dispatch`) jako test pierwszego przebiegu.
+
+### Update (2026-04-16, runtime watchdog auth support)
+
+1. Rozszerzono watchdog o nagłówki auth dla endpointów chronionych:
+   - `Authorization: Bearer <token>` z `SOON_RUNTIME_BEARER_TOKEN`,
+   - `x-api-key: <key>` z `SOON_RUNTIME_API_KEY`.
+2. Workflow `runtime-state-watchdog` przekazuje opcjonalne sekrety auth:
+   - `SOON_RUNTIME_BEARER_TOKEN`,
+   - `SOON_RUNTIME_API_KEY`.
+3. Dodano test skryptu potwierdzający obsługę chronionego endpointu (bearer auth).
+
+### Testy / weryfikacja
+
+1. `npm run test:scripts` -> PASS.
+2. `npm run check` -> PASS.
+
+### Ryzyka
+
+1. Gdy endpoint produkcyjny wymaga auth, a sekrety auth nie są ustawione, watchdog kończy się `401` (fail-fast, intencjonalnie).
+
+### Następny krok
+
+1. Ustawić w GitHub Secrets:
+   - `SOON_RUNTIME_BEARER_TOKEN` (preferowane) lub `SOON_RUNTIME_API_KEY`,
+   a następnie uruchomić `runtime-state-watchdog` przez `workflow_dispatch`.

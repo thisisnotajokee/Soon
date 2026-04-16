@@ -12,12 +12,16 @@ function toNumber(value, fallback) {
 }
 
 function parseSettingsFromEnv() {
+  const bearerToken = String(process.env.SOON_RUNTIME_BEARER_TOKEN ?? '').trim();
+  const apiKey = String(process.env.SOON_RUNTIME_API_KEY ?? '').trim();
   return {
     baseUrl: process.env.SOON_ALERT_BASE_URL || DEFAULTS.baseUrl,
     requestTimeoutMs: toNumber(process.env.SOON_ALERT_REQUEST_TIMEOUT_MS, DEFAULTS.requestTimeoutMs),
     runtimeStateKey: process.env.SOON_SELF_HEAL_RUNTIME_STATE_KEY || DEFAULTS.runtimeStateKey,
     cooldownWarnSec: toNumber(process.env.SOON_SELF_HEAL_COOLDOWN_WARN_SEC, DEFAULTS.cooldownWarnSec),
     cooldownCritSec: toNumber(process.env.SOON_SELF_HEAL_COOLDOWN_CRIT_SEC, DEFAULTS.cooldownCritSec),
+    bearerToken,
+    apiKey,
   };
 }
 
@@ -25,12 +29,24 @@ function parseArgs(argv) {
   return { json: argv.includes('--json') };
 }
 
-async function fetchJson(baseUrl, path, timeoutMs) {
+function buildAuthHeaders(settings) {
+  const headers = {};
+  if (settings.bearerToken) {
+    headers.Authorization = `Bearer ${settings.bearerToken}`;
+  }
+  if (settings.apiKey) {
+    headers['x-api-key'] = settings.apiKey;
+  }
+  return headers;
+}
+
+async function fetchJson(baseUrl, path, timeoutMs, headers = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${baseUrl.replace(/\/$/, '')}${path}`, {
       signal: controller.signal,
+      headers,
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -96,13 +112,18 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const settings = parseSettingsFromEnv();
   const path = `/api/self-heal/runtime-state?key=${encodeURIComponent(settings.runtimeStateKey)}`;
-  const runtimeState = await fetchJson(settings.baseUrl, path, settings.requestTimeoutMs);
+  const headers = buildAuthHeaders(settings);
+  const runtimeState = await fetchJson(settings.baseUrl, path, settings.requestTimeoutMs, headers);
   const evaluated = evaluate(runtimeState, settings);
 
   const result = {
     checkedAt: new Date().toISOString(),
     baseUrl: settings.baseUrl,
     key: settings.runtimeStateKey,
+    auth: {
+      bearer: Boolean(settings.bearerToken),
+      apiKey: Boolean(settings.apiKey),
+    },
     thresholds: {
       cooldownWarnSec: settings.cooldownWarnSec,
       cooldownCritSec: settings.cooldownCritSec,

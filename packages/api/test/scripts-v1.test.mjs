@@ -175,13 +175,31 @@ test('self-heal-triage-validate fails when required fields are missing', async (
   );
 });
 
-async function withMockRuntimeStateServer(runtimeStatePayload, fn) {
+async function withMockRuntimeStateServer(runtimeStatePayload, fn, options = {}) {
+  const requiredBearerToken = options.requiredBearerToken ?? null;
+  const requiredApiKey = options.requiredApiKey ?? null;
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     if (url.pathname !== '/api/self-heal/runtime-state') {
       res.writeHead(404, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: 'not_found', pathname: url.pathname }));
       return;
+    }
+    if (requiredBearerToken) {
+      const authHeader = String(req.headers.authorization ?? '');
+      if (authHeader !== `Bearer ${requiredBearerToken}`) {
+        res.writeHead(401, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Unauthorized' }));
+        return;
+      }
+    }
+    if (requiredApiKey) {
+      const apiKeyHeader = String(req.headers['x-api-key'] ?? '');
+      if (apiKeyHeader !== requiredApiKey) {
+        res.writeHead(401, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Unauthorized' }));
+        return;
+      }
     }
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify(runtimeStatePayload));
@@ -265,6 +283,30 @@ test('self-heal-runtime-state-check returns WARN when cooldown remains above war
       assert.match(result.stdout, /\[Soon\/self-heal-runtime-state\] WARN/);
       assert.match(result.stdout, /SELF_HEAL_COOLDOWN_STUCK_WARN/);
     },
+  );
+});
+
+test('self-heal-runtime-state-check supports bearer auth for protected runtime endpoint', async () => {
+  const token = 'test-watchdog-token';
+  await withMockRuntimeStateServer(
+    {
+      status: 'ok',
+      key: 'alert_routing_last_remediation_at',
+      found: false,
+      runtimeState: null,
+      cooldown: {
+        cooldownActive: false,
+        cooldownRemainingSec: 0,
+      },
+    },
+    async (baseUrl) => {
+      const result = await runRuntimeStateCli(baseUrl, {
+        SOON_RUNTIME_BEARER_TOKEN: token,
+      });
+      assert.equal(result.code, 0);
+      assert.match(result.stdout, /\[Soon\/self-heal-runtime-state\] PASS/);
+    },
+    { requiredBearerToken: token },
   );
 });
 
