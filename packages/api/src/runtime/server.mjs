@@ -231,6 +231,51 @@ function buildHunterTrendFeatureRows({ tracking, historyPoints, lookbackHours })
   });
 }
 
+const HUNTER_KEYWORD_STOPWORDS = new Set([
+  'and',
+  'the',
+  'for',
+  'with',
+  'from',
+  'this',
+  'that',
+  'new',
+  'used',
+  'plus',
+  'pro',
+  'ultra',
+  'inch',
+  'gen',
+  'very',
+  'model',
+]);
+
+function deriveHunterGroupsFromConfig(config) {
+  const selected =
+    Array.isArray(config?.hunterCategoryGroups) && config.hunterCategoryGroups.length
+      ? config.hunterCategoryGroups.map((item) => String(item || '').trim().toLowerCase()).filter(Boolean)
+      : ['laptops', 'gaming'];
+  return [...new Set(selected)].slice(0, 16);
+}
+
+function classifyKeywordGroup(keyword) {
+  const value = String(keyword || '').toLowerCase();
+  if (/(laptop|notebook|strix|rog|scar)/.test(value)) return 'laptops';
+  if (/(game|gaming|gpu|rtx)/.test(value)) return 'gaming';
+  if (/(tablet|fire|hd)/.test(value)) return 'tablets';
+  return 'general';
+}
+
+function extractKeywordsFromTitle(title) {
+  return String(title || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(/\s+/)
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 3 && item.length <= 24)
+    .filter((item) => !HUNTER_KEYWORD_STOPWORDS.has(item));
+}
+
 function dayKeyFromTimestamp(ts) {
   return new Date(ts).toISOString().slice(0, 10);
 }
@@ -2345,6 +2390,129 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           replay: replayState?.stateValue ?? null,
           schedulerHunter: {},
           schedulerRuntime: {},
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/hunter-keyword-stats') {
+        if (!store.listTrackings || !store.listLatestAutomationRuns) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const rawLimit = Number(url.searchParams.get('limit') ?? 120);
+        const limit = Math.max(10, Math.min(500, Number.isFinite(rawLimit) ? rawLimit : 120));
+        const runs = await store.listLatestAutomationRuns(400);
+        const trackings = await store.listTrackings();
+
+        const alertsByAsin = runs.reduce((acc, run) => {
+          for (const alert of run?.alerts ?? []) {
+            const asin = String(alert?.asin ?? '').trim().toUpperCase();
+            if (!asin || asin === 'SYSTEM') continue;
+            acc.set(asin, (acc.get(asin) ?? 0) + 1);
+          }
+          return acc;
+        }, new Map());
+
+        const keywordRows = [];
+        for (const tracking of trackings) {
+          const asin = String(tracking?.asin ?? '').trim().toUpperCase();
+          if (!asin) continue;
+          const baseBoost = alertsByAsin.get(asin) ?? 0;
+          const keywords = extractKeywordsFromTitle(tracking?.title);
+          for (const keyword of keywords) {
+            const queries = 1 + baseBoost;
+            const hits = baseBoost > 0 ? Math.max(1, Math.floor(queries * 0.4)) : 0;
+            const hitRate = queries > 0 ? Number((hits / queries).toFixed(4)) : 0;
+            keywordRows.push({
+              group: classifyKeywordGroup(keyword),
+              keyword,
+              queries,
+              hits,
+              hitRate,
+              lastAt: tracking?.updatedAt ?? new Date().toISOString(),
+              blockedUntil: null,
+            });
+          }
+        }
+
+        const deduped = keywordRows.reduce((acc, row) => {
+          const key = `${row.group}:${row.keyword}`;
+          if (!acc.has(key)) {
+            acc.set(key, { ...row });
+            return acc;
+          }
+          const current = acc.get(key);
+          current.queries += row.queries;
+          current.hits += row.hits;
+          current.hitRate = current.queries > 0 ? Number((current.hits / current.queries).toFixed(4)) : 0;
+          if (Date.parse(row.lastAt ?? '') > Date.parse(current.lastAt ?? '')) current.lastAt = row.lastAt;
+          acc.set(key, current);
+          return acc;
+        }, new Map());
+
+        const rows = [...deduped.values()]
+          .sort((a, b) => {
+            if (a.hitRate !== b.hitRate) return a.hitRate - b.hitRate;
+            return b.queries - a.queries;
+          })
+          .slice(0, limit);
+
+        const defaultConfig = buildDefaultHunterConfig();
+        const customState = store.getRuntimeState ? await store.getRuntimeState(HUNTER_CUSTOM_CONFIG_STATE_KEY) : null;
+        const customConfig =
+          customState?.stateValue && typeof customState.stateValue === 'object'
+            ? customState.stateValue.config ?? {}
+            : {};
+        const effectiveConfig = mergeHunterConfig(defaultConfig, customConfig);
+        const groupsSelected = deriveHunterGroupsFromConfig(effectiveConfig);
+        const limits = effectiveConfig?.hunterCategoryLimits && typeof effectiveConfig.hunterCategoryLimits === 'object'
+          ? effectiveConfig.hunterCategoryLimits
+          : {};
+
+        const groupStats = rows.reduce((acc, row) => {
+          if (!acc.has(row.group)) acc.set(row.group, { queries24h: 0, hits24h: 0 });
+          const current = acc.get(row.group);
+          current.queries24h += Number(row.queries ?? 0);
+          current.hits24h += Number(row.hits ?? 0);
+          acc.set(row.group, current);
+          return acc;
+        }, new Map());
+
+        const groupSuggestions = groupsSelected.map((group) => {
+          const curLimit = Math.max(0, Math.min(8, Number.parseInt(limits?.[group], 10) || 0));
+          const agg = groupStats.get(group) ?? { queries24h: 0, hits24h: 0 };
+          const queries24h = Number(agg.queries24h || 0);
+          const hits24h = Number(agg.hits24h || 0);
+          const hitRate24h = queries24h > 0 ? hits24h / queries24h : 0;
+          let suggestedLimit = curLimit;
+          let reason = 'keep';
+          if (queries24h >= 6) {
+            if (hitRate24h >= 0.2 && curLimit < 8) {
+              suggestedLimit = curLimit + 1;
+              reason = 'raise_high_hit_rate';
+            } else if (hitRate24h <= 0.04 && curLimit > 0) {
+              suggestedLimit = curLimit - 1;
+              reason = 'lower_low_hit_rate';
+            }
+          } else {
+            reason = 'insufficient_data';
+          }
+
+          return {
+            group,
+            currentLimit: curLimit,
+            suggestedLimit,
+            delta: suggestedLimit - curLimit,
+            queries24h,
+            hits24h,
+            hitRate24h: Number(hitRate24h.toFixed(4)),
+            reason,
+          };
+        });
+
+        return sendJson(res, 200, {
+          count: rows.length,
+          rows,
+          groupSuggestions,
         });
       }
 

@@ -2126,3 +2126,20 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ### Weryfikacja
 - `npm run -s test:contracts` -> PASS.
+
+## [2026-04-17 19:22:00Z] Hunter keyword-stats compatibility endpoint implemented
+- Dodano endpoint `GET /api/hunter-keyword-stats` w `packages/api/src/runtime/server.mjs`.
+- Endpoint zwraca kompatybilny payload:
+  - `count`,
+  - `rows` (`group`, `keyword`, `queries`, `hits`, `hitRate`, `lastAt`, `blockedUntil`),
+  - `groupSuggestions`.
+- Dane pochodzą z runtime:
+  - słowa kluczowe wyliczane z tytułów trackowanych produktów,
+  - sygnał `queries/hits` wzmacniany alertami z ostatnich runów automatyki,
+  - sugestie limitów grup na bazie bieżących metryk.
+- Dodano test kontraktowy endpointu do `packages/api/test/contracts-v1.test.mjs`.
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md`: `GET /api/hunter-keyword-stats` -> `DONE` (runtime path).
+
+### Weryfikacja
+- `npm run -s test:contracts` -> PASS.

@@ -385,6 +385,20 @@ test('P0-E: hunter run-now + slo + smart-engine + autonomy-health endpoints', as
     assert.ok(Object.hasOwn(banditContext.body, 'schedulerHunter'));
     assert.ok(Object.hasOwn(banditContext.body, 'schedulerRuntime'));
 
+    const keywordStats = await readJson(await fetch(`${baseUrl}/api/hunter-keyword-stats?limit=50`));
+    assert.equal(keywordStats.status, 200);
+    assert.ok(Number.isFinite(Number(keywordStats.body.count)));
+    assert.ok(Array.isArray(keywordStats.body.rows));
+    assert.ok(Array.isArray(keywordStats.body.groupSuggestions));
+    if (keywordStats.body.rows.length > 0) {
+      const sample = keywordStats.body.rows[0];
+      assert.ok(typeof sample.group === 'string' && sample.group.length > 0);
+      assert.ok(typeof sample.keyword === 'string' && sample.keyword.length > 0);
+      assert.ok(Number.isFinite(Number(sample.queries)));
+      assert.ok(Number.isFinite(Number(sample.hits)));
+      assert.ok(Number.isFinite(Number(sample.hitRate)));
+    }
+
     const trendFeatures = await readJson(
       await fetch(`${baseUrl}/api/hunter-trend-features?hours=168&limit=50&domain=de`),
     );
