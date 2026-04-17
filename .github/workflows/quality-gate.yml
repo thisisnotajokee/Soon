@@ -190,7 +190,7 @@ jobs:
           echo "### Self-heal Runtime-state Watchdog" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           if [ -s "$WATCHDOG_PATH" ]; then
-            node -e "const fs=require('node:fs'); const p=process.argv[1]; const d=JSON.parse(fs.readFileSync(p,'utf8')); console.log('- Overall: `'\"'\"''+String(d.overall||'unknown')+'`'); console.log('- Key: `'\"'\"''+String(d.key||'unknown')+'`'); console.log('- Cooldown active: `'\"'\"''+(d.cooldownActive?'true':'false')+'`'); console.log('- Cooldown remaining sec: `'\"'\"''+String(d.cooldownRemainingSec??0)+'`');" "$WATCHDOG_PATH" >> "$GITHUB_STEP_SUMMARY"
+            node -e "const fs=require('node:fs'); const p=process.argv[1]; const d=JSON.parse(fs.readFileSync(p,'utf8')); console.log('- Overall: ' + String(d.overall||'unknown')); console.log('- Key: ' + String(d.key||'unknown')); console.log('- Cooldown active: ' + (d.cooldownActive?'true':'false')); console.log('- Cooldown remaining sec: ' + String(d.cooldownRemainingSec??0));" "$WATCHDOG_PATH" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "- Artifact missing: \`$WATCHDOG_PATH\`" >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -229,7 +229,7 @@ jobs:
           echo "### Probe-reset Preflight" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           if [ -s "$PREFLIGHT_PATH" ]; then
-            node -e "const fs=require('node:fs'); const p=process.argv[1]; const d=JSON.parse(fs.readFileSync(p,'utf8')); console.log('- Overall: `'\"'\"''+String(d.overall||'unknown')+'`'); if (d.reason) console.log('- Reason: `'\"'\"''+String(d.reason)+'`'); if (d.baseUrl) console.log('- Base URL: `'\"'\"''+String(d.baseUrl)+'`'); if (d.status?.auth) console.log('- Guard active in runtime: `'\"'\"''+(d.status.auth.opsKeyRequired?'true':'false')+'`'); if (d.auth?.localOpsKeyConfigured!==undefined) console.log('- Local ops key configured: `'\"'\"''+(d.auth.localOpsKeyConfigured?'true':'false')+'`'); if (d.auth?.secretSource) console.log('- Secret source: `'\"'\"''+String(d.auth.secretSource)+'`'); if (d.auth?.sanity) console.log('- Auth sanity ok: `'\"'\"''+(d.auth.sanity.ok?'true':'false')+'`'); console.log('- Findings: `'\"'\"''+String((d.findings||[]).length)+'`');" "$PREFLIGHT_PATH" >> "$GITHUB_STEP_SUMMARY"
+            node -e "const fs=require('node:fs'); const p=process.argv[1]; const d=JSON.parse(fs.readFileSync(p,'utf8')); console.log('- Overall: ' + String(d.overall||'unknown')); if (d.reason) console.log('- Reason: ' + String(d.reason)); if (d.baseUrl) console.log('- Base URL: ' + String(d.baseUrl)); if (d.status?.auth) console.log('- Guard active in runtime: ' + (d.status.auth.opsKeyRequired?'true':'false')); if (d.auth?.localOpsKeyConfigured!==undefined) console.log('- Local ops key configured: ' + (d.auth.localOpsKeyConfigured?'true':'false')); if (d.auth?.secretSource) console.log('- Secret source: ' + String(d.auth.secretSource)); if (d.auth?.sanity) console.log('- Auth sanity ok: ' + (d.auth.sanity.ok?'true':'false')); console.log('- Findings: ' + String((d.findings||[]).length));" "$PREFLIGHT_PATH" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "- Artifact missing: \`$PREFLIGHT_PATH\`" >> "$GITHUB_STEP_SUMMARY"
           fi
