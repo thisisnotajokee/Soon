@@ -33,7 +33,7 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `GET /api/alerts/:chatId/precision` — `src/routes/api/analytics/alerts-policy-routes.js`
 - [ ] `GET /api/alerts/:chatId/price-error-policy` — `src/routes/api/analytics/alerts-policy-routes.js`
 - [ ] `GET /api/alerts/:chatId/threshold-recommendation` — `src/routes/api/analytics/alerts-policy-routes.js`
-- [ ] `GET /api/auth/whoami` — `src/routes/api/core/routes/basic.js`
+- [x] `GET /api/auth/whoami` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/buybox/:asin` — `src/routes/api/analytics/misc-routes.js`
 - [ ] `GET /api/categories/:chatId` — `src/routes/api/analytics/misc-routes.js`
 - [x] `GET /api/check-alert-status` — `packages/api/src/runtime/server.mjs`
@@ -125,9 +125,9 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `GET /api/scan-plan/:chatId` — `src/routes/api/analytics/misc-routes.js`
 - [ ] `POST /api/scan/run-now` — `src/routes/api/core/routes/scan.js`
 - [ ] `POST /api/scan/stop` — `src/routes/api/core/routes/scan.js`
-- [ ] `POST /api/session/refresh` — `src/routes/api/core/routes/basic.js`
-- [ ] `POST /api/sessions/logout-others` — `src/routes/api/core/routes/basic.js`
-- [ ] `GET /api/sessions/now` — `src/routes/api/core/routes/basic.js`
+- [x] `POST /api/session/refresh` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /api/sessions/logout-others` — `packages/api/src/runtime/server.mjs`
+- [x] `GET /api/sessions/now` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/settings/:chatId` — `src/routes/api/settings/routes/core.js`
 - [ ] `GET /api/settings/:chatId/alert-profiles` — `src/routes/api/settings/routes/core.js`
 - [ ] `POST /api/settings/:chatId/alert-profiles` — `src/routes/api/settings/routes/core.js`
@@ -143,7 +143,7 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `GET /api/settings/:chatId/trackings-cache-runtime` — `src/routes/api/settings/routes/core.js`
 - [ ] `POST /api/settings/:chatId/trackings-cache-ttl` — `src/routes/api/settings/routes/core.js`
 - [ ] `GET /api/stats/:chatId` — `src/routes/api/analytics/misc-routes.js`
-- [ ] `GET /api/status` — `src/routes/api/core/routes/basic.js`
+- [x] `GET /api/status` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/stock/:asin` — `src/routes/api/analytics/misc-routes.js`
 - [ ] `GET /api/system-health` — `src/routes/api/core/routes/health.js`
 - [ ] `GET /api/system-health/history` — `src/routes/api/core/routes/health.js`

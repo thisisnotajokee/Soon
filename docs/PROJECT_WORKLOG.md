@@ -10,6 +10,33 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ---
 
+## [2026-04-17 22:25:00Z] Core auth/session compatibility endpoints implemented
+
+### Scope
+
+- Added legacy-compatible core endpoints in Soon runtime API:
+  - `GET /api/auth/whoami`
+  - `GET /api/status`
+  - `POST /api/session/refresh`
+  - `GET /api/sessions/now`
+  - `POST /api/sessions/logout-others`
+- Implemented minimal compatibility contract:
+  - request identity via headers/query (`x-telegram-user-id`, `x-chat-id`, `chatId`),
+  - admin gating using `SOON_ADMIN_ID`/`TELEGRAM_ADMIN_ID`,
+  - refresh token format compatible with WebApp expectation (`user.ts.random`).
+- Added contract test coverage for full core compatibility flow (success + forbidden/unauthorized cases).
+- Updated API inventory to mark these endpoints as implemented in Soon runtime.
+
+### Validation
+
+- `npm run -s test:contracts` -> PASS
+
+### Next
+
+- Continue migration with next core/admin block (`/api/logs`, selected `/admin-api/*`) to reduce legacy UI 404 surface.
+
+---
+
 ## [2026-04-17 21:55:00Z] Hunter config action endpoints implemented (preset/auto-apply/momentum)
 
 ### Scope
