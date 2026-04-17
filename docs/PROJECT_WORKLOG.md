@@ -2540,3 +2540,17 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
     w `packages/api/test/contracts-v1.test.mjs`.
 - Zaktualizowano inwentarz endpointów:
   - `docs/API_ENDPOINT_INVENTORY.md` (`POST /api/settings/:chatId/drop-pct` -> DONE).
+
+## [2026-04-18 01:25:00Z] P0-C notifications settings compatibility endpoint implemented
+- Dodano kompatybilny endpoint:
+  - `POST /api/settings/:chatId/notifications` w `packages/api/src/runtime/server.mjs`.
+- Zgodność kontraktu legacy:
+  - endpoint waliduje payload i dla niepoprawnego body zwraca
+    `400 { error: 'Invalid notifications payload' }`,
+  - dla poprawnego payloadu zapisuje preferencje i zwraca
+    `{ success: true }`.
+- Dodano test kontraktowy:
+  - `P0-C: /api/settings/:chatId/notifications validates payload and persists`
+    w `packages/api/test/contracts-v1.test.mjs`.
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`POST /api/settings/:chatId/notifications` -> DONE).

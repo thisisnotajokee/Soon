@@ -134,7 +134,7 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [x] `POST /api/settings/:chatId/drop-pct` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/settings/:chatId/global-scan-interval` — `packages/api/src/runtime/server.mjs`
 - [ ] `POST /api/settings/:chatId/notification-channels` — `src/routes/api/settings/routes/core.js`
-- [ ] `POST /api/settings/:chatId/notifications` — `src/routes/api/settings/routes/core.js`
+- [x] `POST /api/settings/:chatId/notifications` — `packages/api/src/runtime/server.mjs`
 - [ ] `POST /api/settings/:chatId/preferences` — `src/routes/api/settings/routes/core.js`
 - [x] `POST /api/settings/:chatId/product-interval` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/settings/:chatId/scan-interval` — `packages/api/src/runtime/server.mjs`

@@ -2375,6 +2375,7 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
       const productIntervalMatch = pathname.match(/^\/api\/settings\/([^/]+)\/product-interval$/);
       const scanIntervalMatch = pathname.match(/^\/api\/settings\/([^/]+)\/scan-interval$/);
       const settingsDropPctMatch = pathname.match(/^\/api\/settings\/([^/]+)\/drop-pct$/);
+      const settingsNotificationsMatch = pathname.match(/^\/api\/settings\/([^/]+)\/notifications$/);
       const globalScanIntervalMatch = pathname.match(/^\/api\/settings\/([^/]+)\/global-scan-interval$/);
       const trackingsCacheRuntimeMatch = pathname.match(/^\/api\/settings\/([^/]+)\/trackings-cache-runtime$/);
       const trackingsCacheTtlMatch = pathname.match(/^\/api\/settings\/([^/]+)\/trackings-cache-ttl$/);
@@ -2530,6 +2531,32 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           await store.setRuntimeState(buildChatSettingsStateKey(chatId), state);
         }
         return sendJson(res, 200, { success: true, chatId, default_drop_pct: pct });
+      }
+
+      if (method === 'POST' && settingsNotificationsMatch) {
+        const chatId = normalizeChatId(settingsNotificationsMatch[1]);
+        const body = await readJsonBody(req).catch(() => ({}));
+        const raw = body?.notifications ?? body?.notifyPrefs ?? body;
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+          return sendJson(res, 400, { error: 'Invalid notifications payload' });
+        }
+        const normalized = Object.fromEntries(
+          Object.entries(raw)
+            .filter(([key]) => typeof key === 'string' && key.trim())
+            .map(([key, value]) => [key, Boolean(value)]),
+        );
+        const currentState = store.getRuntimeState ? await store.getRuntimeState(buildChatSettingsStateKey(chatId)) : null;
+        const previous = currentState?.stateValue ?? {};
+        const state = {
+          ...previous,
+          chatId,
+          notification_prefs: normalized,
+          updatedAt: new Date().toISOString(),
+        };
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(buildChatSettingsStateKey(chatId), state);
+        }
+        return sendJson(res, 200, { success: true });
       }
 
       if (method === 'POST' && productIntervalMatch) {
