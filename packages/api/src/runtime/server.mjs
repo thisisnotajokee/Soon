@@ -43,6 +43,9 @@ const TRACKINGS_CACHE_AUTOTUNE_LAST_STATE_KEY = 'trackings_cache_autotune_last';
 const TRACKINGS_CACHE_RUNTIME_HISTORY_STATE_KEY = 'trackings_cache_runtime_history';
 const GLOBAL_SCAN_INTERVAL_STATE_KEY = 'global_scan_interval_hours';
 const SETTINGS_SCAN_POLICY_STATE_KEY = 'settings_scan_policy_v1';
+const MOBILE_SESSION_PREFIX = 'mobile_auth_session_v1:';
+const MOBILE_SESSION_INDEX_PREFIX = 'mobile_auth_user_sessions_v1:';
+const MOBILE_API_VERSION = 'v1';
 const KEEPA_STATUS_STATE_KEY = 'keepa_status';
 const KEEPA_WATCH_INDEX_STATE_KEY = 'keepa_watch_index';
 const KEEPA_EVENTS_STATE_KEY = 'keepa_events';
@@ -927,6 +930,317 @@ function createCompatWebToken(userId) {
   if (!normalizedUserId) return null;
   const nonce = crypto.randomBytes(32).toString('hex');
   return `${normalizedUserId}.${Date.now().toString(36)}.${nonce}`;
+}
+
+function mobileSessionKey(sessionId) {
+  return `${MOBILE_SESSION_PREFIX}${String(sessionId ?? '').trim().toLowerCase()}`;
+}
+
+function mobileSessionIndexKey(userId) {
+  return `${MOBILE_SESSION_INDEX_PREFIX}${String(userId ?? '').trim()}`;
+}
+
+function parseMobilePositiveUserId(value) {
+  const parsed = Number.parseInt(String(value ?? '').trim(), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function getMobileTokenTtls() {
+  return {
+    accessTtlSeconds: clampInt(process.env.MOBILE_ACCESS_TOKEN_TTL_SECONDS, 15 * 60, 300, 24 * 60 * 60),
+    refreshTtlSeconds: clampInt(
+      process.env.MOBILE_REFRESH_TOKEN_TTL_SECONDS,
+      30 * 24 * 60 * 60,
+      24 * 60 * 60,
+      90 * 24 * 60 * 60,
+    ),
+  };
+}
+
+function getMobileMaxSessionsPerUser() {
+  return clampInt(process.env.MOBILE_MAX_SESSIONS_PER_USER, 5, 1, 20);
+}
+
+function getMobileSessionSecret() {
+  const explicit = String(process.env.MOBILE_SESSION_SECRET ?? '').trim();
+  if (explicit) return explicit;
+  const telegramToken = String(
+    process.env.TELEGRAM_BOT_TOKEN ?? process.env.TELEGRAM_TOKEN ?? process.env.BOT_TOKEN ?? '',
+  ).trim();
+  if (telegramToken) return `${telegramToken}:mobile:v1`;
+  return 'soon-mobile-v1-dev-secret';
+}
+
+function signWithMobileSecret(data) {
+  return crypto.createHmac('sha256', getMobileSessionSecret()).update(String(data)).digest('hex');
+}
+
+function safeEqualHex(left, right) {
+  try {
+    const a = Buffer.from(String(left ?? ''), 'hex');
+    const b = Buffer.from(String(right ?? ''), 'hex');
+    return a.length > 0 && a.length === b.length && crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
+function extractBearerToken(req) {
+  const authHeader = String(req.headers.authorization ?? req.headers.Authorization ?? '').trim();
+  if (!authHeader.toLowerCase().startsWith('bearer ')) return '';
+  return authHeader.slice(7).trim();
+}
+
+function createMobileAccessToken(userId, sessionId, issuedAtSec = Math.floor(Date.now() / 1000)) {
+  const uid = parseMobilePositiveUserId(userId);
+  const sid = String(sessionId ?? '').trim().toLowerCase();
+  if (!uid || !/^[a-f0-9]{12,64}$/i.test(sid)) return null;
+  const { accessTtlSeconds } = getMobileTokenTtls();
+  const iat = Number.parseInt(String(issuedAtSec), 10);
+  const exp = iat + accessTtlSeconds;
+  const payload = `m1.${uid}.${iat}.${exp}.${sid}`;
+  const sig = signWithMobileSecret(payload);
+  return `${payload}.${sig}`;
+}
+
+function parseMobileAccessToken(rawToken) {
+  try {
+    const token = String(rawToken ?? '').trim();
+    const m = token.match(/^m1\.(\d+)\.(\d+)\.(\d+)\.([a-f0-9]{12,64})\.([a-f0-9]{64})$/i);
+    if (!m) return null;
+    const userId = parseMobilePositiveUserId(m[1]);
+    const iat = Number.parseInt(m[2], 10);
+    const exp = Number.parseInt(m[3], 10);
+    const sessionId = String(m[4]).toLowerCase();
+    const sig = String(m[5]).toLowerCase();
+    if (!userId || !Number.isInteger(iat) || !Number.isInteger(exp) || exp <= iat) return null;
+    const now = Math.floor(Date.now() / 1000);
+    if (now > exp || iat > now + 300) return null;
+    const payload = `m1.${userId}.${iat}.${exp}.${sessionId}`;
+    const expected = signWithMobileSecret(payload);
+    if (!safeEqualHex(expected, sig)) return null;
+    return { userId, sessionId };
+  } catch {
+    return null;
+  }
+}
+
+function createMobileRefreshToken(userId, sessionId, issuedAtSec = Math.floor(Date.now() / 1000)) {
+  const uid = parseMobilePositiveUserId(userId);
+  const sid = String(sessionId ?? '').trim().toLowerCase();
+  if (!uid || !/^[a-f0-9]{12,64}$/i.test(sid)) return null;
+  const { refreshTtlSeconds } = getMobileTokenTtls();
+  const iat = Number.parseInt(String(issuedAtSec), 10);
+  const exp = iat + refreshTtlSeconds;
+  const nonce = crypto.randomBytes(8).toString('hex');
+  const payload = `mr1.${uid}.${iat}.${exp}.${sid}.${nonce}`;
+  const sig = signWithMobileSecret(payload);
+  return `${payload}.${sig}`;
+}
+
+function parseMobileRefreshToken(rawToken) {
+  try {
+    const token = String(rawToken ?? '').trim();
+    const m = token.match(/^mr1\.(\d+)\.(\d+)\.(\d+)\.([a-f0-9]{12,64})\.([a-f0-9]{16})\.([a-f0-9]{64})$/i);
+    if (!m) return null;
+    const userId = parseMobilePositiveUserId(m[1]);
+    const iat = Number.parseInt(m[2], 10);
+    const exp = Number.parseInt(m[3], 10);
+    const sessionId = String(m[4]).toLowerCase();
+    const nonce = String(m[5]).toLowerCase();
+    const sig = String(m[6]).toLowerCase();
+    if (!userId || !Number.isInteger(iat) || !Number.isInteger(exp) || exp <= iat) return null;
+    const now = Math.floor(Date.now() / 1000);
+    if (now > exp || iat > now + 300) return null;
+    const payload = `mr1.${userId}.${iat}.${exp}.${sessionId}.${nonce}`;
+    const expected = signWithMobileSecret(payload);
+    if (!safeEqualHex(expected, sig)) return null;
+    return { userId, sessionId, nonce };
+  } catch {
+    return null;
+  }
+}
+
+async function loadMobileSessionIndex(store, userId) {
+  const raw = store.getRuntimeState ? await store.getRuntimeState(mobileSessionIndexKey(userId)) : null;
+  const state = raw?.stateValue;
+  if (!Array.isArray(state)) return [];
+  const seen = new Set();
+  const nowIso = new Date().toISOString();
+  const normalized = [];
+  for (const item of state) {
+    const sessionId = String(item?.sessionId ?? '').trim().toLowerCase();
+    if (!sessionId || seen.has(sessionId)) continue;
+    seen.add(sessionId);
+    normalized.push({
+      sessionId,
+      createdAt: String(item?.createdAt ?? nowIso),
+      lastSeenAt: String(item?.lastSeenAt ?? item?.updatedAt ?? item?.createdAt ?? nowIso),
+      revokedAt: item?.revokedAt ? String(item.revokedAt) : null,
+    });
+  }
+  normalized.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+  return normalized.slice(-200);
+}
+
+async function saveMobileSessionIndex(store, userId, index) {
+  if (store.setRuntimeState) {
+    await store.setRuntimeState(mobileSessionIndexKey(userId), index);
+  }
+}
+
+async function upsertMobileSessionIndex(store, userId, sessionId, { createdAt, lastSeenAt } = {}) {
+  const sid = String(sessionId ?? '').trim().toLowerCase();
+  if (!sid) return;
+  const nowIso = new Date().toISOString();
+  const index = await loadMobileSessionIndex(store, userId);
+  const existing = index.find((item) => item.sessionId === sid);
+  if (existing) {
+    existing.lastSeenAt = String(lastSeenAt ?? nowIso);
+    if (createdAt) existing.createdAt = String(createdAt);
+    existing.revokedAt = null;
+  } else {
+    index.push({
+      sessionId: sid,
+      createdAt: String(createdAt ?? nowIso),
+      lastSeenAt: String(lastSeenAt ?? createdAt ?? nowIso),
+      revokedAt: null,
+    });
+  }
+  await saveMobileSessionIndex(store, userId, index);
+}
+
+async function revokeMobileSessionById(store, userId, sessionId) {
+  const sid = String(sessionId ?? '').trim().toLowerCase();
+  if (!sid) return false;
+  const nowIso = new Date().toISOString();
+  const sessionState = store.getRuntimeState ? await store.getRuntimeState(mobileSessionKey(sid)) : null;
+  const session = sessionState?.stateValue ?? null;
+  if (session && Number(session.userId) === Number(userId) && !session.revokedAt && store.setRuntimeState) {
+    await store.setRuntimeState(mobileSessionKey(sid), {
+      ...session,
+      revokedAt: nowIso,
+      updatedAt: nowIso,
+    });
+  }
+  const index = await loadMobileSessionIndex(store, userId);
+  const rec = index.find((item) => item.sessionId === sid);
+  if (!rec) return false;
+  rec.revokedAt = nowIso;
+  rec.lastSeenAt = nowIso;
+  await saveMobileSessionIndex(store, userId, index);
+  return true;
+}
+
+async function revokeMobileOverflowSessions(store, userId, maxActiveSessions, keepSessionId = '') {
+  const keep = String(keepSessionId ?? '').trim().toLowerCase();
+  const index = await loadMobileSessionIndex(store, userId);
+  const active = index
+    .filter((item) => !item.revokedAt)
+    .sort((a, b) => String(a.lastSeenAt || a.createdAt).localeCompare(String(b.lastSeenAt || b.createdAt)));
+  const revoked = [];
+  while (active.length > maxActiveSessions) {
+    const candidate = active.find((item) => item.sessionId !== keep) || active[0];
+    const idx = active.findIndex((item) => item.sessionId === candidate.sessionId);
+    if (idx >= 0) active.splice(idx, 1);
+    const ok = await revokeMobileSessionById(store, userId, candidate.sessionId);
+    if (ok) revoked.push(candidate.sessionId);
+  }
+  return revoked;
+}
+
+function resolveMobileSessionIdFromRequest(req) {
+  const access = parseMobileAccessToken(extractBearerToken(req));
+  return String(access?.sessionId ?? '').trim().toLowerCase();
+}
+
+async function createMobileSessionSnapshot(store, userId, req) {
+  const currentSessionId = resolveMobileSessionIdFromRequest(req);
+  const index = await loadMobileSessionIndex(store, userId);
+  const sessions = await Promise.all(
+    index.map(async (entry) => {
+      const sessionState = store.getRuntimeState ? await store.getRuntimeState(mobileSessionKey(entry.sessionId)) : null;
+      const cached = sessionState?.stateValue ?? null;
+      if (!cached || Number(cached.userId) !== Number(userId)) {
+        return {
+          ...entry,
+          userAgent: null,
+          ip: null,
+          updatedAt: null,
+          revokedAt: entry.revokedAt || null,
+        };
+      }
+      return {
+        ...entry,
+        userAgent: cached.userAgent || null,
+        ip: cached.ip || null,
+        updatedAt: cached.updatedAt || null,
+        revokedAt: cached.revokedAt || entry.revokedAt || null,
+      };
+    }),
+  );
+  sessions.sort((a, b) => {
+    const aTs = String(a.lastSeenAt || a.updatedAt || a.createdAt || '');
+    const bTs = String(b.lastSeenAt || b.updatedAt || b.createdAt || '');
+    return bTs.localeCompare(aTs);
+  });
+  return sessions.map((entry) => ({
+    sessionId: entry.sessionId,
+    isCurrent: entry.sessionId === currentSessionId,
+    isActive: !entry.revokedAt,
+    createdAt: entry.createdAt || null,
+    lastSeenAt: entry.lastSeenAt || null,
+    updatedAt: entry.updatedAt || null,
+    revokedAt: entry.revokedAt || null,
+    ip: entry.ip || null,
+    userAgent: entry.userAgent || null,
+  }));
+}
+
+async function createMobileSessionTokens(store, userId, req) {
+  const { accessTtlSeconds, refreshTtlSeconds } = getMobileTokenTtls();
+  const sessionId = crypto.randomBytes(12).toString('hex');
+  const accessToken = createMobileAccessToken(userId, sessionId);
+  const refreshToken = createMobileRefreshToken(userId, sessionId);
+  if (!accessToken || !refreshToken) return null;
+  const nowIso = new Date().toISOString();
+  const record = {
+    userId: Number(userId),
+    refreshTokenHash: hashSecret(refreshToken),
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    revokedAt: null,
+    ip: String(req.socket?.remoteAddress ?? ''),
+    userAgent: String(req.headers['user-agent'] ?? '').slice(0, 220),
+    refreshExpiresAt: new Date(Date.now() + refreshTtlSeconds * 1000).toISOString(),
+  };
+  if (store.setRuntimeState) {
+    await store.setRuntimeState(mobileSessionKey(sessionId), record);
+  }
+  await upsertMobileSessionIndex(store, userId, sessionId, { createdAt: nowIso, lastSeenAt: nowIso });
+  const maxSessions = getMobileMaxSessionsPerUser();
+  const revokedSessionIds = await revokeMobileOverflowSessions(store, userId, maxSessions, sessionId);
+  return {
+    accessToken,
+    refreshToken,
+    sessionId,
+    revokedSessionIds,
+    maxSessions,
+    accessTtlSeconds,
+    refreshTtlSeconds,
+  };
+}
+
+async function resolveMobileAuthenticatedUserId(req, url, store) {
+  const fromCompat = resolveCompatAuthUserId(req, url);
+  const compatUserId = parseMobilePositiveUserId(fromCompat);
+  if (compatUserId) return compatUserId;
+  const parsedAccess = parseMobileAccessToken(extractBearerToken(req));
+  if (!parsedAccess) return null;
+  const sessionState = store.getRuntimeState ? await store.getRuntimeState(mobileSessionKey(parsedAccess.sessionId)) : null;
+  const session = sessionState?.stateValue ?? null;
+  if (!session || Number(session.userId) !== parsedAccess.userId || session.revokedAt) return null;
+  return parsedAccess.userId;
 }
 
 function currentManualRefreshBucketUtc(nowTs = Date.now()) {
