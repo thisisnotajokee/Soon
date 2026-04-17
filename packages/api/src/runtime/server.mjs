@@ -2343,6 +2343,23 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
       }
 
       const productIntervalMatch = pathname.match(/^\/api\/settings\/([^/]+)\/product-interval$/);
+      const settingsMatch = pathname.match(/^\/api\/settings\/([^/]+)$/);
+      if (method === 'GET' && settingsMatch) {
+        const chatId = normalizeChatId(settingsMatch[1]);
+        const chatSettingsState = store.getRuntimeState
+          ? await store.getRuntimeState(buildChatSettingsStateKey(chatId))
+          : null;
+        const state = chatSettingsState?.stateValue ?? null;
+        const productIntervalMin = clampInt(state?.productIntervalMin ?? 60, 60, 1, 24 * 60);
+        return sendJson(res, 200, {
+          chatId,
+          productIntervalMin,
+          notificationsEnabled: true,
+          scanIntervalMin: null,
+          updatedAt: state?.updatedAt ?? null,
+        });
+      }
+
       if (method === 'POST' && productIntervalMatch) {
         const chatId = normalizeChatId(productIntervalMatch[1]);
         const body = await readJsonBody(req).catch(() => ({}));
