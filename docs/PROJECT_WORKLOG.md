@@ -2587,3 +2587,22 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - `docs/API_ENDPOINT_INVENTORY.md`:
     - `GET /api/settings/:chatId/alert-profiles` -> DONE,
     - `POST /api/settings/:chatId/alert-profiles` -> DONE.
+
+## [2026-04-18 02:10:00Z] P0-C scan-policy settings compatibility endpoints implemented
+- Dodano kompatybilne endpointy:
+  - `GET /api/settings/:chatId/scan-policy`,
+  - `POST /api/settings/:chatId/scan-policy`,
+  w `packages/api/src/runtime/server.mjs`.
+- Zgodność kontraktu legacy:
+  - `GET` zwraca `{ success, canEdit, scanPolicy }`,
+  - `POST` ma guard admin (`x-telegram-user-id == SOON_ADMIN_ID`) i dla braku uprawnień zwraca
+    `403 { error: 'Forbidden' }`,
+  - `POST` waliduje pola i zwraca błędy kontraktowe (`forceFullEachCycle must be boolean`, itd.),
+  - dla poprawnego payloadu zwraca `{ success: true, scanPolicy }`.
+- Dodano test kontraktowy:
+  - `P0-C: /api/settings/:chatId/scan-policy read/write compatibility with admin guard`
+    w `packages/api/test/contracts-v1.test.mjs`.
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md`:
+    - `GET /api/settings/:chatId/scan-policy` -> DONE,
+    - `POST /api/settings/:chatId/scan-policy` -> DONE.

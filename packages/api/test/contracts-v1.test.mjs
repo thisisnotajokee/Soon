@@ -680,6 +680,82 @@ test('P0-C: /api/settings/:chatId/alert-profiles read/write compatibility', asyn
   });
 });
 
+test('P0-C: /api/settings/:chatId/scan-policy read/write compatibility with admin guard', async () => {
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(async (baseUrl) => {
+      const initial = await readJson(await fetch(`${baseUrl}/api/settings/2041/scan-policy`));
+      assert.equal(initial.status, 200);
+      assert.equal(initial.body.success, true);
+      assert.equal(typeof initial.body.canEdit, 'boolean');
+      assert.ok(initial.body.scanPolicy && typeof initial.body.scanPolicy === 'object');
+      assert.equal(typeof initial.body.scanPolicy.scanEnabled, 'boolean');
+      assert.equal(typeof initial.body.scanPolicy.forceFullEachCycle, 'boolean');
+
+      const forbidden = await readJson(
+        await fetch(`${baseUrl}/api/settings/2041/scan-policy`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-telegram-user-id': '9999' },
+          body: JSON.stringify({ forceFullEachCycle: true, postScanTokenRechargeMin: 10, idleScavengerMinWindowMin: 30 }),
+        }),
+      );
+      assert.equal(forbidden.status, 403);
+      assert.equal(forbidden.body.error, 'Forbidden');
+
+      const invalid = await readJson(
+        await fetch(`${baseUrl}/api/settings/2041/scan-policy`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-telegram-user-id': '2041' },
+          body: JSON.stringify({ forceFullEachCycle: 'yes', postScanTokenRechargeMin: 10, idleScavengerMinWindowMin: 30 }),
+        }),
+      );
+      assert.equal(invalid.status, 400);
+      assert.equal(invalid.body.error, 'forceFullEachCycle must be boolean');
+
+      const saved = await readJson(
+        await fetch(`${baseUrl}/api/settings/2041/scan-policy`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-telegram-user-id': '2041' },
+          body: JSON.stringify({
+            scanEnabled: false,
+            forceFullEachCycle: true,
+            postScanTokenRechargeMin: 11,
+            idleScavengerMinWindowMin: 33,
+          }),
+        }),
+      );
+      assert.equal(saved.status, 200);
+      assert.equal(saved.body.success, true);
+      assert.deepEqual(saved.body.scanPolicy, {
+        scanEnabled: false,
+        forceFullEachCycle: true,
+        postScanTokenRechargeMin: 11,
+        idleScavengerMinWindowMin: 33,
+      });
+
+      const reread = await readJson(
+        await fetch(`${baseUrl}/api/settings/2041/scan-policy`, {
+          headers: { 'x-telegram-user-id': '2041' },
+        }),
+      );
+      assert.equal(reread.status, 200);
+      assert.equal(reread.body.success, true);
+      assert.equal(reread.body.canEdit, true);
+      assert.deepEqual(reread.body.scanPolicy, {
+        scanEnabled: false,
+        forceFullEachCycle: true,
+        postScanTokenRechargeMin: 11,
+        idleScavengerMinWindowMin: 33,
+      });
+    });
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
 test('P0-C: admin bulk tracking compatibility endpoints', async () => {
   const previousAdminId = process.env.SOON_ADMIN_ID;
   process.env.SOON_ADMIN_ID = '2041';

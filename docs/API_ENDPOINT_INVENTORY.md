@@ -138,8 +138,8 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `POST /api/settings/:chatId/preferences` — `src/routes/api/settings/routes/core.js`
 - [x] `POST /api/settings/:chatId/product-interval` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/settings/:chatId/scan-interval` — `packages/api/src/runtime/server.mjs`
-- [ ] `GET /api/settings/:chatId/scan-policy` — `src/routes/api/settings/routes/scan-policy.js`
-- [ ] `POST /api/settings/:chatId/scan-policy` — `src/routes/api/settings/routes/scan-policy.js`
+- [x] `GET /api/settings/:chatId/scan-policy` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /api/settings/:chatId/scan-policy` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/settings/:chatId/trackings-cache-runtime` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/settings/:chatId/trackings-cache-ttl` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/stats/:chatId` — `src/routes/api/analytics/misc-routes.js`

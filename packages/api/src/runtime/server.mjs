@@ -42,6 +42,7 @@ const TRACKINGS_CACHE_RUNTIME_STATE_KEY = 'trackings_cache_runtime';
 const TRACKINGS_CACHE_AUTOTUNE_LAST_STATE_KEY = 'trackings_cache_autotune_last';
 const TRACKINGS_CACHE_RUNTIME_HISTORY_STATE_KEY = 'trackings_cache_runtime_history';
 const GLOBAL_SCAN_INTERVAL_STATE_KEY = 'global_scan_interval_hours';
+const SETTINGS_SCAN_POLICY_STATE_KEY = 'settings_scan_policy_v1';
 const KEEPA_STATUS_STATE_KEY = 'keepa_status';
 const KEEPA_WATCH_INDEX_STATE_KEY = 'keepa_watch_index';
 const KEEPA_EVENTS_STATE_KEY = 'keepa_events';
@@ -2378,6 +2379,7 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
       const settingsNotificationsMatch = pathname.match(/^\/api\/settings\/([^/]+)\/notifications$/);
       const settingsNotificationChannelsMatch = pathname.match(/^\/api\/settings\/([^/]+)\/notification-channels$/);
       const settingsAlertProfilesMatch = pathname.match(/^\/api\/settings\/([^/]+)\/alert-profiles$/);
+      const settingsScanPolicyMatch = pathname.match(/^\/api\/settings\/([^/]+)\/scan-policy$/);
       const globalScanIntervalMatch = pathname.match(/^\/api\/settings\/([^/]+)\/global-scan-interval$/);
       const trackingsCacheRuntimeMatch = pathname.match(/^\/api\/settings\/([^/]+)\/trackings-cache-runtime$/);
       const trackingsCacheTtlMatch = pathname.match(/^\/api\/settings\/([^/]+)\/trackings-cache-ttl$/);
@@ -2621,6 +2623,98 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           await store.setRuntimeState(buildChatSettingsStateKey(chatId), state);
         }
         return sendJson(res, 200, { success: true, alert_profiles: normalized });
+      }
+
+      if (method === 'GET' && settingsScanPolicyMatch) {
+        const chatId = normalizeChatId(settingsScanPolicyMatch[1]);
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const canEdit = Boolean(userId && adminId && userId === adminId);
+        const runtimeState = store.getRuntimeState ? await store.getRuntimeState(SETTINGS_SCAN_POLICY_STATE_KEY) : null;
+        const current = runtimeState?.stateValue ?? {};
+        const forceFullEachCycle =
+          typeof current.forceFullEachCycle === 'boolean'
+            ? current.forceFullEachCycle
+            : String(process.env.SOON_SCAN_FORCE_FULL_EACH_CYCLE ?? '').trim().toLowerCase() === 'true';
+        const postScanTokenRechargeMin = clampInt(
+          current.postScanTokenRechargeMin ?? process.env.SOON_POST_SCAN_TOKEN_RECHARGE_MIN,
+          15,
+          0,
+          120,
+        );
+        const scanEnabled =
+          typeof current.scanEnabled === 'boolean'
+            ? current.scanEnabled
+            : String(process.env.SOON_SCAN_ENABLED ?? 'true').trim().toLowerCase() !== 'false';
+        const idleScavengerMinWindowMin = clampInt(
+          current.idleScavengerMinWindowMin ?? process.env.SOON_HUNTER_IDLE_SCAVENGER_MIN_WINDOW_MIN,
+          20,
+          1,
+          360,
+        );
+        return sendJson(res, 200, {
+          success: true,
+          canEdit,
+          scanPolicy: {
+            scanEnabled,
+            forceFullEachCycle,
+            postScanTokenRechargeMin,
+            idleScavengerMinWindowMin,
+          },
+        });
+      }
+
+      if (method === 'POST' && settingsScanPolicyMatch) {
+        const chatId = normalizeChatId(settingsScanPolicyMatch[1]);
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        if (!userId || !adminId || userId !== adminId) {
+          return sendJson(res, 403, { error: 'Forbidden' });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        const forceFullEachCycle = body?.forceFullEachCycle;
+        const scanEnabledRaw = body?.scanEnabled;
+        const postScanTokenRechargeMin = Number.parseInt(body?.postScanTokenRechargeMin, 10);
+        const idleScavengerMinWindowMin = Number.parseInt(body?.idleScavengerMinWindowMin, 10);
+
+        if (typeof forceFullEachCycle !== 'boolean') {
+          return sendJson(res, 400, { error: 'forceFullEachCycle must be boolean' });
+        }
+        if (scanEnabledRaw !== undefined && typeof scanEnabledRaw !== 'boolean') {
+          return sendJson(res, 400, { error: 'scanEnabled must be boolean' });
+        }
+        if (!Number.isInteger(postScanTokenRechargeMin) || postScanTokenRechargeMin < 0 || postScanTokenRechargeMin > 120) {
+          return sendJson(res, 400, { error: 'postScanTokenRechargeMin must be 0-120' });
+        }
+        if (!Number.isInteger(idleScavengerMinWindowMin) || idleScavengerMinWindowMin < 1 || idleScavengerMinWindowMin > 360) {
+          return sendJson(res, 400, { error: 'idleScavengerMinWindowMin must be 1-360' });
+        }
+
+        const runtimeState = store.getRuntimeState ? await store.getRuntimeState(SETTINGS_SCAN_POLICY_STATE_KEY) : null;
+        const previous = runtimeState?.stateValue ?? {};
+        const scanEnabled = typeof scanEnabledRaw === 'boolean' ? scanEnabledRaw : (previous.scanEnabled ?? true);
+        const next = {
+          ...previous,
+          chatId,
+          scanEnabled,
+          forceFullEachCycle,
+          postScanTokenRechargeMin,
+          idleScavengerMinWindowMin,
+          updatedAt: new Date().toISOString(),
+          updatedBy: userId,
+        };
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(SETTINGS_SCAN_POLICY_STATE_KEY, next);
+        }
+        return sendJson(res, 200, {
+          success: true,
+          scanPolicy: {
+            scanEnabled: next.scanEnabled,
+            forceFullEachCycle: next.forceFullEachCycle,
+            postScanTokenRechargeMin: next.postScanTokenRechargeMin,
+            idleScavengerMinWindowMin: next.idleScavengerMinWindowMin,
+          },
+        });
       }
 
       if (method === 'POST' && productIntervalMatch) {
