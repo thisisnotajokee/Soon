@@ -457,6 +457,62 @@ test('P0-E: hunter run-now + slo + smart-engine + autonomy-health endpoints', as
   });
 });
 
+test('P0-E: hunter category pauses read + unpause contracts', async () => {
+  const store = createInMemoryStore();
+  await store.setRuntimeState('hunter:cat:pause:v1:laptops', {
+    until: '2099-01-01T00:00:00.000Z',
+    reason: 'low_hit_rate',
+    queries24h: 40,
+    hitRate24h: 0.02,
+  });
+  await store.setRuntimeState('hunter:cat:pause:v1:gaming', {
+    until: '2000-01-01T00:00:00.000Z',
+    reason: 'expired_pause',
+    queries24h: 10,
+    hitRate24h: 0.2,
+  });
+
+  await withServer(async (baseUrl) => {
+    const before = await readJson(await fetch(`${baseUrl}/api/hunter-category-pauses`));
+    assert.equal(before.status, 200);
+    assert.ok(Number.isFinite(Number(before.body.totalGroups)));
+    assert.ok(Number.isFinite(Number(before.body.pausedCount)));
+    assert.ok(Array.isArray(before.body.rows));
+    assert.ok(Array.isArray(before.body.paused));
+    const laptops = before.body.rows.find((row) => row.group === 'laptops');
+    assert.ok(laptops);
+    assert.equal(laptops.isPaused, true);
+
+    const bad = await readJson(
+      await fetch(`${baseUrl}/api/hunter-category-pauses/unpause`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ group: 'invalid-group' }),
+      }),
+    );
+    assert.equal(bad.status, 400);
+    assert.equal(bad.body.error, 'Invalid group');
+
+    const unpause = await readJson(
+      await fetch(`${baseUrl}/api/hunter-category-pauses/unpause`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ group: 'laptops' }),
+      }),
+    );
+    assert.equal(unpause.status, 200);
+    assert.equal(unpause.body.success, true);
+    assert.equal(unpause.body.group, 'laptops');
+    assert.equal(unpause.body.unpaused, true);
+
+    const after = await readJson(await fetch(`${baseUrl}/api/hunter-category-pauses`));
+    assert.equal(after.status, 200);
+    const laptopsAfter = after.body.rows.find((row) => row.group === 'laptops');
+    assert.ok(laptopsAfter);
+    assert.equal(laptopsAfter.isPaused, false);
+  }, { store });
+});
+
 test('POST /api/token-control/allocate ranks candidates and applies token budget cap', async () => {
   await withServer(async (baseUrl) => {
     const allocation = await readJson(

@@ -10,6 +10,27 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ---
 
+## [2026-04-17 20:55:00Z] Hunter category pauses compatibility endpoints implemented
+
+### Scope
+
+- Added `GET /api/hunter-category-pauses` in Soon runtime API with legacy-compatible payload:
+  `totalGroups`, `pausedCount`, `paused`, `rows`.
+- Added `POST /api/hunter-category-pauses/unpause` in Soon runtime API with legacy-compatible response:
+  `success`, `group`, `unpaused`.
+- Added contract tests for read/unpause flow including invalid group guard (`400 Invalid group`).
+- Updated endpoint migration inventory to mark both category pause endpoints as implemented in Soon runtime.
+
+### Validation
+
+- `npm run -s test:contracts` -> PASS
+
+### Next
+
+- Continue hunter migration with `GET /api/hunter/deals-feed`.
+
+---
+
 ## [2026-04-17 20:35:00Z] Hunter ML engine + high-value metrics compatibility endpoints implemented
 
 ### Scope

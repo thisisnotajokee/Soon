@@ -48,6 +48,19 @@ const HUNTER_LAST_RUN_STATE_KEY = 'hunter_last_run';
 const HUNTER_STRATEGY_LAST_STATE_KEY = 'hunter_strategy_last';
 const HUNTER_STRATEGY_STATUS_STATE_KEY = 'hunter_strategy_status';
 const HUNTER_STRATEGY_REPLAY_STATE_KEY = 'hunter_strategy_replay';
+const HUNTER_CATEGORY_GROUP_PAUSE_PREFIX = 'hunter:cat:pause:v1:';
+const HUNTER_CATEGORY_GROUPS = [
+  'laptops',
+  'gaming',
+  'smartphone',
+  'pc',
+  'foto',
+  'audio',
+  'home',
+  'kitchen',
+  'beauty',
+  'tools',
+];
 const HUNTER_TREND_AUTOTUNE_LAST_STATE_KEY = 'hunter:trend:autotune:last:v1';
 const HUNTER_TREND_AUTOTUNE_HISTORY_STATE_KEY = 'hunter:trend:autotune:history:v1';
 const HUNTER_TREND_AUTOTUNE_ROLLBACK_STATE_KEY = 'hunter:trend:autotune:rollback:v1';
@@ -2571,6 +2584,55 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           triggers: triggerSummary,
           schedulerHunter: {},
         });
+      }
+
+      if (method === 'GET' && pathname === '/api/hunter-category-pauses') {
+        const now = Date.now();
+        const rows = await Promise.all(
+          HUNTER_CATEGORY_GROUPS.map(async (group) => {
+            const stateKey = `${HUNTER_CATEGORY_GROUP_PAUSE_PREFIX}${group}`;
+            const state = store.getRuntimeState ? await store.getRuntimeState(stateKey) : null;
+            const payload = state?.stateValue && typeof state.stateValue === 'object' ? state.stateValue : {};
+            const until = String(payload?.until ?? '');
+            const untilTs = Date.parse(until);
+            const isPaused = Number.isFinite(untilTs) && untilTs > now;
+            return {
+              group,
+              isPaused,
+              until: isPaused ? until : null,
+              reason: isPaused ? String(payload?.reason ?? '') || null : null,
+              queries24h: Number(payload?.queries24h ?? 0),
+              hitRate24h: Number(payload?.hitRate24h ?? 0),
+            };
+          }),
+        );
+        const paused = rows.filter((item) => item.isPaused);
+        return sendJson(res, 200, {
+          totalGroups: rows.length,
+          pausedCount: paused.length,
+          paused,
+          rows,
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/hunter-category-pauses/unpause') {
+        const body = await readJsonBody(req).catch(() => ({}));
+        const requested = String(body?.group ?? '').trim().toLowerCase();
+        const group = HUNTER_CATEGORY_GROUPS.includes(requested) ? requested : null;
+        if (!group) {
+          return sendJson(res, 400, { error: 'Invalid group' });
+        }
+        const stateKey = `${HUNTER_CATEGORY_GROUP_PAUSE_PREFIX}${group}`;
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(stateKey, {
+            until: null,
+            reason: null,
+            queries24h: 0,
+            hitRate24h: 0,
+            unpausedAt: new Date().toISOString(),
+          });
+        }
+        return sendJson(res, 200, { success: true, group, unpaused: true });
       }
 
       if (method === 'GET' && pathname === '/api/hunter-ml-engine') {
