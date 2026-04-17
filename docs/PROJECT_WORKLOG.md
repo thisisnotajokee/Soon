@@ -2568,3 +2568,22 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
     w `packages/api/test/contracts-v1.test.mjs`.
 - Zaktualizowano inwentarz endpointów:
   - `docs/API_ENDPOINT_INVENTORY.md` (`POST /api/settings/:chatId/notification-channels` -> DONE).
+
+## [2026-04-18 01:55:00Z] P0-C alert-profiles settings compatibility endpoints implemented
+- Dodano kompatybilne endpointy:
+  - `GET /api/settings/:chatId/alert-profiles`,
+  - `POST /api/settings/:chatId/alert-profiles`,
+  w `packages/api/src/runtime/server.mjs`.
+- Zgodność kontraktu legacy:
+  - `GET` zwraca `{ alert_profiles }` (domyślnie `{}`),
+  - `POST` waliduje payload i dla błędu zwraca
+    `400 { error: 'Invalid alert_profiles payload' }`,
+  - dla poprawnego payloadu zwraca
+    `{ success: true, alert_profiles }`.
+- Dodano test kontraktowy:
+  - `P0-C: /api/settings/:chatId/alert-profiles read/write compatibility`
+    w `packages/api/test/contracts-v1.test.mjs`.
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md`:
+    - `GET /api/settings/:chatId/alert-profiles` -> DONE,
+    - `POST /api/settings/:chatId/alert-profiles` -> DONE.
