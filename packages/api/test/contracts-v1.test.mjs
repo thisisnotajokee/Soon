@@ -399,6 +399,18 @@ test('P0-E: hunter run-now + slo + smart-engine + autonomy-health endpoints', as
       assert.ok(Number.isFinite(Number(sample.hitRate)));
     }
 
+    const signals = await readJson(await fetch(`${baseUrl}/api/hunter-signals`));
+    assert.equal(signals.status, 200);
+    assert.equal(signals.body.windowHours, 24);
+    assert.ok(signals.body.runs && typeof signals.body.runs === 'object');
+    assert.ok(signals.body.policy && typeof signals.body.policy === 'object');
+    assert.ok(Number.isFinite(Number(signals.body.runs.total)));
+    assert.ok(Number.isFinite(Number(signals.body.runs.successRate)));
+    assert.ok(signals.body.runs.priceQuality && typeof signals.body.runs.priceQuality === 'object');
+    assert.ok(Object.hasOwn(signals.body.policy, 'samples24h'));
+    assert.ok(Object.hasOwn(signals.body.policy, 'dominantStrategy'));
+    assert.ok(Object.hasOwn(signals.body.policy, 'evaluation'));
+
     const trendFeatures = await readJson(
       await fetch(`${baseUrl}/api/hunter-trend-features?hours=168&limit=50&domain=de`),
     );
