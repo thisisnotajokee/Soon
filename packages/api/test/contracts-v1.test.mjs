@@ -129,6 +129,56 @@ test('P0-C: core auth/session compatibility endpoints', async () => {
   }
 });
 
+test('P0-C: core live logs compatibility endpoint', async () => {
+  const store = createInMemoryStore();
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(
+      async (baseUrl) => {
+        const forbidden = await readJson(
+          await fetch(`${baseUrl}/api/logs?limit=20`, {
+            headers: { 'x-telegram-user-id': '9999', 'x-request-id': 'req-logs-forbidden' },
+          }),
+        );
+        assert.equal(forbidden.status, 403);
+        assert.equal(forbidden.body.error, 'forbidden');
+        assert.equal(forbidden.body.requestId, 'req-logs-forbidden');
+
+        const first = await readJson(
+          await fetch(`${baseUrl}/api/logs?limit=20`, {
+            headers: { 'x-telegram-user-id': '2041', 'x-request-id': 'req-logs-1' },
+          }),
+        );
+        assert.equal(first.status, 200);
+        assert.ok(Array.isArray(first.body.items));
+        assert.ok(first.body.items.length >= 1);
+        assert.ok(Number.isFinite(Number(first.body.nextId)));
+        assert.equal(first.body.maxEntries, 1200);
+        const sample = first.body.items[first.body.items.length - 1];
+        assert.ok(Number.isFinite(Number(sample.id)));
+        assert.ok(typeof sample.ts === 'string' && sample.ts.length > 10);
+        assert.ok(typeof sample.level === 'string');
+        assert.ok(typeof sample.message === 'string');
+
+        const second = await readJson(
+          await fetch(`${baseUrl}/api/logs?sinceId=${encodeURIComponent(first.body.nextId)}&limit=50`, {
+            headers: { 'x-telegram-user-id': '2041', 'x-request-id': 'req-logs-2' },
+          }),
+        );
+        assert.equal(second.status, 200);
+        assert.ok(Array.isArray(second.body.items));
+        assert.ok(second.body.nextId >= first.body.nextId);
+      },
+      { store },
+    );
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
 test('GET /trackings returns seeded list', async () => {
   await withServer(async (baseUrl) => {
     const { status, body } = await readJson(await fetch(`${baseUrl}/trackings`));

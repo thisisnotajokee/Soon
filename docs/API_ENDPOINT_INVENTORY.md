@@ -90,7 +90,7 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `POST /api/keepa/watch-state/ingest` — `src/routes/api/keepa/routes/ingest.js`
 - [ ] `GET /api/keepa/watch-state/summary` — `src/routes/api/keepa/routes/read.js`
 - [ ] `GET /api/launch-readiness` — `src/routes/api/analytics/system-routes.js`
-- [ ] `GET /api/logs` — `src/routes/api/core/routes/basic.js`
+- [x] `GET /api/logs` — `packages/api/src/runtime/server.mjs`
 - [ ] `POST /api/mobile/v1/auth/logout` — `src/routes/api/mobile-auth-routes.js`
 - [ ] `POST /api/mobile/v1/auth/logout-all` — `src/routes/api/mobile-auth-routes.js`
 - [ ] `POST /api/mobile/v1/auth/refresh` — `src/routes/api/mobile-auth-routes.js`

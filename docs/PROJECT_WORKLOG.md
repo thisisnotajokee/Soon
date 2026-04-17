@@ -10,6 +10,34 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ---
 
+## [2026-04-17 22:45:00Z] Core live logs compatibility endpoint implemented
+
+### Scope
+
+- Added `GET /api/logs` compatibility endpoint in Soon runtime API.
+- Implemented admin-gated behavior aligned with legacy UI expectations:
+  - access allowed only for resolved admin identity (`SOON_ADMIN_ID`/`TELEGRAM_ADMIN_ID`),
+  - `403` for non-admin callers.
+- Implemented in-process ring buffer payload contract:
+  - `items[]` (`id`, `ts`, `level`, `message`),
+  - `nextId`,
+  - `maxEntries`.
+- Added contract coverage for:
+  - forbidden non-admin access,
+  - successful admin read,
+  - `sinceId` incremental polling.
+- Updated endpoint inventory to mark `/api/logs` as implemented in Soon runtime.
+
+### Validation
+
+- `npm run -s test:contracts` -> PASS
+
+### Next
+
+- Continue core/admin migration with selected `/admin-api/trackings/*` endpoints to reduce operator-surface 404s.
+
+---
+
 ## [2026-04-17 22:25:00Z] Core auth/session compatibility endpoints implemented
 
 ### Scope
