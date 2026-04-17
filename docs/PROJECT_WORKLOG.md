@@ -2075,3 +2075,19 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - endpointy nowych zakresów:
     - `GET /api/keepa/status` -> 200/ok
     - `GET /api/hunter-config` -> 200/ok
+
+## [2026-04-17 18:40:00Z] Hunter trend-features compatibility endpoint implemented
+- Dodano endpoint `GET /api/hunter-trend-features` w `packages/api/src/runtime/server.mjs`.
+- Endpoint wspiera filtry kompatybilne z legacy:
+  - `hours`, `limit`, `domain`, `trend`, `asins`.
+- Dane trendu są liczone z historii trackingu (`getPriceHistory`) i bieżących cen rynkowych:
+  - `slopePctPerDay`,
+  - `momentum24hPct`,
+  - `volatilityPct`,
+  - `trendLabel` (`down_strong`, `down`, `stable`, `up`, `up_strong`).
+- Dodano kontraktowy test endpointu do `packages/api/test/contracts-v1.test.mjs`.
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md`: `GET /api/hunter-trend-features` -> `DONE` (runtime path).
+
+### Weryfikacja
+- `make smoke` -> PASS (contracts/workers/scripts/web smoke).

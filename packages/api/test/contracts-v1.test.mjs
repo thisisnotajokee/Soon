@@ -368,6 +368,17 @@ test('P0-E: hunter run-now + slo + smart-engine + autonomy-health endpoints', as
     assert.ok(['PASS', 'WARN', 'CRIT'].includes(autonomyHealth.body.overall));
     assert.ok(autonomyHealth.body.metrics);
     assert.ok(Array.isArray(autonomyHealth.body.signals));
+
+    const trendFeatures = await readJson(
+      await fetch(`${baseUrl}/api/hunter-trend-features?hours=168&limit=50&domain=de`),
+    );
+    assert.equal(trendFeatures.status, 200);
+    assert.equal(trendFeatures.body.status, 'ok');
+    assert.equal(trendFeatures.body.filtered.domain, 'de');
+    assert.ok(Array.isArray(trendFeatures.body.rows));
+    assert.ok(trendFeatures.body.rows.length >= 1);
+    assert.ok(['down_strong', 'down', 'stable', 'up', 'up_strong'].includes(trendFeatures.body.rows[0].trendLabel));
+    assert.ok(Array.isArray(trendFeatures.body.summary));
   });
 });
 
