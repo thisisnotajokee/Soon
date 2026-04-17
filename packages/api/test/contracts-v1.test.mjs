@@ -43,6 +43,92 @@ test('GET /health returns service status and modules', async () => {
   });
 });
 
+test('P0-C: core auth/session compatibility endpoints', async () => {
+  const store = createInMemoryStore();
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(
+      async (baseUrl) => {
+        const whoami = await readJson(
+          await fetch(`${baseUrl}/api/auth/whoami`, {
+            headers: { 'x-telegram-user-id': '2041', 'x-request-id': 'req-whoami' },
+          }),
+        );
+        assert.equal(whoami.status, 200);
+        assert.equal(whoami.body.userId, '2041');
+        assert.equal(whoami.body.adminId, '2041');
+        assert.equal(whoami.body.isAdmin, true);
+        assert.equal(whoami.body.requestId, 'req-whoami');
+
+        const status = await readJson(await fetch(`${baseUrl}/api/status`));
+        assert.equal(status.status, 200);
+        assert.ok(status.body.scheduler);
+        assert.ok(Number.isFinite(Number(status.body.products)));
+        assert.ok(Number.isFinite(Number(status.body.trackings)));
+        assert.ok(Number.isFinite(Number(status.body.uptime)));
+
+        const refreshUnauthorized = await readJson(await fetch(`${baseUrl}/api/session/refresh`, { method: 'POST' }));
+        assert.equal(refreshUnauthorized.status, 401);
+        assert.equal(refreshUnauthorized.body.error, 'Unauthorized');
+
+        const refreshOk = await readJson(
+          await fetch(`${baseUrl}/api/session/refresh`, {
+            method: 'POST',
+            headers: { 'x-telegram-user-id': '2041', 'x-request-id': 'req-refresh' },
+          }),
+        );
+        assert.equal(refreshOk.status, 200);
+        assert.equal(refreshOk.body.ok, true);
+        assert.equal(refreshOk.body.userId, '2041');
+        assert.ok(typeof refreshOk.body.webToken === 'string' && refreshOk.body.webToken.length > 16);
+        assert.equal(refreshOk.body.requestId, 'req-refresh');
+
+        const sessionsNowForbidden = await readJson(
+          await fetch(`${baseUrl}/api/sessions/now`, { headers: { 'x-telegram-user-id': '9999' } }),
+        );
+        assert.equal(sessionsNowForbidden.status, 403);
+        assert.equal(sessionsNowForbidden.body.error, 'forbidden');
+
+        const sessionsNow = await readJson(
+          await fetch(`${baseUrl}/api/sessions/now`, {
+            headers: { 'x-telegram-user-id': '2041', 'x-request-id': 'req-now' },
+          }),
+        );
+        assert.equal(sessionsNow.status, 200);
+        assert.equal(sessionsNow.body.status, 'ok');
+        assert.equal(sessionsNow.body.adminId, '2041');
+        assert.equal(sessionsNow.body.requestId, 'req-now');
+        assert.ok(sessionsNow.body.summary);
+        assert.ok(sessionsNow.body.guard);
+
+        const logoutOthers = await readJson(
+          await fetch(`${baseUrl}/api/sessions/logout-others`, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-telegram-user-id': '2041',
+              'x-client-session-id': 'session-compat-2041',
+              'x-request-id': 'req-logout',
+            },
+            body: JSON.stringify({ keepCurrent: true }),
+          }),
+        );
+        assert.equal(logoutOthers.status, 200);
+        assert.equal(logoutOthers.body.ok, true);
+        assert.equal(logoutOthers.body.keepCurrent, true);
+        assert.equal(logoutOthers.body.keepClientSessionIdSet, true);
+        assert.equal(logoutOthers.body.requestId, 'req-logout');
+      },
+      { store },
+    );
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
 test('GET /trackings returns seeded list', async () => {
   await withServer(async (baseUrl) => {
     const { status, body } = await readJson(await fetch(`${baseUrl}/trackings`));

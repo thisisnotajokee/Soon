@@ -895,6 +895,30 @@ function normalizeChatId(raw) {
   return normalized || 'default';
 }
 
+function resolveCompatAuthUserId(req, url) {
+  const fromHeader = String(req.headers['x-telegram-user-id'] ?? req.headers['x-chat-id'] ?? '').trim();
+  const fromQuery = String(url.searchParams.get('chatId') ?? url.searchParams.get('userId') ?? '').trim();
+  const raw = fromHeader || fromQuery;
+  return raw || null;
+}
+
+function resolveCompatAdminId() {
+  const raw = String(process.env.SOON_ADMIN_ID ?? process.env.TELEGRAM_ADMIN_ID ?? '').trim();
+  return raw || null;
+}
+
+function resolveCompatRequestId(req) {
+  const raw = String(req.headers['x-request-id'] ?? '').trim();
+  return raw || null;
+}
+
+function createCompatWebToken(userId) {
+  const normalizedUserId = String(userId ?? '').trim();
+  if (!normalizedUserId) return null;
+  const nonce = crypto.randomBytes(32).toString('hex');
+  return `${normalizedUserId}.${Date.now().toString(36)}.${nonce}`;
+}
+
 function buildKeepaWatchStateKey(asin) {
   return `keepa_watch_state:${String(asin ?? '').trim().toUpperCase()}`;
 }
@@ -1704,6 +1728,97 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           modules: modulesList(),
           storage: store.mode,
           serverTime: new Date().toISOString(),
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/auth/whoami') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        return sendJson(res, 200, {
+          userId,
+          adminId,
+          isAdmin: Boolean(userId && adminId && userId === adminId),
+          requestId: resolveCompatRequestId(req),
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/status') {
+        const trackings = await store.listTrackings();
+        const schedulerState = store.getRuntimeState ? await store.getRuntimeState('scheduler_status') : null;
+        const scheduler = schedulerState?.stateValue ?? {
+          enabled: true,
+          mode: 'compat',
+          source: 'soon-runtime',
+        };
+        return sendJson(res, 200, {
+          scheduler,
+          products: trackings.length,
+          trackings: trackings.length,
+          uptime: Math.floor(process.uptime()),
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/session/refresh') {
+        const userId = resolveCompatAuthUserId(req, url);
+        if (!userId) {
+          return sendJson(res, 401, {
+            error: 'Unauthorized',
+            requestId: resolveCompatRequestId(req),
+          });
+        }
+        const webToken = createCompatWebToken(userId);
+        return sendJson(res, 200, {
+          ok: true,
+          userId,
+          webToken,
+          requestId: resolveCompatRequestId(req),
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/sessions/now') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!userId || !adminId || userId !== adminId) {
+          return sendJson(res, 403, { error: 'forbidden', requestId });
+        }
+        return sendJson(res, 200, {
+          status: 'ok',
+          summary: {
+            activeSessions: 1,
+            revokedSessions: 0,
+          },
+          guard: {
+            active: false,
+            reason: null,
+            updatedAt: null,
+          },
+          adminId,
+          requestId,
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/sessions/logout-others') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!userId || !adminId || userId !== adminId) {
+          return sendJson(res, 403, { error: 'forbidden', requestId });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        const keepCurrent = body?.keepCurrent !== false;
+        const keepClientSessionId = String(req.headers['x-client-session-id'] ?? '').trim();
+        return sendJson(res, 200, {
+          ok: true,
+          keepCurrent,
+          keepClientSessionIdSet: Boolean(keepCurrent && keepClientSessionId),
+          keepFingerprintSet: false,
+          guard: {
+            active: true,
+            reason: 'admin_panic_logout_others',
+            updatedAt: new Date().toISOString(),
+          },
+          requestId,
         });
       }
 
