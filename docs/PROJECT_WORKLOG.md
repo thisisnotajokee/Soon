@@ -10,6 +10,29 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ---
 
+## [2026-04-17 21:55:00Z] Hunter config action endpoints implemented (preset/auto-apply/momentum)
+
+### Scope
+
+- Added missing hunter config execution endpoints in Soon runtime API:
+  - `POST /api/hunter-config/preset`
+  - `DELETE /api/hunter-config/preset`
+  - `POST /api/hunter-config/auto-apply-run`
+  - `POST /api/hunter-config/momentum-run`
+- Reused runtime recommendation logic for auto-apply decision flow.
+- Added contract coverage for all four endpoints (happy path + preset validation `400 Invalid preset`).
+- Updated endpoint inventory to mark these hunter config endpoints as implemented in Soon runtime.
+
+### Validation
+
+- `npm run -s test:contracts` -> PASS
+
+### Next
+
+- Continue migration with remaining non-hunter endpoint families from inventory (keepa/mobile/system).
+
+---
+
 ## [2026-04-17 21:35:00Z] Hunter config recommendation endpoint + inventory consistency pass
 
 ### Scope

@@ -335,6 +335,61 @@ test('P0-E: hunter config endpoint supports custom override', async () => {
     assert.ok(recommendation.body.autoApply && typeof recommendation.body.autoApply === 'object');
     assert.ok(Number.isFinite(Number(recommendation.body.autoApply.minConfidence)));
     assert.ok(Number.isFinite(Number(recommendation.body.autoApply.minRuns)));
+
+    const presetBad = await readJson(
+      await fetch(`${baseUrl}/api/hunter-config/preset`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ preset: 'invalid' }),
+      }),
+    );
+    assert.equal(presetBad.status, 400);
+    assert.equal(presetBad.body.error, 'Invalid preset');
+
+    const presetSet = await readJson(
+      await fetch(`${baseUrl}/api/hunter-config/preset`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ preset: 'balanced' }),
+      }),
+    );
+    assert.equal(presetSet.status, 200);
+    assert.equal(presetSet.body.success, true);
+    assert.equal(presetSet.body.preset, 'balanced');
+    assert.ok(presetSet.body.effective && typeof presetSet.body.effective === 'object');
+
+    const autoApplyRun = await readJson(
+      await fetch(`${baseUrl}/api/hunter-config/auto-apply-run`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ force: true }),
+      }),
+    );
+    assert.equal(autoApplyRun.status, 200);
+    assert.equal(autoApplyRun.body.success, true);
+    assert.equal(autoApplyRun.body.forced, true);
+    assert.ok(typeof autoApplyRun.body.applied === 'boolean');
+    assert.ok(Array.isArray(autoApplyRun.body.changed));
+    assert.ok(autoApplyRun.body.recommendation && typeof autoApplyRun.body.recommendation === 'object');
+
+    const momentumRun = await readJson(
+      await fetch(`${baseUrl}/api/hunter-config/momentum-run`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ force: true }),
+      }),
+    );
+    assert.equal(momentumRun.status, 200);
+    assert.equal(momentumRun.body.success, true);
+    assert.equal(momentumRun.body.skipped, false);
+    assert.ok(Number.isFinite(Number(momentumRun.body.scanned)));
+    assert.ok(Number.isFinite(Number(momentumRun.body.injected)));
+    assert.ok(Number.isFinite(Number(momentumRun.body.decisions)));
+
+    const presetDelete = await readJson(await fetch(`${baseUrl}/api/hunter-config/preset`, { method: 'DELETE' }));
+    assert.equal(presetDelete.status, 200);
+    assert.equal(presetDelete.body.success, true);
+    assert.ok(presetDelete.body.effective && typeof presetDelete.body.effective === 'object');
   });
 });
 

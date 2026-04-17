@@ -61,6 +61,19 @@ const HUNTER_CATEGORY_GROUPS = [
   'beauty',
   'tools',
 ];
+const HUNTER_PRESETS = new Set([
+  'off',
+  'safe',
+  'balanced',
+  'aggressive',
+  'de_nl_focus',
+  'electronics_focus',
+  'smartphone_focus',
+  'pc_ssd_ram',
+  'high_value_focus',
+  'ai_max',
+  'warehouse_deals',
+]);
 const HUNTER_TREND_AUTOTUNE_LAST_STATE_KEY = 'hunter:trend:autotune:last:v1';
 const HUNTER_TREND_AUTOTUNE_HISTORY_STATE_KEY = 'hunter:trend:autotune:history:v1';
 const HUNTER_TREND_AUTOTUNE_ROLLBACK_STATE_KEY = 'hunter:trend:autotune:rollback:v1';
@@ -953,6 +966,26 @@ function normalizeHunterCustomConfig(rawConfig = {}) {
   return normalized;
 }
 
+function buildHunterPresetOverride(preset) {
+  const key = String(preset ?? '').trim().toLowerCase();
+  switch (key) {
+    case 'off':
+      return { enabled: false };
+    case 'safe':
+      return { mode: 'autonomy', confidenceThreshold: 0.82, minDealScore: 0.74 };
+    case 'balanced':
+      return { mode: 'autonomy', confidenceThreshold: 0.75, minDealScore: 0.68 };
+    case 'aggressive':
+      return { mode: 'autonomy', confidenceThreshold: 0.64, minDealScore: 0.58 };
+    case 'high_value_focus':
+      return { mode: 'autonomy', confidenceThreshold: 0.8, minDealScore: 0.7 };
+    case 'ai_max':
+      return { ai: { enabled: true, model: 'gpt-5.4' }, confidenceThreshold: 0.78 };
+    default:
+      return { mode: 'autonomy' };
+  }
+}
+
 function mergeHunterConfig(baseConfig, overrideConfig) {
   const base = baseConfig && typeof baseConfig === 'object' ? baseConfig : {};
   const override = overrideConfig && typeof overrideConfig === 'object' ? overrideConfig : {};
@@ -963,6 +996,74 @@ function mergeHunterConfig(baseConfig, overrideConfig) {
     ai: {
       ...(base.ai ?? {}),
       ...(override.ai ?? {}),
+    },
+  };
+}
+
+async function buildHunterRuntimeRecommendation(store, effectiveConfig, { hours = 24 } = {}) {
+  const nowMs = Date.now();
+  const windowHours = Math.max(1, Number(hours) || 24);
+  const minTs = nowMs - windowHours * 60 * 60 * 1000;
+  const runs = store.listLatestAutomationRuns
+    ? (await store.listLatestAutomationRuns(500)).filter((run) => {
+        const ts = Date.parse(run?.startedAt ?? run?.finishedAt ?? '');
+        return Number.isFinite(ts) && ts >= minTs;
+      })
+    : [];
+  const decisions = runs.flatMap((run) => (Array.isArray(run?.decisions) ? run.decisions : []));
+  const avgDecisionCount =
+    runs.length > 0
+      ? Number((runs.reduce((sum, run) => sum + Number(run?.decisionCount ?? 0), 0) / runs.length).toFixed(4))
+      : 0;
+  const avgConfidence =
+    decisions.length > 0
+      ? Number(
+          (decisions.reduce((sum, decision) => sum + Number(decision?.confidence ?? 0), 0) / decisions.length).toFixed(4),
+        )
+      : 0;
+  const purchaseAlerts = runs.reduce((sum, run) => sum + Number(run?.purchaseAlertCount ?? 0), 0);
+  const technicalAlerts = runs.reduce((sum, run) => sum + Number(run?.technicalAlertCount ?? 0), 0);
+  const totalAlerts = purchaseAlerts + technicalAlerts;
+  const purchaseAlertShare = totalAlerts > 0 ? Number((purchaseAlerts / totalAlerts).toFixed(4)) : 0;
+
+  let preset = 'safe';
+  let confidence = 0.55;
+  const reasons = [];
+
+  if (runs.length < 3) {
+    reasons.push('insufficient_samples_24h');
+  } else if (avgDecisionCount >= 1.5 && avgConfidence >= 0.75 && purchaseAlertShare >= 0.6) {
+    preset = 'aggressive';
+    confidence = 0.86;
+    reasons.push('strong_decision_density');
+  } else if (avgDecisionCount >= 1 && avgConfidence >= 0.68) {
+    preset = 'balanced';
+    confidence = 0.78;
+    reasons.push('stable_runtime_kpi');
+  } else {
+    preset = 'safe';
+    confidence = 0.64;
+    reasons.push('conservative_runtime_kpi');
+  }
+
+  return {
+    windowHours,
+    recommendation: {
+      preset,
+      confidence: Number(confidence.toFixed(4)),
+      reasons,
+      metrics: {
+        runs: runs.length,
+        decisions: decisions.length,
+        avgDecisionCount,
+        avgConfidence,
+        purchaseAlertShare,
+      },
+    },
+    autoApply: {
+      enabled: effectiveConfig?.hunterAutoApplyRecommendation === true,
+      minConfidence: Number(effectiveConfig?.hunterAutoApplyMinConfidence ?? 0.82),
+      minRuns: Number(effectiveConfig?.hunterAutoApplyMinRuns ?? 3),
     },
   };
 }
@@ -2087,83 +2188,131 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
             ? customState.stateValue.config ?? {}
             : {};
         const effectiveConfig = mergeHunterConfig(defaultConfig, customConfig);
-
-        const nowMs = Date.now();
-        const windowHours = 24;
-        const minTs = nowMs - windowHours * 60 * 60 * 1000;
-        const runs = store.listLatestAutomationRuns
-          ? (await store.listLatestAutomationRuns(500)).filter((run) => {
-              const ts = Date.parse(run?.startedAt ?? run?.finishedAt ?? '');
-              return Number.isFinite(ts) && ts >= minTs;
-            })
-          : [];
-
-        const decisions = runs.flatMap((run) => (Array.isArray(run?.decisions) ? run.decisions : []));
-        const avgDecisionCount =
-          runs.length > 0
-            ? Number(
-                (
-                  runs.reduce((sum, run) => sum + Number(run?.decisionCount ?? 0), 0) / runs.length
-                ).toFixed(4),
-              )
-            : 0;
-        const avgConfidence =
-          decisions.length > 0
-            ? Number(
-                (
-                  decisions.reduce((sum, decision) => sum + Number(decision?.confidence ?? 0), 0) /
-                  decisions.length
-                ).toFixed(4),
-              )
-            : 0;
-        const purchaseAlerts = runs.reduce((sum, run) => sum + Number(run?.purchaseAlertCount ?? 0), 0);
-        const technicalAlerts = runs.reduce((sum, run) => sum + Number(run?.technicalAlertCount ?? 0), 0);
-        const totalAlerts = purchaseAlerts + technicalAlerts;
-        const purchaseAlertShare = totalAlerts > 0 ? Number((purchaseAlerts / totalAlerts).toFixed(4)) : 0;
-
-        let preset = 'safe';
-        let confidence = 0.55;
-        const reasons = [];
-
-        if (runs.length < 3) {
-          reasons.push('insufficient_samples_24h');
-        } else {
-          if (avgDecisionCount >= 1.5 && avgConfidence >= 0.75 && purchaseAlertShare >= 0.6) {
-            preset = 'aggressive';
-            confidence = 0.86;
-            reasons.push('strong_decision_density');
-          } else if (avgDecisionCount >= 1 && avgConfidence >= 0.68) {
-            preset = 'balanced';
-            confidence = 0.78;
-            reasons.push('stable_runtime_kpi');
-          } else {
-            preset = 'safe';
-            confidence = 0.64;
-            reasons.push('conservative_runtime_kpi');
-          }
-        }
+        const recommendationPayload = await buildHunterRuntimeRecommendation(store, effectiveConfig, { hours: 24 });
 
         return sendJson(res, 200, {
           isAdmin: false,
           canManage: false,
-          windowHours,
-          recommendation: {
-            preset,
-            confidence: Number(confidence.toFixed(4)),
-            reasons,
-            metrics: {
-              runs: runs.length,
-              decisions: decisions.length,
-              avgDecisionCount,
-              avgConfidence,
-              purchaseAlertShare,
-            },
-          },
-          autoApply: {
-            enabled: effectiveConfig?.hunterAutoApplyRecommendation === true,
-            minConfidence: Number(effectiveConfig?.hunterAutoApplyMinConfidence ?? 0.82),
-            minRuns: Number(effectiveConfig?.hunterAutoApplyMinRuns ?? 3),
-          },
+          ...recommendationPayload,
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/hunter-config/preset') {
+        if (!store.setRuntimeState) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        const preset = String(body?.preset ?? '').trim().toLowerCase();
+        if (!HUNTER_PRESETS.has(preset)) {
+          return sendJson(res, 400, { error: 'Invalid preset' });
+        }
+        const presetConfig = normalizeHunterCustomConfig(buildHunterPresetOverride(preset));
+        await store.setRuntimeState(HUNTER_CUSTOM_CONFIG_STATE_KEY, {
+          config: presetConfig,
+          actor: `preset:${preset}`,
+          preset,
+          updatedAt: new Date().toISOString(),
+        });
+        const effective = mergeHunterConfig(buildDefaultHunterConfig(), presetConfig);
+        return sendJson(res, 200, { success: true, preset, effective });
+      }
+
+      if (method === 'DELETE' && pathname === '/api/hunter-config/preset') {
+        if (!store.setRuntimeState) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+        await store.setRuntimeState(HUNTER_CUSTOM_CONFIG_STATE_KEY, {
+          config: {},
+          actor: 'preset:reset',
+          preset: null,
+          updatedAt: new Date().toISOString(),
+        });
+        const effective = mergeHunterConfig(buildDefaultHunterConfig(), {});
+        return sendJson(res, 200, { success: true, effective });
+      }
+
+      if (method === 'POST' && pathname === '/api/hunter-config/auto-apply-run') {
+        if (!store.setRuntimeState) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        const force = parseBooleanInput(body?.force, true);
+        const customState = store.getRuntimeState ? await store.getRuntimeState(HUNTER_CUSTOM_CONFIG_STATE_KEY) : null;
+        const customConfig =
+          customState?.stateValue && typeof customState.stateValue === 'object'
+            ? customState.stateValue.config ?? {}
+            : {};
+        const effectiveConfig = mergeHunterConfig(buildDefaultHunterConfig(), customConfig);
+        const recommendationPayload = await buildHunterRuntimeRecommendation(store, effectiveConfig, { hours: 24 });
+        const recommendedPreset = recommendationPayload?.recommendation?.preset ?? 'safe';
+        const recommendedConfidence = Number(recommendationPayload?.recommendation?.confidence ?? 0);
+        const runs24h = Number(recommendationPayload?.recommendation?.metrics?.runs ?? 0);
+        const minConfidence = Number(recommendationPayload?.autoApply?.minConfidence ?? 0.82);
+        const minRuns = Number(recommendationPayload?.autoApply?.minRuns ?? 3);
+        const shouldApply = force || (recommendedConfidence >= minConfidence && runs24h >= minRuns);
+
+        const changed = [];
+        let appliedPreset = null;
+        if (shouldApply) {
+          const nextConfig = normalizeHunterCustomConfig(buildHunterPresetOverride(recommendedPreset));
+          await store.setRuntimeState(HUNTER_CUSTOM_CONFIG_STATE_KEY, {
+            config: nextConfig,
+            actor: 'auto-apply-run',
+            preset: recommendedPreset,
+            updatedAt: new Date().toISOString(),
+          });
+          changed.push('preset');
+          appliedPreset = recommendedPreset;
+        }
+
+        return sendJson(res, 200, {
+          success: true,
+          forced: force,
+          applied: Boolean(shouldApply),
+          changed,
+          preset: appliedPreset,
+          recommendation: recommendationPayload.recommendation,
+          thresholds: { minConfidence, minRuns },
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/hunter-config/momentum-run') {
+        const trackings = await store.listTrackings();
+        if (!Array.isArray(trackings) || trackings.length === 0) {
+          return sendJson(res, 409, {
+            error: 'Hunter momentum not started (no_trackings)',
+            success: false,
+            skipped: true,
+            reason: 'no_trackings',
+          });
+        }
+
+        const startedAt = new Date().toISOString();
+        const cycle = runAutomationCycle(trackings, {
+          tokenPolicyMode: 'unbounded',
+          budgetTokens: null,
+          degradationMode: 'momentum_run_now',
+          deferredUntil: null,
+        });
+        const finishedAt = new Date().toISOString();
+        const persisted = store.recordAutomationCycle
+          ? await store.recordAutomationCycle({
+              cycle,
+              trackingCount: Number(cycle?.tokenPolicy?.selectedCount ?? trackings.length),
+              startedAt,
+              finishedAt,
+            })
+          : null;
+
+        return sendJson(res, 200, {
+          success: true,
+          skipped: false,
+          reason: null,
+          runId: persisted?.runId ?? null,
+          scanned: trackings.length,
+          injected: Number(cycle?.alerts?.length ?? 0),
+          decisions: Number(cycle?.decisions?.length ?? 0),
+          at: finishedAt,
         });
       }
 
