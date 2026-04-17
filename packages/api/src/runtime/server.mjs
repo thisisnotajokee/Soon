@@ -2158,6 +2158,32 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         return sendJson(res, 200, { status: 'deleted', asin, chatId });
       }
 
+      const trackingDropPctMatch = pathname.match(/^\/api\/trackings\/([^/]+)\/([^/]+)\/drop-pct$/);
+      if (method === 'POST' && trackingDropPctMatch) {
+        const chatId = normalizeChatId(trackingDropPctMatch[1]);
+        const asin = decodeURIComponent(trackingDropPctMatch[2]).toUpperCase();
+        const detail = await store.getProductDetail(asin);
+        if (!detail) {
+          return sendJson(res, 404, { error: 'not_found', asin, chatId });
+        }
+
+        const body = await readJsonBody(req).catch(() => ({}));
+        const dropPct = clampInt(body.dropPct ?? body.thresholdDropPct ?? body.value ?? 10, 10, 1, 95);
+        const updated = await store.updateThresholds(asin, {
+          thresholdDropPct: dropPct,
+        });
+        if (!updated) {
+          return sendJson(res, 404, { error: 'not_found', asin, chatId });
+        }
+        return sendJson(res, 200, {
+          status: 'updated',
+          chatId,
+          asin,
+          dropPct,
+          thresholdDropPct: updated.thresholds?.thresholdDropPct ?? dropPct,
+        });
+      }
+
       const trackingsListMatch = pathname.match(/^\/api\/trackings\/([^/]+)$/);
       if (method === 'GET' && trackingsListMatch) {
         const chatId = normalizeChatId(trackingsListMatch[1]);
