@@ -2059,3 +2059,19 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - roundtrip `hunter-config` + custom override,
   - manual trigger `run-now`,
   - endpointy `hunter-slo`, `hunter-smart-engine`, `hunter-autonomy-decision-health`.
+
+## [2026-04-17 18:12:00Z] Cutover readiness verification (2x CI cycles + VM210 smoke)
+- Wykonano 2 kolejne zielone cykle wymaganych workflow:
+  - `quality-gate` (run: `24574663863`) -> SUCCESS
+  - `runtime-state-watchdog` (run: `24574749284`, `24574821740`) -> SUCCESS
+- VM210 (`192.168.1.210`) był na starszym commit (`e15386d`) i został zsynchronizowany do `origin/main`:
+  - nowy commit na VM: `fbb2b76`
+  - restart `soon-api` po aktualizacji.
+- Smoke VM210 po sync:
+  - local health: `http://127.0.0.1:3100/health` -> OK
+  - public health: `https://api.ambot.nl/health` -> OK
+  - `npm run -s obs:runtime:alert:check` -> PASS
+  - `npm run -s ops:self-heal:requeue:triage:json` -> artifact generowany poprawnie
+  - endpointy nowych zakresów:
+    - `GET /api/keepa/status` -> 200/ok
+    - `GET /api/hunter-config` -> 200/ok
