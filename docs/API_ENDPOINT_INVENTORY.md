@@ -97,11 +97,11 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [x] `GET /api/mobile/v1/auth/sessions` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/mobile/v1/auth/sessions/revoke` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/mobile/v1/auth/telegram` — `packages/api/src/runtime/server.mjs`
-- [ ] `GET /api/mobile/v1/dashboard` — `src/routes/api/mobile-data-routes.js`
+- [x] `GET /api/mobile/v1/dashboard` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/mobile/v1/deals` — `src/routes/api/mobile-data-routes.js`
-- [ ] `GET /api/mobile/v1/products/:asin/detail` — `src/routes/api/mobile-data-routes.js`
+- [x] `GET /api/mobile/v1/products/:asin/detail` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/mobile/v1/session` — `packages/api/src/runtime/server.mjs`
-- [ ] `GET /api/mobile/v1/trackings` — `src/routes/api/mobile-data-routes.js`
+- [x] `GET /api/mobile/v1/trackings` — `packages/api/src/runtime/server.mjs`
 - [ ] `DELETE /api/mobile/v1/trackings/:asin` — `src/routes/api/mobile-data-routes.js`
 - [ ] `POST /api/mobile/v1/trackings/:asin/preferences` — `src/routes/api/mobile-data-routes.js`
 - [ ] `DELETE /api/mobile/v1/trackings/:asin/snooze` — `src/routes/api/mobile-data-routes.js`

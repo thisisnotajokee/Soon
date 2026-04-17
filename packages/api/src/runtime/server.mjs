@@ -932,6 +932,85 @@ function createCompatWebToken(userId) {
   return `${normalizedUserId}.${Date.now().toString(36)}.${nonce}`;
 }
 
+function normalizeMobilePagination(url) {
+  const limitRaw = Number.parseInt(String(url.searchParams.get('limit') ?? '50'), 10);
+  const offsetRaw = Number.parseInt(String(url.searchParams.get('offset') ?? '0'), 10);
+  const limit = Number.isInteger(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 50;
+  const offset = Number.isInteger(offsetRaw) ? Math.max(offsetRaw, 0) : 0;
+  return { limit, offset };
+}
+
+function computeMobileDropPct(avgPrice, bestPrice) {
+  const avg = Number(avgPrice);
+  const best = Number(bestPrice);
+  if (!Number.isFinite(avg) || avg <= 0 || !Number.isFinite(best) || best <= 0 || best >= avg) return 0;
+  return Number((((avg - best) / avg) * 100).toFixed(2));
+}
+
+function normalizeMarketPriceValue(raw) {
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? Number(value.toFixed(2)) : null;
+}
+
+function buildMobileMarketPrices(prices = {}) {
+  if (!prices || typeof prices !== 'object') return {};
+  const out = {};
+  for (const [market, raw] of Object.entries(prices)) {
+    const normalized = normalizeMarketPriceValue(raw);
+    if (normalized !== null) out[String(market)] = normalized;
+  }
+  return out;
+}
+
+function buildMobileTrackingItem(item) {
+  const pricesNew = buildMobileMarketPrices(item?.pricesNew ?? {});
+  const pricesUsed = buildMobileMarketPrices(item?.pricesUsed ?? {});
+  const newValues = Object.values(pricesNew);
+  const bestPrice = newValues.length ? Math.min(...newValues) : 0;
+  const avgPrice = newValues.length ? Number((newValues.reduce((sum, value) => sum + value, 0) / newValues.length).toFixed(2)) : 0;
+  const priceTrend = Array.isArray(item?.historyPoints)
+    ? item.historyPoints
+        .slice(-30)
+        .map((point) => ({
+          ts: point?.ts ?? null,
+          value: normalizeMarketPriceValue(point?.value) ?? 0,
+        }))
+        .filter((point) => point.ts)
+    : [];
+
+  return {
+    asin: String(item?.asin ?? '').trim().toUpperCase(),
+    title: item?.title ?? null,
+    imageUrl: item?.imageUrl ?? null,
+    dealScore: Number(item?.dealScore ?? 0),
+    watchlistScore: Number(item?.watchlistScore ?? 0),
+    rating: item?.rating ?? null,
+    reviews: item?.reviews ?? null,
+    bestPrice,
+    avgPrice,
+    dropPct: computeMobileDropPct(avgPrice, bestPrice),
+    targetPrice: normalizeMarketPriceValue(item?.targetPriceNew),
+    targetPriceUsed: normalizeMarketPriceValue(item?.targetPriceUsed),
+    alertDropPct: Number.isFinite(Number(item?.thresholdDropPct)) ? Number(item.thresholdDropPct) : null,
+    scanInterval: Number.isFinite(Number(item?.scanInterval)) ? Number(item.scanInterval) : null,
+    enabledDomains: Object.keys(pricesNew),
+    preferredSizeType: item?.preferredSizeType ?? null,
+    preferredSize: item?.preferredSize ?? null,
+    preferredSizeSystem: item?.preferredSizeSystem ?? null,
+    snoozedUntil: item?.snoozedUntil ?? null,
+    marketPrices: pricesNew,
+    marketPricesUsed: pricesUsed,
+    category: item?.category ?? null,
+    buyboxSeller: item?.buyboxSeller ?? null,
+    buyboxIsAmazon: item?.buyboxIsAmazon ?? null,
+    outOfStock: item?.outOfStock ?? false,
+    popularity: Number(item?.popularity ?? 0),
+    createdAt: item?.createdAt ?? null,
+    lastChecked: item?.updatedAt ?? null,
+    priceTrend,
+  };
+}
+
 function mobileSessionKey(sessionId) {
   return `${MOBILE_SESSION_PREFIX}${String(sessionId ?? '').trim().toLowerCase()}`;
 }
@@ -2232,6 +2311,74 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           userId,
           isAdmin: Boolean(adminId && String(adminId) === String(userId)),
           serverTime: new Date().toISOString(),
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/mobile/v1/dashboard') {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const rawTrackings = await store.listTrackings();
+        const items = rawTrackings.map((item) => buildMobileTrackingItem(item));
+        const topDrop = items.length
+          ? [...items].sort((a, b) => Number(b.dropPct || 0) - Number(a.dropPct || 0))[0]
+          : null;
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          summary: {
+            trackedProducts: items.length,
+            avgDropPct:
+              items.length > 0
+                ? Number((items.reduce((sum, item) => sum + Number(item.dropPct || 0), 0) / items.length).toFixed(2))
+                : 0,
+          },
+          topDrop: topDrop
+            ? {
+                asin: topDrop.asin,
+                title: topDrop.title,
+                dropPct: topDrop.dropPct,
+                bestPrice: topDrop.bestPrice,
+                avgPrice: topDrop.avgPrice,
+              }
+            : null,
+          trackedProducts: items.length,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/mobile/v1/trackings') {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const { limit, offset } = normalizeMobilePagination(url);
+        const rawTrackings = await store.listTrackings();
+        const mapped = rawTrackings.map((item) => buildMobileTrackingItem(item));
+        const items = mapped.slice(offset, offset + limit);
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          pagination: { limit, offset, count: items.length },
+          items,
+        });
+      }
+
+      const mobileDetailMatch = pathname.match(/^\/api\/mobile\/v1\/products\/([^/]+)\/detail$/);
+      if (method === 'GET' && mobileDetailMatch) {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const asin = decodeURIComponent(mobileDetailMatch[1]).trim().toUpperCase();
+        const detail = await store.getProductDetail(asin);
+        if (!detail) {
+          return sendJson(res, 404, { error: 'not_found', asin });
+        }
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          ...detail,
         });
       }
 

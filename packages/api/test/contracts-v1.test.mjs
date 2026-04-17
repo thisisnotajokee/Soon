@@ -298,6 +298,74 @@ test('P0-C: mobile v1 auth/session compatibility endpoints', async () => {
   }
 });
 
+test('P0-C: mobile v1 data compatibility endpoints (dashboard/trackings/detail)', async () => {
+  const store = createInMemoryStore();
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(
+      async (baseUrl) => {
+        const login = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/auth/telegram`, {
+            method: 'POST',
+            headers: { 'x-telegram-user-id': '2041' },
+          }),
+        );
+        assert.equal(login.status, 200);
+        const accessToken = login.body.accessToken;
+        assert.ok(typeof accessToken === 'string' && accessToken.length > 24);
+
+        const dashboard = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/dashboard`, {
+            headers: { authorization: `Bearer ${accessToken}` },
+          }),
+        );
+        assert.equal(dashboard.status, 200);
+        assert.equal(dashboard.body.apiVersion, 'v1');
+        assert.ok(Number.isInteger(dashboard.body.trackedProducts));
+        assert.ok(dashboard.body.summary);
+
+        const trackings = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/trackings?limit=2&offset=0`, {
+            headers: { authorization: `Bearer ${accessToken}` },
+          }),
+        );
+        assert.equal(trackings.status, 200);
+        assert.equal(trackings.body.apiVersion, 'v1');
+        assert.ok(trackings.body.pagination);
+        assert.ok(Array.isArray(trackings.body.items));
+        assert.ok(trackings.body.items.length >= 1);
+
+        const first = trackings.body.items[0];
+        assert.ok(first.asin);
+        assert.ok(Object.prototype.hasOwnProperty.call(first, 'marketPrices'));
+        assert.ok(Object.prototype.hasOwnProperty.call(first, 'marketPricesUsed'));
+        assert.ok(Array.isArray(first.priceTrend));
+
+        const detail = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/products/${encodeURIComponent(first.asin)}/detail`, {
+            headers: { authorization: `Bearer ${accessToken}` },
+          }),
+        );
+        assert.equal(detail.status, 200);
+        assert.equal(detail.body.apiVersion, 'v1');
+        assert.equal(detail.body.asin, first.asin);
+        assert.ok(detail.body.thresholds);
+        assert.ok(Array.isArray(detail.body.historyPoints));
+
+        const unauthorizedTrackings = await readJson(await fetch(`${baseUrl}/api/mobile/v1/trackings`));
+        assert.equal(unauthorizedTrackings.status, 401);
+        assert.equal(unauthorizedTrackings.body.error, 'Unauthorized');
+      },
+      { store },
+    );
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
 test('P0-C: core live logs compatibility endpoint', async () => {
   const store = createInMemoryStore();
   const previousAdminId = process.env.SOON_ADMIN_ID;
