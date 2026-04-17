@@ -71,7 +71,7 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `POST /api/hunter-config/preset` — `src/routes/api/settings/routes/hunter.js`
 - [ ] `GET /api/hunter-config/recommendation` — `src/routes/api/settings/routes/hunter.js`
 - [ ] `POST /api/hunter-config/run-now` — `src/routes/api/settings/routes/hunter.js`
-- [ ] `GET /api/hunter-efficiency` — `src/routes/api/analytics/hunter-insights-routes.js`
+- [x] `GET /api/hunter-efficiency` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/hunter-high-value-metrics` — `src/routes/api/analytics/hunter-health-ops-routes.js`
 - [ ] `GET /api/hunter-keyword-stats` — `src/routes/api/analytics/hunter-insights-routes.js`
 - [ ] `GET /api/hunter-ml-engine` — `src/routes/api/analytics/hunter-health-ops-routes.js`

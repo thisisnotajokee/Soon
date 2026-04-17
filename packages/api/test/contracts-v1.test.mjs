@@ -369,6 +369,14 @@ test('P0-E: hunter run-now + slo + smart-engine + autonomy-health endpoints', as
     assert.ok(autonomyHealth.body.metrics);
     assert.ok(Array.isArray(autonomyHealth.body.signals));
 
+    const efficiency = await readJson(await fetch(`${baseUrl}/api/hunter-efficiency?hours=336`));
+    assert.equal(efficiency.status, 200);
+    assert.equal(efficiency.body.status, 'ok');
+    assert.equal(efficiency.body.windowHours, 336);
+    assert.ok(Array.isArray(efficiency.body.runs));
+    assert.ok(Array.isArray(efficiency.body.presets));
+    assert.ok(efficiency.body.triggers && typeof efficiency.body.triggers === 'object');
+
     const trendFeatures = await readJson(
       await fetch(`${baseUrl}/api/hunter-trend-features?hours=168&limit=50&domain=de`),
     );

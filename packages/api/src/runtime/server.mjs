@@ -2267,6 +2267,66 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         });
       }
 
+      if (method === 'GET' && pathname === '/api/hunter-efficiency') {
+        if (!store.listLatestAutomationRuns) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const rawHours = Number(url.searchParams.get('hours') ?? 24 * 14);
+        const hours = Math.max(1, Math.min(24 * 90, Number.isFinite(rawHours) ? rawHours : 24 * 14));
+        const nowMs = Date.now();
+        const minTs = nowMs - hours * 60 * 60 * 1000;
+        const recentRuns = (await store.listLatestAutomationRuns(400)).filter((run) => {
+          const ts = Date.parse(run?.startedAt ?? run?.finishedAt ?? '');
+          return Number.isFinite(ts) && ts >= minTs;
+        });
+
+        const runs = recentRuns.map((run) => ({
+          runId: run.runId ?? null,
+          startedAt: run.startedAt ?? null,
+          finishedAt: run.finishedAt ?? null,
+          trigger: run.trigger ?? 'scheduled',
+          trackingCount: Number(run.trackingCount ?? 0),
+          decisionCount: Number(run.decisionCount ?? 0),
+          alertCount: Number(run.alertCount ?? 0),
+          purchaseAlertCount: Number(run.purchaseAlertCount ?? 0),
+          technicalAlertCount: Number(run.technicalAlertCount ?? 0),
+          source: run.source ?? 'automation-cycle-v1',
+        }));
+
+        const triggerSummary = runs.reduce((acc, row) => {
+          const key = String(row.trigger || 'scheduled');
+          acc[key] = (acc[key] || 0) + 1;
+          return acc;
+        }, {});
+
+        const runsCount = runs.length;
+        const decisionSum = runs.reduce((acc, row) => acc + Number(row.decisionCount ?? 0), 0);
+        const alertSum = runs.reduce((acc, row) => acc + Number(row.alertCount ?? 0), 0);
+        const purchaseAlertSum = runs.reduce((acc, row) => acc + Number(row.purchaseAlertCount ?? 0), 0);
+        const technicalAlertSum = runs.reduce((acc, row) => acc + Number(row.technicalAlertCount ?? 0), 0);
+
+        const presets = [
+          {
+            preset: 'runtime-default',
+            runs: runsCount,
+            avgDecisionCount: runsCount ? Number((decisionSum / runsCount).toFixed(2)) : 0,
+            avgAlertCount: runsCount ? Number((alertSum / runsCount).toFixed(2)) : 0,
+            purchaseAlertRatePct: alertSum ? Number(((purchaseAlertSum / alertSum) * 100).toFixed(2)) : 0,
+            technicalAlertRatePct: alertSum ? Number(((technicalAlertSum / alertSum) * 100).toFixed(2)) : 0,
+          },
+        ];
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          windowHours: hours,
+          runs,
+          presets,
+          triggers: triggerSummary,
+          schedulerHunter: {},
+        });
+      }
+
       if (
         method === 'POST' &&
         (pathname === '/token-control/allocate' || pathname === '/api/token-control/allocate')
