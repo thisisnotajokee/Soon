@@ -36,6 +36,8 @@ const TOKEN_BUDGET_PROBE_STATE_KEY = 'token_budget_last_probe_at';
 const TOKEN_BUDGET_PROBE_RESET_AUDIT_STATE_KEY = 'token_budget_probe_reset_audit_last';
 const TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_STATE_KEY = 'token_budget_probe_ops_key_rotation';
 const TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_AUDIT_STATE_KEY = 'token_budget_probe_ops_key_rotation_audit_last';
+const TRACKING_CHAT_SETTINGS_PREFIX = 'tracking_chat_settings:';
+const TRACKING_SNOOZE_PREFIX = 'tracking_snooze:';
 const TOKEN_BUDGET_PROBE_DEFAULT_COOLDOWN_SEC = 24 * 60 * 60;
 const TOKEN_BUDGET_PROBE_AUTOTUNE_FALLBACK_MIN_COOLDOWN_SEC = 6 * 60 * 60;
 const TOKEN_BUDGET_PROBE_AUTOTUNE_FALLBACK_HIGH_COOLDOWN_SEC = 12 * 60 * 60;
@@ -566,6 +568,21 @@ function deriveAlertRoutingCooldownFromRuntimeState(runtimeState, { fallbackCool
 function toFiniteNumber(value) {
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
+}
+
+function buildChatSettingsStateKey(chatId) {
+  return `${TRACKING_CHAT_SETTINGS_PREFIX}${String(chatId ?? '').trim().toLowerCase() || 'default'}`;
+}
+
+function buildTrackingSnoozeStateKey(chatId, asin) {
+  return `${TRACKING_SNOOZE_PREFIX}${String(chatId ?? '').trim().toLowerCase() || 'default'}:${String(asin ?? '')
+    .trim()
+    .toUpperCase()}`;
+}
+
+function normalizeChatId(raw) {
+  const normalized = String(raw ?? '').trim();
+  return normalized || 'default';
 }
 
 function clamp01(value, fallback = 0) {
@@ -1241,6 +1258,178 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           thresholds: updated.thresholds,
           updatedAt: updated.updatedAt,
         });
+      }
+
+      if (method === 'POST' && pathname === '/api/trackings/save') {
+        if (!store.saveTracking) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const body = await readJsonBody(req).catch(() => ({}));
+        const saved = await store.saveTracking(body);
+        if (!saved || saved?.error === 'asin_required') {
+          return sendJson(res, 400, { error: 'asin_required' });
+        }
+        return sendJson(res, 200, {
+          status: 'saved',
+          item: saved,
+        });
+      }
+
+      const deleteTrackingMatch = pathname.match(/^\/api\/trackings\/([^/]+)\/([^/]+)$/);
+      if (method === 'DELETE' && deleteTrackingMatch) {
+        if (!store.deleteTracking) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const chatId = normalizeChatId(deleteTrackingMatch[1]);
+        const asin = decodeURIComponent(deleteTrackingMatch[2]).toUpperCase();
+        const deleted = await store.deleteTracking(asin);
+        if (!deleted?.deleted) {
+          return sendJson(res, 404, { error: 'not_found', asin, chatId });
+        }
+        return sendJson(res, 200, { status: 'deleted', asin, chatId });
+      }
+
+      const dashboardMatch = pathname.match(/^\/api\/dashboard\/([^/]+)$/);
+      if (method === 'GET' && dashboardMatch) {
+        const chatId = normalizeChatId(dashboardMatch[1]);
+        const chatSettingsState = store.getRuntimeState
+          ? await store.getRuntimeState(buildChatSettingsStateKey(chatId))
+          : null;
+        const chatSettings = chatSettingsState?.stateValue ?? { productIntervalMin: 60 };
+        const items = await store.listTrackings();
+
+        const enrichedItems = await Promise.all(
+          items.map(async (item) => {
+            const snoozeState = store.getRuntimeState
+              ? await store.getRuntimeState(buildTrackingSnoozeStateKey(chatId, item.asin))
+              : null;
+            const snooze = snoozeState?.stateValue ?? null;
+            return {
+              ...item,
+              snooze: snooze ? { ...snooze, active: Boolean(snooze.until && Date.parse(snooze.until) > Date.now()) } : null,
+            };
+          }),
+        );
+
+        return sendJson(res, 200, {
+          chatId,
+          count: enrichedItems.length,
+          settings: chatSettings,
+          items: enrichedItems,
+        });
+      }
+
+      const historyMatch = pathname.match(/^\/api\/history\/([^/]+)$/);
+      if (method === 'GET' && historyMatch) {
+        const asin = decodeURIComponent(historyMatch[1]).toUpperCase();
+        const detail = await store.getProductDetail(asin);
+        if (!detail) {
+          return sendJson(res, 404, { error: 'not_found', asin });
+        }
+
+        let items = Array.isArray(detail.historyPoints) ? detail.historyPoints : [];
+        if (store.getPriceHistory) {
+          const rows = await store.getPriceHistory(asin, Number(url.searchParams.get('limit') ?? 180));
+          if (Array.isArray(rows) && rows.length) {
+            items = rows;
+          }
+        }
+
+        return sendJson(res, 200, {
+          asin,
+          count: items.length,
+          items,
+        });
+      }
+
+      const refreshMatch = pathname.match(/^\/api\/refresh\/([^/]+)$/);
+      if (method === 'POST' && refreshMatch) {
+        const asin = decodeURIComponent(refreshMatch[1]).toUpperCase();
+        const detail = await store.getProductDetail(asin);
+        if (!detail) {
+          return sendJson(res, 404, { error: 'not_found', asin });
+        }
+
+        return sendJson(res, 200, {
+          status: 'refreshed',
+          asin,
+          refreshedAt: new Date().toISOString(),
+          item: detail,
+        });
+      }
+
+      const refreshAllMatch = pathname.match(/^\/api\/refresh-all\/([^/]+)$/);
+      if (method === 'POST' && refreshAllMatch) {
+        const chatId = normalizeChatId(refreshAllMatch[1]);
+        const items = await store.listTrackings();
+        const nowIso = new Date().toISOString();
+        return sendJson(res, 200, {
+          status: 'queued',
+          chatId,
+          jobId: crypto.randomUUID(),
+          requestedAt: nowIso,
+          processedAt: nowIso,
+          total: items.length,
+        });
+      }
+
+      const snoozeMatch = pathname.match(/^\/api\/trackings\/([^/]+)\/([^/]+)\/snooze$/);
+      if ((method === 'POST' || method === 'DELETE') && snoozeMatch) {
+        const chatId = normalizeChatId(snoozeMatch[1]);
+        const asin = decodeURIComponent(snoozeMatch[2]).toUpperCase();
+        const key = buildTrackingSnoozeStateKey(chatId, asin);
+
+        if (method === 'DELETE') {
+          if (store.setRuntimeState) {
+            await store.setRuntimeState(key, null);
+          }
+          return sendJson(res, 200, { status: 'unsnoozed', chatId, asin });
+        }
+
+        const body = await readJsonBody(req).catch(() => ({}));
+        const nowMs = Date.now();
+        const minutes = clampInt(
+          body.minutes ?? body.snoozeMinutes ?? body.durationMin ?? 60,
+          60,
+          1,
+          7 * 24 * 60,
+        );
+        const until = new Date(nowMs + minutes * 60 * 1000).toISOString();
+        const state = {
+          asin,
+          chatId,
+          minutes,
+          reason: String(body.reason ?? 'manual').trim() || 'manual',
+          from: new Date(nowMs).toISOString(),
+          until,
+        };
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(key, state);
+        }
+        return sendJson(res, 200, { status: 'snoozed', ...state });
+      }
+
+      const productIntervalMatch = pathname.match(/^\/api\/settings\/([^/]+)\/product-interval$/);
+      if (method === 'POST' && productIntervalMatch) {
+        const chatId = normalizeChatId(productIntervalMatch[1]);
+        const body = await readJsonBody(req).catch(() => ({}));
+        const intervalMin = clampInt(
+          body.productIntervalMin ?? body.intervalMin ?? body.intervalMinutes ?? body.value ?? 60,
+          60,
+          1,
+          24 * 60,
+        );
+        const state = {
+          chatId,
+          productIntervalMin: intervalMin,
+          updatedAt: new Date().toISOString(),
+        };
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(buildChatSettingsStateKey(chatId), state);
+        }
+        return sendJson(res, 200, { status: 'updated', ...state });
       }
 
       if (
