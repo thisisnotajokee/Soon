@@ -2417,3 +2417,23 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - walidacja obu ścieżek (`restricted` i status admin).
 - Zaktualizowano inwentarz endpointów:
   - `docs/API_ENDPOINT_INVENTORY.md` (`GET /api/refresh-budget/:chatId` -> DONE).
+
+## [2026-04-17 23:20:00Z] P0-C refresh-all job status compatibility endpoint implemented
+- Dodano kompatybilny endpoint:
+  - `GET /api/refresh-all/:chatId/status/:jobId` w `packages/api/src/runtime/server.mjs`.
+- Rozszerzono `POST /api/refresh-all/:chatId`:
+  - `jobId` jest zapisywany w runtime mapie statusu i może być odczytany przez endpoint statusowy.
+- Endpoint statusu zwraca payload kompatybilny:
+  - `status: completed`,
+  - `chatId`, `jobId`,
+  - `requestedAt`, `finishedAt`,
+  - `total`, `refreshed`, `pending`.
+- Rozszerzono test kontraktowy `P0-C`:
+  - po kolejce `refresh-all` wykonywany jest odczyt statusu joba i walidacja pól.
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md`:
+    - `POST /api/refresh-all/:chatId` -> DONE,
+    - `GET /api/refresh-all/:chatId/status/:jobId` -> DONE,
+    - `POST /api/refresh/:asin` -> DONE.
+- Weryfikacja:
+  - `npm --prefix /home/piotras/Soon run -s test:contracts` -> PASS (53/53).

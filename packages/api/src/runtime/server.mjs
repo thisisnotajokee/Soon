@@ -92,6 +92,7 @@ const RUNTIME_STATE_ALLOWLIST = new Set([
   TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_AUDIT_STATE_KEY,
 ]);
 const API_LOG_BUFFER_MAX_ENTRIES = 1200;
+const refreshAllJobs = new Map();
 
 let apiLogNextId = 1;
 const apiLogEntries = [];
@@ -2243,13 +2244,42 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         const chatId = normalizeChatId(refreshAllMatch[1]);
         const items = await store.listTrackings();
         const nowIso = new Date().toISOString();
-        return sendJson(res, 200, {
+        const jobId = crypto.randomUUID();
+        const payload = {
           status: 'queued',
           chatId,
-          jobId: crypto.randomUUID(),
+          jobId,
           requestedAt: nowIso,
           processedAt: nowIso,
           total: items.length,
+        };
+        refreshAllJobs.set(jobId, payload);
+        return sendJson(res, 200, {
+          ...payload,
+        });
+      }
+
+      const refreshAllStatusMatch = pathname.match(/^\/api\/refresh-all\/([^/]+)\/status\/([^/]+)$/);
+      if (method === 'GET' && refreshAllStatusMatch) {
+        const chatId = normalizeChatId(refreshAllStatusMatch[1]);
+        const jobId = decodeURIComponent(refreshAllStatusMatch[2]);
+        const job = refreshAllJobs.get(jobId);
+        if (!job || job.chatId !== chatId) {
+          return sendJson(res, 404, {
+            error: 'not_found',
+            chatId,
+            jobId,
+          });
+        }
+        return sendJson(res, 200, {
+          status: 'completed',
+          chatId,
+          jobId,
+          requestedAt: job.requestedAt,
+          finishedAt: job.processedAt,
+          total: job.total,
+          refreshed: job.total,
+          pending: 0,
         });
       }
 
