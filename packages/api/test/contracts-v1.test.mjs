@@ -756,6 +756,40 @@ test('P0-C: /api/settings/:chatId/scan-policy read/write compatibility with admi
   }
 });
 
+test('P0-C: /api/settings/:chatId/preferences validates payload and persists', async () => {
+  await withServer(async (baseUrl) => {
+    const invalid = await readJson(
+      await fetch(`${baseUrl}/api/settings/777/preferences`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify([]),
+      }),
+    );
+    assert.equal(invalid.status, 400);
+    assert.equal(invalid.body.error, 'Invalid preferences payload');
+
+    const ok = await readJson(
+      await fetch(`${baseUrl}/api/settings/777/preferences`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          alert_delivery_mode: 'instant',
+          quiet_hours_start: 22,
+          quiet_hours_end: 7,
+          notification_channels: { telegram: true, discord: false },
+          alert_profiles: { buy_box: { enabled: true } },
+        }),
+      }),
+    );
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.success, true);
+
+    const profiles = await readJson(await fetch(`${baseUrl}/api/settings/777/alert-profiles`));
+    assert.equal(profiles.status, 200);
+    assert.deepEqual(profiles.body.alert_profiles, { buy_box: { enabled: true } });
+  });
+});
+
 test('P0-C: admin bulk tracking compatibility endpoints', async () => {
   const previousAdminId = process.env.SOON_ADMIN_ID;
   process.env.SOON_ADMIN_ID = '2041';
