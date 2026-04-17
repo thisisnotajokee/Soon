@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { evaluateSelfHealRetryAttempt } from './self-heal-playbooks.mjs';
 
+const TRACKING_GLOBAL_ALLOWED_DOMAINS = new Set(['de', 'it', 'fr', 'es', 'uk', 'nl']);
+
 function sampleHistory(base) {
   const now = Date.now();
   return Array.from({ length: 12 }, (_, idx) => ({
@@ -247,7 +249,19 @@ export function createInMemoryStore() {
   const tokenAllocationSnapshots = [];
   const tokenDailyBudgetLedger = new Map();
   const runtimeState = new Map();
+  const trackingGlobalInactiveAsins = new Set();
+  const trackingGlobalDomainDisabled = new Map();
   let selfHealManualRequeueTotal = 0;
+
+  function normalizeTrackingDomains(domains = []) {
+    return [
+      ...new Set(
+        (Array.isArray(domains) ? domains : [])
+          .map((domain) => String(domain ?? '').trim().toLowerCase())
+          .filter((domain) => TRACKING_GLOBAL_ALLOWED_DOMAINS.has(domain)),
+      ),
+    ];
+  }
 
   async function listTrackings() {
     return [...byAsin.values()].map(({ historyPoints, ...rest }) => rest);
@@ -369,7 +383,152 @@ export function createInMemoryStore() {
     const key = String(asin ?? '').trim();
     if (!key) return { deleted: false, reason: 'asin_required' };
     const existed = byAsin.delete(key);
+    trackingGlobalInactiveAsins.delete(key);
+    trackingGlobalDomainDisabled.delete(key);
     return { deleted: existed };
+  }
+
+  async function deactivateAllTrackingsGlobal() {
+    let totalTrackings = 0;
+    let activeBefore = 0;
+
+    for (const asin of byAsin.keys()) {
+      totalTrackings += 1;
+      if (!trackingGlobalInactiveAsins.has(asin)) {
+        activeBefore += 1;
+      }
+      trackingGlobalInactiveAsins.add(asin);
+    }
+
+    return {
+      total_trackings: totalTrackings,
+      active_before: activeBefore,
+      deactivated: activeBefore,
+    };
+  }
+
+  async function activateAllTrackingsGlobal() {
+    let affectedRows = 0;
+    let reactivatedRows = 0;
+
+    for (const asin of byAsin.keys()) {
+      affectedRows += 1;
+      if (trackingGlobalInactiveAsins.has(asin)) {
+        reactivatedRows += 1;
+      }
+      trackingGlobalInactiveAsins.delete(asin);
+      trackingGlobalDomainDisabled.delete(asin);
+    }
+
+    return {
+      affected_rows: affectedRows,
+      reactivated_rows: reactivatedRows,
+      domains_backfilled_rows: 0,
+    };
+  }
+
+  async function deactivateTrackingsDomainsGlobal(domains = []) {
+    const safeDomains = normalizeTrackingDomains(domains);
+    if (!safeDomains.length) {
+      return {
+        domains: [],
+        affected_rows: 0,
+        emptied_rows: 0,
+        deactivated_rows: 0,
+      };
+    }
+
+    let affectedRows = 0;
+    let emptiedRows = 0;
+    let deactivatedRows = 0;
+
+    for (const asin of byAsin.keys()) {
+      const disabledBefore = new Set(trackingGlobalDomainDisabled.get(asin) ?? []);
+      const activeDomainsBefore = [...TRACKING_GLOBAL_ALLOWED_DOMAINS].filter(
+        (domain) => !disabledBefore.has(domain),
+      ).length;
+
+      let changed = false;
+      for (const domain of safeDomains) {
+        if (!disabledBefore.has(domain)) {
+          disabledBefore.add(domain);
+          changed = true;
+        }
+      }
+
+      if (!changed) continue;
+
+      affectedRows += 1;
+      const activeDomainsAfter = [...TRACKING_GLOBAL_ALLOWED_DOMAINS].filter(
+        (domain) => !disabledBefore.has(domain),
+      ).length;
+
+      trackingGlobalDomainDisabled.set(asin, disabledBefore);
+
+      if (activeDomainsBefore > 0 && activeDomainsAfter === 0) {
+        emptiedRows += 1;
+        if (!trackingGlobalInactiveAsins.has(asin)) {
+          trackingGlobalInactiveAsins.add(asin);
+          deactivatedRows += 1;
+        }
+      }
+    }
+
+    return {
+      domains: safeDomains,
+      affected_rows: affectedRows,
+      emptied_rows: emptiedRows,
+      deactivated_rows: deactivatedRows,
+    };
+  }
+
+  async function activateTrackingsDomainsGlobal(domains = []) {
+    const safeDomains = normalizeTrackingDomains(domains);
+    if (!safeDomains.length) {
+      return {
+        domains: [],
+        affected_rows: 0,
+        reactivated_rows: 0,
+      };
+    }
+
+    let affectedRows = 0;
+    let reactivatedRows = 0;
+
+    for (const asin of byAsin.keys()) {
+      const disabled = new Set(trackingGlobalDomainDisabled.get(asin) ?? []);
+      const activeDomainsBefore = [...TRACKING_GLOBAL_ALLOWED_DOMAINS].filter(
+        (domain) => !disabled.has(domain),
+      ).length;
+
+      let changed = false;
+      for (const domain of safeDomains) {
+        if (disabled.has(domain)) {
+          disabled.delete(domain);
+          changed = true;
+        }
+      }
+      if (!changed) continue;
+
+      affectedRows += 1;
+      if (disabled.size > 0) trackingGlobalDomainDisabled.set(asin, disabled);
+      else trackingGlobalDomainDisabled.delete(asin);
+
+      const activeDomainsAfter = [...TRACKING_GLOBAL_ALLOWED_DOMAINS].filter(
+        (domain) => !disabled.has(domain),
+      ).length;
+
+      if (activeDomainsBefore === 0 && activeDomainsAfter > 0 && trackingGlobalInactiveAsins.has(asin)) {
+        trackingGlobalInactiveAsins.delete(asin);
+        reactivatedRows += 1;
+      }
+    }
+
+    return {
+      domains: safeDomains,
+      affected_rows: affectedRows,
+      reactivated_rows: reactivatedRows,
+    };
   }
 
   async function getPriceHistory(asin, limit = 180) {
@@ -864,6 +1023,10 @@ export function createInMemoryStore() {
     updateThresholds,
     saveTracking,
     deleteTracking,
+    deactivateAllTrackingsGlobal,
+    activateAllTrackingsGlobal,
+    deactivateTrackingsDomainsGlobal,
+    activateTrackingsDomainsGlobal,
     getPriceHistory,
     recordAutomationCycle,
     listLatestAutomationRuns,

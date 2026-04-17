@@ -324,6 +324,102 @@ test('P0-C: snooze + product interval settings contracts', async () => {
   });
 });
 
+test('P0-C: admin bulk tracking compatibility endpoints', async () => {
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(async (baseUrl) => {
+      const forbidden = await readJson(
+        await fetch(`${baseUrl}/admin-api/trackings/deactivate-all`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-telegram-user-id': '9999' },
+          body: JSON.stringify({ confirm: true }),
+        }),
+      );
+      assert.equal(forbidden.status, 403);
+      assert.equal(forbidden.body.error, 'forbidden');
+
+      const badConfirm = await readJson(
+        await fetch(`${baseUrl}/admin-api/trackings/deactivate-all`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-telegram-user-id': '2041' },
+          body: JSON.stringify({ confirm: false }),
+        }),
+      );
+      assert.equal(badConfirm.status, 400);
+      assert.equal(badConfirm.body.error, 'confirm must be true');
+
+      const deactivateAll = await readJson(
+        await fetch(`${baseUrl}/admin-api/trackings/deactivate-all`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-telegram-user-id': '2041' },
+          body: JSON.stringify({ confirm: true }),
+        }),
+      );
+      assert.equal(deactivateAll.status, 200);
+      assert.equal(deactivateAll.body.success, true);
+      assert.equal(deactivateAll.body.action, 'global_trackings_deactivate');
+      assert.ok(Number.isFinite(Number(deactivateAll.body.total_trackings)));
+      assert.ok(Number.isFinite(Number(deactivateAll.body.active_before)));
+      assert.ok(Number.isFinite(Number(deactivateAll.body.deactivated)));
+
+      const badDomains = await readJson(
+        await fetch(`${baseUrl}/admin-api/trackings/deactivate-domains`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-telegram-user-id': '2041' },
+          body: JSON.stringify({ confirm: true, domains: ['xyz'] }),
+        }),
+      );
+      assert.equal(badDomains.status, 400);
+      assert.equal(badDomains.body.error, 'domains must include at least one of: de,it,fr,es,uk,nl');
+
+      const deactivateDomains = await readJson(
+        await fetch(`${baseUrl}/admin-api/trackings/deactivate-domains`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-telegram-user-id': '2041' },
+          body: JSON.stringify({ confirm: true, domains: ['de', 'nl', 'de'] }),
+        }),
+      );
+      assert.equal(deactivateDomains.status, 200);
+      assert.equal(deactivateDomains.body.success, true);
+      assert.equal(deactivateDomains.body.action, 'global_trackings_deactivate_domains');
+      assert.deepEqual(deactivateDomains.body.domains, ['de', 'nl']);
+      assert.ok(Number.isFinite(Number(deactivateDomains.body.affected_rows)));
+
+      const activateDomains = await readJson(
+        await fetch(`${baseUrl}/admin-api/trackings/activate-domains`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-telegram-user-id': '2041' },
+          body: JSON.stringify({ confirm: true, domains: ['de'] }),
+        }),
+      );
+      assert.equal(activateDomains.status, 200);
+      assert.equal(activateDomains.body.success, true);
+      assert.equal(activateDomains.body.action, 'global_trackings_activate_domains');
+      assert.deepEqual(activateDomains.body.domains, ['de']);
+      assert.ok(Number.isFinite(Number(activateDomains.body.affected_rows)));
+
+      const activateAll = await readJson(
+        await fetch(`${baseUrl}/admin-api/trackings/activate-all`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-telegram-user-id': '2041' },
+          body: JSON.stringify({ confirm: true }),
+        }),
+      );
+      assert.equal(activateAll.status, 200);
+      assert.equal(activateAll.body.success, true);
+      assert.equal(activateAll.body.action, 'global_trackings_activate');
+      assert.ok(Number.isFinite(Number(activateAll.body.affected_rows)));
+      assert.ok(Number.isFinite(Number(activateAll.body.reactivated_rows)));
+      assert.ok(Number.isFinite(Number(activateAll.body.domains_backfilled_rows)));
+    });
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
 test('P0-D: keepa watch-state ingest + status endpoint', async () => {
   await withServer(async (baseUrl) => {
     const ingest = await readJson(

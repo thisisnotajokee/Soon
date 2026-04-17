@@ -5,6 +5,9 @@ import { SEEDED_TRACKINGS } from './in-memory-store.mjs';
 import { applyRuntimeMigrations } from './db-migrations.mjs';
 import { evaluateSelfHealRetryAttempt } from './self-heal-playbooks.mjs';
 
+const TRACKING_GLOBAL_STATE_KEY = 'compat_tracking_global_state';
+const TRACKING_GLOBAL_ALLOWED_DOMAINS = new Set(['de', 'it', 'fr', 'es', 'uk', 'nl']);
+
 function toNumber(value) {
   if (value === null || value === undefined) return null;
   return Number(value);
@@ -740,6 +743,220 @@ export function createPostgresStore({
     if (!key) return { deleted: false, reason: 'asin_required' };
     const result = await pool.query('DELETE FROM soon_tracking WHERE asin = $1', [key]);
     return { deleted: result.rowCount > 0 };
+  }
+
+  async function listTrackingAsins() {
+    await ensureInit();
+    const res = await pool.query('SELECT asin FROM soon_tracking');
+    return res.rows.map((row) => String(row.asin ?? '').trim()).filter(Boolean);
+  }
+
+  async function getCompatTrackingGlobalState() {
+    const state = await getRuntimeState(TRACKING_GLOBAL_STATE_KEY);
+    const stateValue = state?.stateValue && typeof state.stateValue === 'object' ? state.stateValue : {};
+    const inactiveAsins = new Set(
+      (Array.isArray(stateValue.inactiveAsins) ? stateValue.inactiveAsins : [])
+        .map((asin) => String(asin ?? '').trim())
+        .filter(Boolean),
+    );
+    const domainDisabledByAsin = new Map();
+    const rawDomainDisabledByAsin =
+      stateValue.domainDisabledByAsin && typeof stateValue.domainDisabledByAsin === 'object'
+        ? stateValue.domainDisabledByAsin
+        : {};
+    for (const [asinRaw, domainsRaw] of Object.entries(rawDomainDisabledByAsin)) {
+      const asin = String(asinRaw ?? '').trim();
+      if (!asin) continue;
+      const domains = new Set(
+        (Array.isArray(domainsRaw) ? domainsRaw : [])
+          .map((domain) => String(domain ?? '').trim().toLowerCase())
+          .filter((domain) => TRACKING_GLOBAL_ALLOWED_DOMAINS.has(domain)),
+      );
+      if (domains.size > 0) {
+        domainDisabledByAsin.set(asin, domains);
+      }
+    }
+
+    return {
+      inactiveAsins,
+      domainDisabledByAsin,
+    };
+  }
+
+  async function setCompatTrackingGlobalState({ inactiveAsins, domainDisabledByAsin }) {
+    const payload = {
+      inactiveAsins: [...inactiveAsins],
+      domainDisabledByAsin: Object.fromEntries(
+        [...domainDisabledByAsin.entries()].map(([asin, domains]) => [asin, [...domains].sort()]),
+      ),
+      updatedAt: new Date().toISOString(),
+      source: 'compat_admin_tracking_bulk_v1',
+    };
+    await setRuntimeState(TRACKING_GLOBAL_STATE_KEY, payload);
+    return payload;
+  }
+
+  function normalizeTrackingDomains(domains = []) {
+    return [
+      ...new Set(
+        (Array.isArray(domains) ? domains : [])
+          .map((domain) => String(domain ?? '').trim().toLowerCase())
+          .filter((domain) => TRACKING_GLOBAL_ALLOWED_DOMAINS.has(domain)),
+      ),
+    ];
+  }
+
+  async function deactivateAllTrackingsGlobal() {
+    const asins = await listTrackingAsins();
+    const state = await getCompatTrackingGlobalState();
+    let activeBefore = 0;
+
+    for (const asin of asins) {
+      if (!state.inactiveAsins.has(asin)) {
+        activeBefore += 1;
+      }
+      state.inactiveAsins.add(asin);
+    }
+
+    await setCompatTrackingGlobalState(state);
+
+    return {
+      total_trackings: asins.length,
+      active_before: activeBefore,
+      deactivated: activeBefore,
+    };
+  }
+
+  async function activateAllTrackingsGlobal() {
+    const asins = await listTrackingAsins();
+    const state = await getCompatTrackingGlobalState();
+    let reactivatedRows = 0;
+
+    for (const asin of asins) {
+      if (state.inactiveAsins.has(asin)) {
+        reactivatedRows += 1;
+      }
+      state.inactiveAsins.delete(asin);
+      state.domainDisabledByAsin.delete(asin);
+    }
+
+    await setCompatTrackingGlobalState(state);
+
+    return {
+      affected_rows: asins.length,
+      reactivated_rows: reactivatedRows,
+      domains_backfilled_rows: 0,
+    };
+  }
+
+  async function deactivateTrackingsDomainsGlobal(domains = []) {
+    const safeDomains = normalizeTrackingDomains(domains);
+    if (!safeDomains.length) {
+      return {
+        domains: [],
+        affected_rows: 0,
+        emptied_rows: 0,
+        deactivated_rows: 0,
+      };
+    }
+
+    const asins = await listTrackingAsins();
+    const state = await getCompatTrackingGlobalState();
+    let affectedRows = 0;
+    let emptiedRows = 0;
+    let deactivatedRows = 0;
+
+    for (const asin of asins) {
+      const disabled = new Set(state.domainDisabledByAsin.get(asin) ?? []);
+      const activeDomainsBefore = [...TRACKING_GLOBAL_ALLOWED_DOMAINS].filter(
+        (domain) => !disabled.has(domain),
+      ).length;
+
+      let changed = false;
+      for (const domain of safeDomains) {
+        if (!disabled.has(domain)) {
+          disabled.add(domain);
+          changed = true;
+        }
+      }
+      if (!changed) continue;
+
+      affectedRows += 1;
+      state.domainDisabledByAsin.set(asin, disabled);
+
+      const activeDomainsAfter = [...TRACKING_GLOBAL_ALLOWED_DOMAINS].filter(
+        (domain) => !disabled.has(domain),
+      ).length;
+
+      if (activeDomainsBefore > 0 && activeDomainsAfter === 0) {
+        emptiedRows += 1;
+        if (!state.inactiveAsins.has(asin)) {
+          state.inactiveAsins.add(asin);
+          deactivatedRows += 1;
+        }
+      }
+    }
+
+    await setCompatTrackingGlobalState(state);
+
+    return {
+      domains: safeDomains,
+      affected_rows: affectedRows,
+      emptied_rows: emptiedRows,
+      deactivated_rows: deactivatedRows,
+    };
+  }
+
+  async function activateTrackingsDomainsGlobal(domains = []) {
+    const safeDomains = normalizeTrackingDomains(domains);
+    if (!safeDomains.length) {
+      return {
+        domains: [],
+        affected_rows: 0,
+        reactivated_rows: 0,
+      };
+    }
+
+    const asins = await listTrackingAsins();
+    const state = await getCompatTrackingGlobalState();
+    let affectedRows = 0;
+    let reactivatedRows = 0;
+
+    for (const asin of asins) {
+      const disabled = new Set(state.domainDisabledByAsin.get(asin) ?? []);
+      const activeDomainsBefore = [...TRACKING_GLOBAL_ALLOWED_DOMAINS].filter(
+        (domain) => !disabled.has(domain),
+      ).length;
+      let changed = false;
+
+      for (const domain of safeDomains) {
+        if (disabled.has(domain)) {
+          disabled.delete(domain);
+          changed = true;
+        }
+      }
+      if (!changed) continue;
+
+      affectedRows += 1;
+      if (disabled.size > 0) state.domainDisabledByAsin.set(asin, disabled);
+      else state.domainDisabledByAsin.delete(asin);
+
+      const activeDomainsAfter = [...TRACKING_GLOBAL_ALLOWED_DOMAINS].filter(
+        (domain) => !disabled.has(domain),
+      ).length;
+      if (activeDomainsBefore === 0 && activeDomainsAfter > 0 && state.inactiveAsins.has(asin)) {
+        state.inactiveAsins.delete(asin);
+        reactivatedRows += 1;
+      }
+    }
+
+    await setCompatTrackingGlobalState(state);
+
+    return {
+      domains: safeDomains,
+      affected_rows: affectedRows,
+      reactivated_rows: reactivatedRows,
+    };
   }
 
   async function getPriceHistory(asin, limit = 180) {
@@ -2083,6 +2300,10 @@ export function createPostgresStore({
     updateThresholds,
     saveTracking,
     deleteTracking,
+    deactivateAllTrackingsGlobal,
+    activateAllTrackingsGlobal,
+    deactivateTrackingsDomainsGlobal,
+    activateTrackingsDomainsGlobal,
     getPriceHistory,
     recordAutomationCycle,
     listLatestAutomationRuns,

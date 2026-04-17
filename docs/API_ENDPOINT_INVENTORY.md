@@ -4,10 +4,10 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 
 - [ ] `DELETE /admin-api/data/products-global` — `src/routes/api/trackings/routes/admin.js`
 - [ ] `DELETE /admin-api/data/products/:asin` — `src/routes/api/trackings/routes/admin.js`
-- [ ] `POST /admin-api/trackings/activate-all` — `src/routes/api/trackings/routes/admin.js`
-- [ ] `POST /admin-api/trackings/activate-domains` — `src/routes/api/trackings/routes/admin.js`
-- [ ] `POST /admin-api/trackings/deactivate-all` — `src/routes/api/trackings/routes/admin.js`
-- [ ] `POST /admin-api/trackings/deactivate-domains` — `src/routes/api/trackings/routes/admin.js`
+- [x] `POST /admin-api/trackings/activate-all` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /admin-api/trackings/activate-domains` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /admin-api/trackings/deactivate-all` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /admin-api/trackings/deactivate-domains` — `packages/api/src/runtime/server.mjs`
 - [ ] `POST /api/add-product` — `src/routes/api/trackings/routes/mutate.js`
 - [ ] `GET /api/ai/actions/:asin` — `src/routes/api/ai/routes/actions.js`
 - [ ] `POST /api/ai/actions/:asin/apply` — `src/routes/api/ai/routes/actions.js`
