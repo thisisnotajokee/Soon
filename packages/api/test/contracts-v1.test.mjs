@@ -580,6 +580,34 @@ test('P0-C: /api/settings/:chatId/drop-pct validates payload and persists defaul
   });
 });
 
+test('P0-C: /api/settings/:chatId/notifications validates payload and persists', async () => {
+  await withServer(async (baseUrl) => {
+    const invalid = await readJson(
+      await fetch(`${baseUrl}/api/settings/777/notifications`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(null),
+      }),
+    );
+    assert.equal(invalid.status, 400);
+    assert.equal(invalid.body.error, 'Invalid notifications payload');
+
+    const ok = await readJson(
+      await fetch(`${baseUrl}/api/settings/777/notifications`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          price_drop: true,
+          stock_back: 1,
+          silent_mode: 0,
+        }),
+      }),
+    );
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.success, true);
+  });
+});
+
 test('P0-C: admin bulk tracking compatibility endpoints', async () => {
   const previousAdminId = process.env.SOON_ADMIN_ID;
   process.env.SOON_ADMIN_ID = '2041';
