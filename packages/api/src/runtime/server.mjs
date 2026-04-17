@@ -156,6 +156,10 @@ function buildHunterTrendFeatureRows({ tracking, historyPoints, lookbackHours })
   if (!tracking || typeof tracking !== 'object') return [];
   const asin = String(tracking.asin ?? '').trim();
   if (!asin) return [];
+  const pricesNew = tracking.pricesNew && typeof tracking.pricesNew === 'object' ? tracking.pricesNew : {};
+  const domains = Object.keys(pricesNew).filter((domain) => /^[a-z]{2}$/.test(domain.toLowerCase()));
+  const fallbackDomain = 'de';
+  const usedDomains = domains.length ? domains : [fallbackDomain];
 
   const nowMs = Date.now();
   const lookbackMs = Math.max(1, Number(lookbackHours) || 24 * 7) * 60 * 60 * 1000;
@@ -168,7 +172,26 @@ function buildHunterTrendFeatureRows({ tracking, historyPoints, lookbackHours })
     .filter((item) => Number.isFinite(item.ts) && Number.isFinite(item.value) && item.value > 0 && item.ts >= oldestAllowed)
     .sort((a, b) => a.ts - b.ts);
 
-  if (sortedHistory.length < 2) return [];
+  if (sortedHistory.length < 2) {
+    const latestTs = new Date(Date.parse(tracking.updatedAt ?? '') || nowMs).toISOString();
+    return usedDomains.map((domain) => {
+      const marketPrice = Number(pricesNew[domain]);
+      return {
+        asin,
+        title: tracking.title ?? null,
+        domain,
+        lookbackHours: Number(lookbackHours),
+        points: sortedHistory.length,
+        slopePctPerDay: 0,
+        momentum24hPct: 0,
+        volatilityPct: 0,
+        trendLabel: 'stable',
+        latestPrice: Number.isFinite(marketPrice) ? Number(marketPrice.toFixed(2)) : null,
+        latestTs,
+        source: 'tracking-snapshot-v1',
+      };
+    });
+  }
   const first = sortedHistory[0];
   const last = sortedHistory[sortedHistory.length - 1];
   const spanDays = Math.max((last.ts - first.ts) / (24 * 60 * 60 * 1000), 1 / 24);
@@ -186,11 +209,6 @@ function buildHunterTrendFeatureRows({ tracking, historyPoints, lookbackHours })
 
   const volatilityPct = percentileVolatility(sortedHistory.map((item) => item.value));
   const trendLabel = classifyHunterTrendLabel(slopePctPerDay);
-  const pricesNew = tracking.pricesNew && typeof tracking.pricesNew === 'object' ? tracking.pricesNew : {};
-  const domains = Object.keys(pricesNew).filter((domain) => /^[a-z]{2}$/.test(domain.toLowerCase()));
-  const fallbackDomain = 'de';
-  const usedDomains = domains.length ? domains : [fallbackDomain];
-
   return usedDomains.map((domain) => {
     const marketPrice = Number(pricesNew[domain]);
     return {
