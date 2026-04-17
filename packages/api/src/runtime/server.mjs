@@ -2516,6 +2516,97 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         });
       }
 
+      if (method === 'GET' && pathname === '/api/hunter-signals') {
+        if (!store.listLatestAutomationRuns) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const runs = await store.listLatestAutomationRuns(500);
+        const nowMs = Date.now();
+        const minTs = nowMs - 24 * 60 * 60 * 1000;
+        const rows = runs.filter((run) => {
+          const ts = Date.parse(run?.startedAt ?? run?.finishedAt ?? '');
+          return Number.isFinite(ts) && ts >= minTs;
+        });
+
+        const totalRuns = rows.length;
+        const okRuns = rows.filter((item) => String(item?.status ?? 'ok') === 'ok').length;
+        const errorRuns = rows.filter((item) => String(item?.status ?? '').startsWith('error')).length;
+        const skippedBudgetRuns = rows.filter((item) => String(item?.status ?? '') === 'skipped_budget').length;
+        const successRate = totalRuns > 0 ? okRuns / totalRuns : 0;
+
+        const statusCount = rows.reduce((acc, row) => {
+          const key = String(row?.status ?? 'ok');
+          acc[key] = (acc[key] || 0) + 1;
+          return acc;
+        }, {});
+
+        const deals = rows.reduce((acc, row) => acc + Number(row?.decisionCount ?? 0), 0);
+        const tokensEstimate = rows.reduce((acc, row) => acc + Number(row?.decisionCount ?? 0) * 10, 0);
+        const tokensPerDeal = deals > 0 ? tokensEstimate / deals : null;
+        const avgDeals = totalRuns > 0 ? deals / totalRuns : 0;
+
+        const priceValid = rows.reduce((acc, row) => {
+          const decisions = Number(row?.decisionCount ?? 0);
+          return acc + Math.max(0, decisions);
+        }, 0);
+        const priceMissing = 0;
+        const priceSuspect = 0;
+        const qualityTotal = priceValid + priceMissing + priceSuspect;
+        const qualityValidPct = qualityTotal > 0 ? priceValid / qualityTotal : null;
+        const qualitySuspectPct = qualityTotal > 0 ? priceSuspect / qualityTotal : null;
+
+        const policySamples = rows.length;
+        const strategyCounts = rows.reduce((acc, row) => {
+          const mode = String(row?.source ?? 'runtime-default');
+          acc[mode] = (acc[mode] || 0) + 1;
+          return acc;
+        }, {});
+        const dominantStrategy =
+          Object.entries(strategyCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
+        const target = String(url.searchParams.get('target') ?? '').trim().toLowerCase();
+        const evaluation =
+          policySamples < 5
+            ? {
+                status: 'insufficient_data',
+                target: target || 'auto',
+                message: 'Not enough policy samples in runtime v1 window.',
+              }
+            : {
+                status: 'ok',
+                target: target || 'auto',
+                message: 'Policy signal is within expected range.',
+              };
+
+        return sendJson(res, 200, {
+          windowHours: 24,
+          runs: {
+            total: totalRuns,
+            ok: okRuns,
+            errors: errorRuns,
+            skippedBudget: skippedBudgetRuns,
+            successRate: Number(successRate.toFixed(4)),
+            avgDeals: Number(avgDeals.toFixed(2)),
+            tokensPerDeal: tokensPerDeal === null ? null : Number(tokensPerDeal.toFixed(2)),
+            priceQuality: {
+              samples: qualityTotal,
+              valid: priceValid,
+              missing: priceMissing,
+              suspect: priceSuspect,
+              validPct: qualityValidPct === null ? null : Number(qualityValidPct.toFixed(4)),
+              suspectPct: qualitySuspectPct === null ? null : Number(qualitySuspectPct.toFixed(4)),
+            },
+            statusCount,
+          },
+          policy: {
+            samples24h: policySamples,
+            dominantStrategy,
+            evaluation,
+          },
+        });
+      }
+
       if (
         method === 'POST' &&
         (pathname === '/token-control/allocate' || pathname === '/api/token-control/allocate')

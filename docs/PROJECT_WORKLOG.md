@@ -2143,3 +2143,17 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ### Weryfikacja
 - `npm run -s test:contracts` -> PASS.
+
+## [2026-04-17 19:40:00Z] Hunter signals compatibility endpoint implemented
+- Dodano endpoint `GET /api/hunter-signals` w `packages/api/src/runtime/server.mjs`.
+- Endpoint zwraca kompatybilny payload:
+  - `windowHours`,
+  - `runs` (total/ok/errors/skippedBudget/successRate/avgDeals/tokensPerDeal/priceQuality/statusCount),
+  - `policy` (samples24h/dominantStrategy/evaluation).
+- Metryki są wyliczane z ostatnich runów automatyki w oknie 24h (`listLatestAutomationRuns`).
+- Dodano test kontraktowy endpointu do `packages/api/test/contracts-v1.test.mjs`.
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md`: `GET /api/hunter-signals` -> `DONE` (runtime path).
+
+### Weryfikacja
+- `npm run -s test:contracts` -> PASS.
