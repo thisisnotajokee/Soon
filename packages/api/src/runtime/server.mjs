@@ -923,6 +923,29 @@ function createCompatWebToken(userId) {
   return `${normalizedUserId}.${Date.now().toString(36)}.${nonce}`;
 }
 
+function currentManualRefreshBucketUtc(nowTs = Date.now()) {
+  const date = new Date(nowTs);
+  const yyyy = date.getUTCFullYear();
+  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(date.getUTCDate()).padStart(2, '0');
+  const hh = String(date.getUTCHours()).padStart(2, '0');
+  return `${yyyy}${mm}${dd}${hh}`;
+}
+
+function secondsUntilNextUtcHour(nowTs = Date.now()) {
+  const date = new Date(nowTs);
+  const next = Date.UTC(
+    date.getUTCFullYear(),
+    date.getUTCMonth(),
+    date.getUTCDate(),
+    date.getUTCHours() + 1,
+    0,
+    0,
+    0,
+  );
+  return Math.max(1, Math.ceil((next - nowTs) / 1000));
+}
+
 function appendApiLog(level, message) {
   const normalizedLevel = ['error', 'warn', 'info', 'debug'].includes(String(level ?? '').toLowerCase())
     ? String(level).toLowerCase()
@@ -2227,6 +2250,29 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           requestedAt: nowIso,
           processedAt: nowIso,
           total: items.length,
+        });
+      }
+
+      const refreshBudgetMatch = pathname.match(/^\/api\/refresh-budget\/([^/]+)$/);
+      if (method === 'GET' && refreshBudgetMatch) {
+        const chatId = normalizeChatId(refreshBudgetMatch[1]);
+        const adminId = resolveCompatAdminId();
+        if (!adminId || chatId !== adminId) {
+          return sendJson(res, 200, {
+            restricted: true,
+            reason: 'free_plan_no_manual_refresh',
+          });
+        }
+        const nowTs = Date.now();
+        const budget = clampInt(process.env.SOON_MANUAL_REFRESH_BUDGET_PER_HOUR, 50, 1, 100000);
+        const used = 0;
+        const remaining = Math.max(0, budget - used);
+        return sendJson(res, 200, {
+          budget,
+          used,
+          remaining,
+          retryInSec: secondsUntilNextUtcHour(nowTs),
+          bucket: currentManualRefreshBucketUtc(nowTs),
         });
       }
 

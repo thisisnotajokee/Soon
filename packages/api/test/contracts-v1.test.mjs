@@ -286,27 +286,48 @@ test('P0-C: /api/trackings/save + /api/dashboard/:chatId + DELETE /api/trackings
 });
 
 test('P0-C: /api/history/:asin + /api/refresh/:asin + /api/refresh-all/:chatId', async () => {
-  await withServer(async (baseUrl) => {
-    const trackings = await readJson(await fetch(`${baseUrl}/trackings`));
-    const asin = trackings.body.items[0].asin;
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
 
-    const history = await readJson(await fetch(`${baseUrl}/api/history/${asin}`));
-    assert.equal(history.status, 200);
-    assert.equal(history.body.asin, asin);
-    assert.ok(Array.isArray(history.body.items));
-    assert.ok(history.body.count >= 1);
+  try {
+    await withServer(async (baseUrl) => {
+      const trackings = await readJson(await fetch(`${baseUrl}/trackings`));
+      const asin = trackings.body.items[0].asin;
 
-    const refreshed = await readJson(await fetch(`${baseUrl}/api/refresh/${asin}`, { method: 'POST' }));
-    assert.equal(refreshed.status, 200);
-    assert.equal(refreshed.body.status, 'refreshed');
-    assert.equal(refreshed.body.asin, asin);
+      const history = await readJson(await fetch(`${baseUrl}/api/history/${asin}`));
+      assert.equal(history.status, 200);
+      assert.equal(history.body.asin, asin);
+      assert.ok(Array.isArray(history.body.items));
+      assert.ok(history.body.count >= 1);
 
-    const refreshAll = await readJson(await fetch(`${baseUrl}/api/refresh-all/2041`, { method: 'POST' }));
-    assert.equal(refreshAll.status, 200);
-    assert.equal(refreshAll.body.status, 'queued');
-    assert.equal(refreshAll.body.chatId, '2041');
-    assert.ok(refreshAll.body.jobId);
-  });
+      const refreshed = await readJson(await fetch(`${baseUrl}/api/refresh/${asin}`, { method: 'POST' }));
+      assert.equal(refreshed.status, 200);
+      assert.equal(refreshed.body.status, 'refreshed');
+      assert.equal(refreshed.body.asin, asin);
+
+      const refreshAll = await readJson(await fetch(`${baseUrl}/api/refresh-all/2041`, { method: 'POST' }));
+      assert.equal(refreshAll.status, 200);
+      assert.equal(refreshAll.body.status, 'queued');
+      assert.equal(refreshAll.body.chatId, '2041');
+      assert.ok(refreshAll.body.jobId);
+
+      const refreshBudgetRestricted = await readJson(await fetch(`${baseUrl}/api/refresh-budget/9999`));
+      assert.equal(refreshBudgetRestricted.status, 200);
+      assert.equal(refreshBudgetRestricted.body.restricted, true);
+      assert.equal(refreshBudgetRestricted.body.reason, 'free_plan_no_manual_refresh');
+
+      const refreshBudgetAdmin = await readJson(await fetch(`${baseUrl}/api/refresh-budget/2041`));
+      assert.equal(refreshBudgetAdmin.status, 200);
+      assert.ok(Number.isFinite(Number(refreshBudgetAdmin.body.budget)));
+      assert.ok(Number.isFinite(Number(refreshBudgetAdmin.body.used)));
+      assert.ok(Number.isFinite(Number(refreshBudgetAdmin.body.remaining)));
+      assert.ok(Number.isFinite(Number(refreshBudgetAdmin.body.retryInSec)));
+      assert.ok(typeof refreshBudgetAdmin.body.bucket === 'string' && refreshBudgetAdmin.body.bucket.length >= 10);
+    });
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
 });
 
 test('P0-C: snooze + product interval settings contracts', async () => {
