@@ -608,6 +608,41 @@ test('P0-C: /api/settings/:chatId/notifications validates payload and persists',
   });
 });
 
+test('P0-C: /api/settings/:chatId/notification-channels validates payload and persists', async () => {
+  await withServer(async (baseUrl) => {
+    const invalid = await readJson(
+      await fetch(`${baseUrl}/api/settings/777/notification-channels`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ notification_channels: [] }),
+      }),
+    );
+    assert.equal(invalid.status, 400);
+    assert.equal(invalid.body.error, 'notification_channels invalid');
+
+    const ok = await readJson(
+      await fetch(`${baseUrl}/api/settings/777/notification-channels`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          notification_channels: {
+            telegram: true,
+            discord: false,
+            web: true,
+          },
+        }),
+      }),
+    );
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.success, true);
+    assert.deepEqual(ok.body.notification_channels, {
+      telegram: true,
+      discord: false,
+      web: true,
+    });
+  });
+});
+
 test('P0-C: admin bulk tracking compatibility endpoints', async () => {
   const previousAdminId = process.env.SOON_ADMIN_ID;
   process.env.SOON_ADMIN_ID = '2041';
