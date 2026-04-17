@@ -61,8 +61,8 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `GET /api/history/:asin` — `src/routes/api/trackings/routes/read.js`
 - [ ] `GET /api/hunter-autonomy-decision-health` — `src/routes/api/analytics/hunter-health-core-routes.js`
 - [x] `GET /api/hunter-bandit-context` — `packages/api/src/runtime/server.mjs`
-- [ ] `GET /api/hunter-category-pauses` — `src/routes/api/analytics/hunter-health-ops-routes.js`
-- [ ] `POST /api/hunter-category-pauses/unpause` — `src/routes/api/analytics/hunter-write-routes.js`
+- [x] `GET /api/hunter-category-pauses` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /api/hunter-category-pauses/unpause` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/hunter-config` — `src/routes/api/settings/routes/hunter.js`
 - [ ] `POST /api/hunter-config/auto-apply-run` — `src/routes/api/settings/routes/hunter.js`
 - [ ] `POST /api/hunter-config/custom` — `src/routes/api/settings/routes/hunter.js`
