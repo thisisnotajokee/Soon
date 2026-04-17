@@ -2349,3 +2349,21 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ### Weryfikacja
 - `npm run -s test:contracts` -> PASS.
+
+## [2026-04-17 21:55:00Z] P0-C admin bulk tracking endpoints implemented
+- Dodano kompatybilne endpointy admin bulk tracking w `packages/api/src/runtime/server.mjs`:
+  - `POST /admin-api/trackings/deactivate-all`
+  - `POST /admin-api/trackings/activate-all`
+  - `POST /admin-api/trackings/deactivate-domains`
+  - `POST /admin-api/trackings/activate-domains`
+- Zachowane kontrakty legacy:
+  - autoryzacja admin przez `SOON_ADMIN_ID` + `x-telegram-user-id`,
+  - walidacja `confirm === true`,
+  - walidacja domen (`de,it,fr,es,uk,nl`) i błąd 400 przy pustym/niepoprawnym zestawie.
+- Dodano obsługę store dla bulk operacji:
+  - `packages/api/src/runtime/in-memory-store.mjs`,
+  - `packages/api/src/runtime/postgres-store.mjs` (stan kompatybilny trzymany w `runtime_state` jako `compat_tracking_global_state`).
+- Dodano test kontraktowy:
+  - `packages/api/test/contracts-v1.test.mjs` (`P0-C: admin bulk tracking compatibility endpoints`).
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md` (4 endpointy admin bulk -> DONE).

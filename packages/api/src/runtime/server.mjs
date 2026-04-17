@@ -1875,6 +1875,120 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         return sendJson(res, 200, payload);
       }
 
+      if (method === 'POST' && pathname === '/admin-api/trackings/deactivate-all') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!userId || !adminId || userId !== adminId) {
+          return sendJson(res, 403, { error: 'forbidden', requestId });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        if (body?.confirm !== true) {
+          return sendJson(res, 400, { error: 'confirm must be true', requestId });
+        }
+        if (!store.deactivateAllTrackingsGlobal) {
+          return sendJson(res, 501, { error: 'not_implemented', requestId });
+        }
+        const result = await store.deactivateAllTrackingsGlobal();
+        return sendJson(res, 200, {
+          success: true,
+          action: 'global_trackings_deactivate',
+          ...result,
+          executedBy: adminId,
+          executedAt: new Date().toISOString(),
+          requestId,
+        });
+      }
+
+      if (method === 'POST' && pathname === '/admin-api/trackings/activate-all') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!userId || !adminId || userId !== adminId) {
+          return sendJson(res, 403, { error: 'forbidden', requestId });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        if (body?.confirm !== true) {
+          return sendJson(res, 400, { error: 'confirm must be true', requestId });
+        }
+        if (!store.activateAllTrackingsGlobal) {
+          return sendJson(res, 501, { error: 'not_implemented', requestId });
+        }
+        const result = await store.activateAllTrackingsGlobal();
+        return sendJson(res, 200, {
+          success: true,
+          action: 'global_trackings_activate',
+          ...result,
+          executedBy: adminId,
+          executedAt: new Date().toISOString(),
+          requestId,
+        });
+      }
+
+      if (method === 'POST' && pathname === '/admin-api/trackings/deactivate-domains') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!userId || !adminId || userId !== adminId) {
+          return sendJson(res, 403, { error: 'forbidden', requestId });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        if (body?.confirm !== true) {
+          return sendJson(res, 400, { error: 'confirm must be true', requestId });
+        }
+        if (!store.deactivateTrackingsDomainsGlobal) {
+          return sendJson(res, 501, { error: 'not_implemented', requestId });
+        }
+        const domainsInput = Array.isArray(body?.domains) ? body.domains : [];
+        const result = await store.deactivateTrackingsDomainsGlobal(domainsInput);
+        if (!Array.isArray(result?.domains) || !result.domains.length) {
+          return sendJson(res, 400, {
+            error: 'domains must include at least one of: de,it,fr,es,uk,nl',
+            requestId,
+          });
+        }
+        return sendJson(res, 200, {
+          success: true,
+          action: 'global_trackings_deactivate_domains',
+          ...result,
+          executedBy: adminId,
+          executedAt: new Date().toISOString(),
+          requestId,
+        });
+      }
+
+      if (method === 'POST' && pathname === '/admin-api/trackings/activate-domains') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!userId || !adminId || userId !== adminId) {
+          return sendJson(res, 403, { error: 'forbidden', requestId });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        if (body?.confirm !== true) {
+          return sendJson(res, 400, { error: 'confirm must be true', requestId });
+        }
+        if (!store.activateTrackingsDomainsGlobal) {
+          return sendJson(res, 501, { error: 'not_implemented', requestId });
+        }
+        const domainsInput = Array.isArray(body?.domains) ? body.domains : [];
+        const result = await store.activateTrackingsDomainsGlobal(domainsInput);
+        if (!Array.isArray(result?.domains) || !result.domains.length) {
+          return sendJson(res, 400, {
+            error: 'domains must include at least one of: de,it,fr,es,uk,nl',
+            requestId,
+          });
+        }
+        return sendJson(res, 200, {
+          success: true,
+          action: 'global_trackings_activate_domains',
+          ...result,
+          executedBy: adminId,
+          executedAt: new Date().toISOString(),
+          requestId,
+        });
+      }
+
       if (method === 'GET' && pathname === '/trackings') {
         const items = await store.listTrackings();
         return sendJson(res, 200, {
