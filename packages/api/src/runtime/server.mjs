@@ -978,6 +978,49 @@ function systemStatsRangeHours(range) {
   return 1;
 }
 
+function scoreScanCandidate(item) {
+  const trust = Number(item?.trustScore ?? item?.trust_score ?? 0);
+  const drop = Number(item?.dropPct ?? item?.discountPct ?? 0);
+  const updates = Number(item?.alertsCount ?? item?.updatesCount ?? 0);
+  const score = (trust * 0.6) + (drop * 0.3) + (Math.min(updates, 50) * 0.1);
+  return Number.isFinite(score) ? Number(score.toFixed(2)) : 0;
+}
+
+function buildCompatScanPlanPayload(trackings, budget, avgTokenPerAsin) {
+  const rows = Array.isArray(trackings) ? trackings : [];
+  const scored = rows
+    .map((item) => ({
+      asin: String(item?.asin || '').trim().toUpperCase(),
+      title: item?.title ? String(item.title) : null,
+      score: scoreScanCandidate(item),
+    }))
+    .filter((item) => item.asin);
+  scored.sort((a, b) => b.score - a.score);
+
+  const maxByBudget = Math.max(0, Math.floor(budget / Math.max(1, avgTokenPerAsin)));
+  const selected = scored.slice(0, maxByBudget);
+  const skipped = Math.max(0, scored.length - selected.length);
+  const estimatedTokens = selected.length * Math.max(1, avgTokenPerAsin);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    totalTrackings: scored.length,
+    budget,
+    avgTokenPerAsin,
+    estimatedTokens,
+    plannedCount: selected.length,
+    skippedCount: skipped,
+    strategy: 'compat_v1',
+    items: selected.map((item, index) => ({
+      order: index + 1,
+      asin: item.asin,
+      title: item.title,
+      score: item.score,
+      reason: index < 10 ? 'high_priority' : 'budget_fit',
+    })),
+  };
+}
+
 function sanitizeSystemStatsHistory(raw) {
   if (!Array.isArray(raw)) return [];
   const now = Date.now();
@@ -3540,6 +3583,59 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           remaining,
           retryInSec: secondsUntilNextUtcHour(nowTs),
           bucket: currentManualRefreshBucketUtc(nowTs),
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/scan-kpi') {
+        const trackings = await store.listTrackings();
+        const schedulerState = store.getRuntimeState ? await store.getRuntimeState('scheduler_status') : null;
+        const keepaStatusState = store.getRuntimeState ? await store.getRuntimeState(KEEPA_STATUS_STATE_KEY) : null;
+        const scheduler = schedulerState?.stateValue ?? {};
+        const metrics = scheduler.metrics ?? {};
+        const keepa = keepaStatusState?.stateValue ?? {};
+        const budget = clampInt(process.env.SOON_SCAN_HARD_TOKEN_CAP_PER_CYCLE, 120, 1, 100000);
+        const avgTokenPerAsin = clampInt(process.env.SOON_SCAN_EST_TOKEN_PER_ITEM, 1, 1, 100);
+        const maxByBudget = Math.max(0, Math.floor(budget / Math.max(1, avgTokenPerAsin)));
+        const planned = Math.min(trackings.length, maxByBudget);
+
+        return sendJson(res, 200, {
+          trackedCount: trackings.length,
+          dueCount: trackings.length,
+          planner: {
+            budget,
+            avgTokenPerAsin,
+            planned,
+            skippedBudget: Math.max(0, trackings.length - planned),
+            estimatedTokens: planned * avgTokenPerAsin,
+          },
+          tokens: {
+            tokensLeft: Number(keepa?.tokensLeft || keepa?.remaining || 0),
+            refillRate: Number(keepa?.refillRate || 20),
+            refillIn: Number(keepa?.refillIn || 0),
+            tokensConsumed: Number(keepa?.tokensConsumed || keepa?.consumed || 0),
+          },
+          scan: metrics,
+          scheduler: {
+            isScanning: Boolean(scheduler?.isScanning),
+            lastScanAt: scheduler?.lastScanAt ?? metrics?.lastRunAt ?? null,
+            intervalMinutes: Number(scheduler?.checkIntervalMinutes || 60),
+          },
+        });
+      }
+
+      const scanPlanMatch = pathname.match(/^\/api\/scan-plan\/([^/]+)$/);
+      if (method === 'GET' && scanPlanMatch) {
+        const chatId = normalizeChatId(scanPlanMatch[1]);
+        const requestedBudget = clampInt(url.searchParams.get('budget'), 0, 0, 100000);
+        const trackings = await store.listTrackings();
+        const budget = requestedBudget > 0
+          ? requestedBudget
+          : clampInt(process.env.SOON_SCAN_HARD_TOKEN_CAP_PER_CYCLE, 120, 1, 100000);
+        const avgTokenPerAsin = clampInt(process.env.SOON_SCAN_EST_TOKEN_PER_ITEM, 1, 1, 100);
+        const payload = buildCompatScanPlanPayload(trackings, budget, avgTokenPerAsin);
+        return sendJson(res, 200, {
+          chatId,
+          ...payload,
         });
       }
 

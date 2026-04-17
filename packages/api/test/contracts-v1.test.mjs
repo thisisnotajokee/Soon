@@ -1268,6 +1268,34 @@ test('P0-C: /api/scan/run-now + /api/scan/stop compatibility with admin guard', 
   }
 });
 
+test('P0-C: /api/scan-kpi + /api/scan-plan/:chatId compatibility endpoints', async () => {
+  await withServer(async (baseUrl) => {
+    const scanKpi = await readJson(await fetch(`${baseUrl}/api/scan-kpi`));
+    assert.equal(scanKpi.status, 200);
+    assert.ok(Number.isFinite(Number(scanKpi.body.trackedCount)));
+    assert.ok(Number.isFinite(Number(scanKpi.body.dueCount)));
+    assert.ok(scanKpi.body.planner && typeof scanKpi.body.planner === 'object');
+    assert.ok(scanKpi.body.tokens && typeof scanKpi.body.tokens === 'object');
+    assert.ok(scanKpi.body.scheduler && typeof scanKpi.body.scheduler === 'object');
+
+    const scanPlanAuto = await readJson(await fetch(`${baseUrl}/api/scan-plan/2041`));
+    assert.equal(scanPlanAuto.status, 200);
+    assert.equal(scanPlanAuto.body.chatId, '2041');
+    assert.ok(Number.isFinite(Number(scanPlanAuto.body.totalTrackings)));
+    assert.ok(Number.isFinite(Number(scanPlanAuto.body.budget)));
+    assert.ok(Number.isFinite(Number(scanPlanAuto.body.plannedCount)));
+    assert.ok(Number.isFinite(Number(scanPlanAuto.body.skippedCount)));
+    assert.ok(Array.isArray(scanPlanAuto.body.items));
+
+    const scanPlanCustom = await readJson(await fetch(`${baseUrl}/api/scan-plan/2041?budget=7`));
+    assert.equal(scanPlanCustom.status, 200);
+    assert.equal(scanPlanCustom.body.chatId, '2041');
+    assert.equal(scanPlanCustom.body.budget, 7);
+    assert.ok(Number.isFinite(Number(scanPlanCustom.body.plannedCount)));
+    assert.ok(Array.isArray(scanPlanCustom.body.items));
+  });
+});
+
 test('P0-C: /api/settings/:chatId/preferences validates payload and persists', async () => {
   await withServer(async (baseUrl) => {
     const invalid = await readJson(

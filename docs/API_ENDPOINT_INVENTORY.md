@@ -121,8 +121,8 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [x] `GET /api/refresh-budget/:chatId` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/refresh/:asin` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/runtime-self-heal-status` — `packages/api/src/runtime/server.mjs`
-- [ ] `GET /api/scan-kpi` — `src/routes/api/analytics/system-routes.js`
-- [ ] `GET /api/scan-plan/:chatId` — `src/routes/api/analytics/misc-routes.js`
+- [x] `GET /api/scan-kpi` — `packages/api/src/runtime/server.mjs`
+- [x] `GET /api/scan-plan/:chatId` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/scan/run-now` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/scan/stop` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/session/refresh` — `packages/api/src/runtime/server.mjs`

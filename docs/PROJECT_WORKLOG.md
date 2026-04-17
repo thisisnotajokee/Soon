@@ -2744,3 +2744,18 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 - Aktualizacja dokumentacji:
   - `docs/API_ENDPOINT_INVENTORY.md` (`scan/run-now`, `scan/stop` -> DONE),
   - `docs/FULL_MECHANICS_INVENTORY.md` (`O007` -> DONE).
+
+## [2026-04-18 05:50:00Z] P0-C scan observability compatibility endpoints completed
+- Dodano brakujące endpointy kompatybilności planowania skanu:
+  - `GET /api/scan-kpi`,
+  - `GET /api/scan-plan/:chatId`.
+- Kontrakt endpointów:
+  - `scan-kpi` zwraca `trackedCount`, `dueCount`, `planner`, `tokens`, `scan`, `scheduler`,
+  - `scan-plan/:chatId` zwraca plan pod budżet (`budget`, `plannedCount`, `skippedCount`, `items`) oraz `chatId`.
+- Implementacja:
+  - prosty scoring kandydatów (`trust/drop/updates`) i selekcja do budżetu (`avgTokenPerAsin`),
+  - wsparcie custom budget przez query `?budget=...`.
+- Rozszerzono testy kontraktowe:
+  - nowy test `P0-C: /api/scan-kpi + /api/scan-plan/:chatId compatibility endpoints`.
+- Aktualizacja dokumentacji:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`scan-kpi`, `scan-plan` -> DONE).
