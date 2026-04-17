@@ -643,6 +643,43 @@ test('P0-C: /api/settings/:chatId/notification-channels validates payload and pe
   });
 });
 
+test('P0-C: /api/settings/:chatId/alert-profiles read/write compatibility', async () => {
+  await withServer(async (baseUrl) => {
+    const initial = await readJson(await fetch(`${baseUrl}/api/settings/777/alert-profiles`));
+    assert.equal(initial.status, 200);
+    assert.deepEqual(initial.body.alert_profiles, {});
+
+    const invalid = await readJson(
+      await fetch(`${baseUrl}/api/settings/777/alert-profiles`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ alert_profiles: [] }),
+      }),
+    );
+    assert.equal(invalid.status, 400);
+    assert.equal(invalid.body.error, 'Invalid alert_profiles payload');
+
+    const payload = {
+      buy_box: { enabled: true, min_drop_pct: 12 },
+      warehouse: { enabled: false, min_drop_pct: 20 },
+    };
+    const saved = await readJson(
+      await fetch(`${baseUrl}/api/settings/777/alert-profiles`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ alert_profiles: payload }),
+      }),
+    );
+    assert.equal(saved.status, 200);
+    assert.equal(saved.body.success, true);
+    assert.deepEqual(saved.body.alert_profiles, payload);
+
+    const reread = await readJson(await fetch(`${baseUrl}/api/settings/777/alert-profiles`));
+    assert.equal(reread.status, 200);
+    assert.deepEqual(reread.body.alert_profiles, payload);
+  });
+});
+
 test('P0-C: admin bulk tracking compatibility endpoints', async () => {
   const previousAdminId = process.env.SOON_ADMIN_ID;
   process.env.SOON_ADMIN_ID = '2041';

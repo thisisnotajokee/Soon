@@ -2377,6 +2377,7 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
       const settingsDropPctMatch = pathname.match(/^\/api\/settings\/([^/]+)\/drop-pct$/);
       const settingsNotificationsMatch = pathname.match(/^\/api\/settings\/([^/]+)\/notifications$/);
       const settingsNotificationChannelsMatch = pathname.match(/^\/api\/settings\/([^/]+)\/notification-channels$/);
+      const settingsAlertProfilesMatch = pathname.match(/^\/api\/settings\/([^/]+)\/alert-profiles$/);
       const globalScanIntervalMatch = pathname.match(/^\/api\/settings\/([^/]+)\/global-scan-interval$/);
       const trackingsCacheRuntimeMatch = pathname.match(/^\/api\/settings\/([^/]+)\/trackings-cache-runtime$/);
       const trackingsCacheTtlMatch = pathname.match(/^\/api\/settings\/([^/]+)\/trackings-cache-ttl$/);
@@ -2587,6 +2588,39 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           await store.setRuntimeState(buildChatSettingsStateKey(chatId), state);
         }
         return sendJson(res, 200, { success: true, notification_channels: normalized });
+      }
+
+      if (method === 'GET' && settingsAlertProfilesMatch) {
+        const chatId = normalizeChatId(settingsAlertProfilesMatch[1]);
+        const currentState = store.getRuntimeState ? await store.getRuntimeState(buildChatSettingsStateKey(chatId)) : null;
+        const previous = currentState?.stateValue ?? {};
+        const alertProfiles =
+          previous.alert_profiles && typeof previous.alert_profiles === 'object' && !Array.isArray(previous.alert_profiles)
+            ? previous.alert_profiles
+            : {};
+        return sendJson(res, 200, { alert_profiles: alertProfiles });
+      }
+
+      if (method === 'POST' && settingsAlertProfilesMatch) {
+        const chatId = normalizeChatId(settingsAlertProfilesMatch[1]);
+        const body = await readJsonBody(req).catch(() => ({}));
+        const raw = body?.alert_profiles;
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+          return sendJson(res, 400, { error: 'Invalid alert_profiles payload' });
+        }
+        const normalized = JSON.parse(JSON.stringify(raw));
+        const currentState = store.getRuntimeState ? await store.getRuntimeState(buildChatSettingsStateKey(chatId)) : null;
+        const previous = currentState?.stateValue ?? {};
+        const state = {
+          ...previous,
+          chatId,
+          alert_profiles: normalized,
+          updatedAt: new Date().toISOString(),
+        };
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(buildChatSettingsStateKey(chatId), state);
+        }
+        return sendJson(res, 200, { success: true, alert_profiles: normalized });
       }
 
       if (method === 'POST' && productIntervalMatch) {
