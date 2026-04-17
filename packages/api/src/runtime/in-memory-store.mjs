@@ -310,6 +310,76 @@ export function createInMemoryStore() {
     return getProductDetail(asin);
   }
 
+  async function saveTracking(payload = {}) {
+    const asin = String(payload.asin ?? '').trim();
+    if (!asin) return { error: 'asin_required' };
+
+    const existing = byAsin.get(asin);
+    const title =
+      String(payload.title ?? payload.productTitle ?? existing?.title ?? '').trim() || `Tracking ${asin}`;
+    const nowIso = new Date().toISOString();
+
+    const parsePriceMap = (input, fallback = {}) => {
+      if (!input || typeof input !== 'object') return { ...fallback };
+      const next = {};
+      for (const [market, raw] of Object.entries(input)) {
+        const value = Number(raw);
+        if (!Number.isFinite(value)) continue;
+        next[String(market).toLowerCase()] = Number(value.toFixed(2));
+      }
+      return Object.keys(next).length ? next : { ...fallback };
+    };
+
+    const pricesNew = parsePriceMap(payload.pricesNew, existing?.pricesNew ?? {});
+    const pricesUsed = parsePriceMap(payload.pricesUsed, existing?.pricesUsed ?? {});
+    const thresholdDropPct = Number(
+      payload.thresholdDropPct ?? payload.dropPct ?? existing?.thresholdDropPct ?? 15,
+    );
+    const thresholdRisePct = Number(
+      payload.thresholdRisePct ?? payload.risePct ?? existing?.thresholdRisePct ?? 15,
+    );
+    const targetPriceNew = Number(payload.targetPriceNew ?? existing?.targetPriceNew ?? 0);
+    const targetPriceUsed = Number(payload.targetPriceUsed ?? existing?.targetPriceUsed ?? 0);
+
+    const base =
+      pricesNew.de ??
+      Object.values(pricesNew)[0] ??
+      existing?.pricesNew?.de ??
+      Object.values(existing?.pricesNew ?? {})[0] ??
+      100;
+
+    const next = {
+      asin,
+      title,
+      pricesNew,
+      pricesUsed,
+      thresholdDropPct: Number.isFinite(thresholdDropPct) ? thresholdDropPct : 15,
+      thresholdRisePct: Number.isFinite(thresholdRisePct) ? thresholdRisePct : 15,
+      targetPriceNew: Number.isFinite(targetPriceNew) ? targetPriceNew : null,
+      targetPriceUsed: Number.isFinite(targetPriceUsed) ? targetPriceUsed : null,
+      historyPoints: existing?.historyPoints ?? sampleHistory(base),
+      updatedAt: nowIso,
+    };
+
+    byAsin.set(asin, next);
+    return getProductDetail(asin);
+  }
+
+  async function deleteTracking(asin) {
+    const key = String(asin ?? '').trim();
+    if (!key) return { deleted: false, reason: 'asin_required' };
+    const existed = byAsin.delete(key);
+    return { deleted: existed };
+  }
+
+  async function getPriceHistory(asin, limit = 180) {
+    const key = String(asin ?? '').trim();
+    const item = byAsin.get(key);
+    if (!item) return null;
+    const safeLimit = Math.max(1, Math.min(1000, Number(limit) || 180));
+    return [...(item.historyPoints ?? [])].slice(-safeLimit);
+  }
+
   async function recordAutomationCycle({ cycle, trackingCount, startedAt, finishedAt }) {
     const runId = randomUUID();
 
@@ -792,6 +862,9 @@ export function createInMemoryStore() {
     getTracking,
     getProductDetail,
     updateThresholds,
+    saveTracking,
+    deleteTracking,
+    getPriceHistory,
     recordAutomationCycle,
     listLatestAutomationRuns,
     getAutomationDailyReadModel,

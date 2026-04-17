@@ -33,15 +33,15 @@ Statusy:
 
 ## P0-C. Tracking Core (must-have produktowe)
 
-1. `POST /api/trackings/save` — `MISSING`
-2. `DELETE /api/trackings/:chatId/:asin` — `MISSING`
-3. `GET /api/dashboard/:chatId` — `MISSING`
-4. `GET /api/history/:asin` — `MISSING`
-5. `POST /api/refresh/:asin` — `MISSING`
-6. `POST /api/refresh-all/:chatId` — `MISSING`
-7. `POST /api/trackings/:chatId/:asin/snooze` — `MISSING`
-8. `DELETE /api/trackings/:chatId/:asin/snooze` — `MISSING`
-9. `POST /api/settings/:chatId/product-interval` — `MISSING`
+1. `POST /api/trackings/save` — `DONE`
+2. `DELETE /api/trackings/:chatId/:asin` — `DONE`
+3. `GET /api/dashboard/:chatId` — `DONE`
+4. `GET /api/history/:asin` — `DONE`
+5. `POST /api/refresh/:asin` — `DONE`
+6. `POST /api/refresh-all/:chatId` — `DONE`
+7. `POST /api/trackings/:chatId/:asin/snooze` — `DONE`
+8. `DELETE /api/trackings/:chatId/:asin/snooze` — `DONE`
+9. `POST /api/settings/:chatId/product-interval` — `DONE`
 
 ## P0-D. Keepa Core
 

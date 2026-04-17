@@ -2002,3 +2002,24 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - P0-D (keepa core): MISSING
   - P0-E (hunter core backend): MISSING
 - Decyzja: kolejny etap implementacyjny zaczynamy od `P0-C` (Tracking Core).
+
+## [2026-04-17 16:45:00Z] P0-C Tracking Core compatibility endpoints implemented
+- Wdrożono kompatybilność HTTP dla P0-C w `packages/api/src/runtime/server.mjs`:
+  - `POST /api/trackings/save`
+  - `DELETE /api/trackings/:chatId/:asin`
+  - `GET /api/dashboard/:chatId`
+  - `GET /api/history/:asin`
+  - `POST /api/refresh/:asin`
+  - `POST /api/refresh-all/:chatId`
+  - `POST /api/trackings/:chatId/:asin/snooze`
+  - `DELETE /api/trackings/:chatId/:asin/snooze`
+  - `POST /api/settings/:chatId/product-interval`
+- Rozszerzono store runtime:
+  - `in-memory-store`: `saveTracking`, `deleteTracking`, `getPriceHistory`.
+  - `postgres-store`: `saveTracking`, `deleteTracking`, `getPriceHistory`.
+- Dla `snooze` i `product-interval` zastosowano persistence przez `runtime_state` (bez nowych migracji DB).
+- Zaktualizowano checklistę `docs/CUTOVER_P0_CONTRACT_SET_V1.md`: cały `P0-C` -> `DONE`.
+- Dodano testy kontraktowe P0-C do `packages/api/test/contracts-v1.test.mjs`.
+
+### Weryfikacja
+- `npm run test:contracts` -> PASS (`43/43`).

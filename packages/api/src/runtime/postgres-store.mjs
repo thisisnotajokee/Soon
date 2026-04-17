@@ -641,6 +641,129 @@ export function createPostgresStore({
     return getProductDetail(asin);
   }
 
+  async function saveTracking(payload = {}) {
+    await ensureInit();
+
+    const asin = String(payload.asin ?? '').trim();
+    if (!asin) return { error: 'asin_required' };
+
+    const title =
+      String(payload.title ?? payload.productTitle ?? '').trim() || `Tracking ${asin}`;
+
+    await pool.query(
+      `
+      INSERT INTO soon_tracking (asin, title, created_at, updated_at)
+      VALUES ($1, $2, now(), now())
+      ON CONFLICT (asin) DO UPDATE SET
+        title = COALESCE(NULLIF(EXCLUDED.title, ''), soon_tracking.title),
+        updated_at = now()
+    `,
+      [asin, title],
+    );
+
+    const thresholdDropPct = Number(payload.thresholdDropPct ?? payload.dropPct);
+    const thresholdRisePct = Number(payload.thresholdRisePct ?? payload.risePct);
+    const targetPriceNew = Number(payload.targetPriceNew);
+    const targetPriceUsed = Number(payload.targetPriceUsed);
+    const hasThresholdPayload =
+      Number.isFinite(thresholdDropPct) ||
+      Number.isFinite(thresholdRisePct) ||
+      Number.isFinite(targetPriceNew) ||
+      Number.isFinite(targetPriceUsed);
+
+    if (hasThresholdPayload) {
+      await pool.query(
+        `
+        INSERT INTO soon_tracking_threshold (
+          asin,
+          threshold_drop_pct,
+          threshold_rise_pct,
+          target_price_new,
+          target_price_used,
+          updated_at
+        ) VALUES ($1, $2, $3, $4, $5, now())
+        ON CONFLICT (asin) DO UPDATE SET
+          threshold_drop_pct = COALESCE(EXCLUDED.threshold_drop_pct, soon_tracking_threshold.threshold_drop_pct),
+          threshold_rise_pct = COALESCE(EXCLUDED.threshold_rise_pct, soon_tracking_threshold.threshold_rise_pct),
+          target_price_new = COALESCE(EXCLUDED.target_price_new, soon_tracking_threshold.target_price_new),
+          target_price_used = COALESCE(EXCLUDED.target_price_used, soon_tracking_threshold.target_price_used),
+          updated_at = now()
+      `,
+        [
+          asin,
+          Number.isFinite(thresholdDropPct) ? thresholdDropPct : null,
+          Number.isFinite(thresholdRisePct) ? thresholdRisePct : null,
+          Number.isFinite(targetPriceNew) ? targetPriceNew : null,
+          Number.isFinite(targetPriceUsed) ? targetPriceUsed : null,
+        ],
+      );
+    }
+
+    const upsertPrices = async (condition, prices) => {
+      if (!prices || typeof prices !== 'object') return;
+      for (const [marketRaw, rawPrice] of Object.entries(prices)) {
+        const market = String(marketRaw ?? '').trim().toLowerCase();
+        const price = Number(rawPrice);
+        if (!market || !Number.isFinite(price)) continue;
+        await pool.query(
+          `
+          INSERT INTO soon_tracking_price (asin, market, condition, price, currency, updated_at)
+          VALUES ($1, $2, $3, $4, 'EUR', now())
+          ON CONFLICT (asin, market, condition) DO UPDATE SET
+            price = EXCLUDED.price,
+            updated_at = now()
+        `,
+          [asin, market, condition, price],
+        );
+        await pool.query(
+          `
+          INSERT INTO soon_price_history (asin, market, condition, price, currency, recorded_at)
+          VALUES ($1, $2, $3, $4, 'EUR', now())
+        `,
+          [asin, market, condition, price],
+        );
+      }
+    };
+
+    await upsertPrices('new', payload.pricesNew);
+    await upsertPrices('used', payload.pricesUsed);
+
+    return getProductDetail(asin);
+  }
+
+  async function deleteTracking(asin) {
+    await ensureInit();
+    const key = String(asin ?? '').trim();
+    if (!key) return { deleted: false, reason: 'asin_required' };
+    const result = await pool.query('DELETE FROM soon_tracking WHERE asin = $1', [key]);
+    return { deleted: result.rowCount > 0 };
+  }
+
+  async function getPriceHistory(asin, limit = 180) {
+    await ensureInit();
+    const key = String(asin ?? '').trim();
+    if (!key) return null;
+    const safeLimit = Math.max(1, Math.min(1000, Number(limit) || 180));
+    const rows = await pool.query(
+      `
+      SELECT market, condition, price, currency, recorded_at
+      FROM soon_price_history
+      WHERE asin = $1
+      ORDER BY recorded_at DESC
+      LIMIT $2
+    `,
+      [key, safeLimit],
+    );
+    if (!rows.rowCount) return [];
+    return rows.rows.map((row) => ({
+      market: row.market,
+      condition: row.condition,
+      price: toNumber(row.price),
+      currency: row.currency,
+      ts: row.recorded_at.toISOString(),
+    }));
+  }
+
   async function recordAutomationCycle({ cycle, trackingCount, startedAt, finishedAt }) {
     await ensureInit();
 
@@ -1955,6 +2078,9 @@ export function createPostgresStore({
     getTracking,
     getProductDetail,
     updateThresholds,
+    saveTracking,
+    deleteTracking,
+    getPriceHistory,
     recordAutomationCycle,
     listLatestAutomationRuns,
     getAutomationDailyReadModel,

@@ -83,6 +83,111 @@ test('POST /trackings/:asin/thresholds persists values', async () => {
   });
 });
 
+test('P0-C: /api/trackings/save + /api/dashboard/:chatId + DELETE /api/trackings/:chatId/:asin', async () => {
+  await withServer(async (baseUrl) => {
+    const asin = 'B0P0CTRACK01';
+    const chatId = '2041';
+
+    const saved = await readJson(
+      await fetch(`${baseUrl}/api/trackings/save`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          asin,
+          title: 'P0-C Tracking',
+          pricesNew: { de: 123.45 },
+          pricesUsed: { de: 111.11 },
+          thresholdDropPct: 9,
+        }),
+      }),
+    );
+    assert.equal(saved.status, 200);
+    assert.equal(saved.body.status, 'saved');
+    assert.equal(saved.body.item.asin, asin);
+
+    const dashboard = await readJson(await fetch(`${baseUrl}/api/dashboard/${chatId}`));
+    assert.equal(dashboard.status, 200);
+    assert.equal(dashboard.body.chatId, chatId);
+    assert.ok(Array.isArray(dashboard.body.items));
+    assert.ok(dashboard.body.items.some((item) => item.asin === asin));
+
+    const removed = await readJson(await fetch(`${baseUrl}/api/trackings/${chatId}/${asin}`, { method: 'DELETE' }));
+    assert.equal(removed.status, 200);
+    assert.equal(removed.body.status, 'deleted');
+
+    const dashboardAfterDelete = await readJson(await fetch(`${baseUrl}/api/dashboard/${chatId}`));
+    assert.equal(dashboardAfterDelete.status, 200);
+    assert.ok(!dashboardAfterDelete.body.items.some((item) => item.asin === asin));
+  });
+});
+
+test('P0-C: /api/history/:asin + /api/refresh/:asin + /api/refresh-all/:chatId', async () => {
+  await withServer(async (baseUrl) => {
+    const trackings = await readJson(await fetch(`${baseUrl}/trackings`));
+    const asin = trackings.body.items[0].asin;
+
+    const history = await readJson(await fetch(`${baseUrl}/api/history/${asin}`));
+    assert.equal(history.status, 200);
+    assert.equal(history.body.asin, asin);
+    assert.ok(Array.isArray(history.body.items));
+    assert.ok(history.body.count >= 1);
+
+    const refreshed = await readJson(await fetch(`${baseUrl}/api/refresh/${asin}`, { method: 'POST' }));
+    assert.equal(refreshed.status, 200);
+    assert.equal(refreshed.body.status, 'refreshed');
+    assert.equal(refreshed.body.asin, asin);
+
+    const refreshAll = await readJson(await fetch(`${baseUrl}/api/refresh-all/2041`, { method: 'POST' }));
+    assert.equal(refreshAll.status, 200);
+    assert.equal(refreshAll.body.status, 'queued');
+    assert.equal(refreshAll.body.chatId, '2041');
+    assert.ok(refreshAll.body.jobId);
+  });
+});
+
+test('P0-C: snooze + product interval settings contracts', async () => {
+  await withServer(async (baseUrl) => {
+    const trackings = await readJson(await fetch(`${baseUrl}/trackings`));
+    const asin = trackings.body.items[0].asin;
+    const chatId = '777';
+
+    const snooze = await readJson(
+      await fetch(`${baseUrl}/api/trackings/${chatId}/${asin}/snooze`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ minutes: 30, reason: 'test' }),
+      }),
+    );
+    assert.equal(snooze.status, 200);
+    assert.equal(snooze.body.status, 'snoozed');
+    assert.equal(snooze.body.chatId, chatId);
+    assert.equal(snooze.body.asin, asin);
+
+    const settings = await readJson(
+      await fetch(`${baseUrl}/api/settings/${chatId}/product-interval`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ productIntervalMin: 45 }),
+      }),
+    );
+    assert.equal(settings.status, 200);
+    assert.equal(settings.body.status, 'updated');
+    assert.equal(settings.body.chatId, chatId);
+    assert.equal(settings.body.productIntervalMin, 45);
+
+    const dashboard = await readJson(await fetch(`${baseUrl}/api/dashboard/${chatId}`));
+    assert.equal(dashboard.status, 200);
+    assert.equal(dashboard.body.settings.productIntervalMin, 45);
+    const tracked = dashboard.body.items.find((item) => item.asin === asin);
+    assert.ok(tracked?.snooze);
+    assert.equal(tracked.snooze.chatId, chatId);
+
+    const unsnooze = await readJson(await fetch(`${baseUrl}/api/trackings/${chatId}/${asin}/snooze`, { method: 'DELETE' }));
+    assert.equal(unsnooze.status, 200);
+    assert.equal(unsnooze.body.status, 'unsnoozed');
+  });
+});
+
 test('POST /api/token-control/allocate ranks candidates and applies token budget cap', async () => {
   await withServer(async (baseUrl) => {
     const allocation = await readJson(
