@@ -325,6 +325,16 @@ test('P0-E: hunter config endpoint supports custom override', async () => {
     assert.equal(after.body.config.confidenceThreshold, 0.82);
     assert.equal(after.body.config.tokenPolicy.mode, 'capped');
     assert.equal(after.body.config.tokenPolicy.budgetTokens, 42);
+
+    const recommendation = await readJson(await fetch(`${baseUrl}/api/hunter-config/recommendation`));
+    assert.equal(recommendation.status, 200);
+    assert.ok(recommendation.body.recommendation && typeof recommendation.body.recommendation === 'object');
+    assert.ok(['safe', 'balanced', 'aggressive'].includes(String(recommendation.body.recommendation.preset)));
+    assert.ok(Number.isFinite(Number(recommendation.body.recommendation.confidence)));
+    assert.ok(Array.isArray(recommendation.body.recommendation.reasons));
+    assert.ok(recommendation.body.autoApply && typeof recommendation.body.autoApply === 'object');
+    assert.ok(Number.isFinite(Number(recommendation.body.autoApply.minConfidence)));
+    assert.ok(Number.isFinite(Number(recommendation.body.autoApply.minRuns)));
   });
 });
 
