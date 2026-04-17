@@ -2524,3 +2524,19 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
     w `packages/api/test/contracts-v1.test.mjs`.
 - Zaktualizowano inwentarz endpointów:
   - `docs/API_ENDPOINT_INVENTORY.md` (`POST /api/settings/:chatId/global-scan-interval` -> DONE).
+
+## [2026-04-18 01:10:00Z] P0-C settings drop-pct compatibility endpoint implemented
+- Dodano kompatybilny endpoint:
+  - `POST /api/settings/:chatId/drop-pct` w `packages/api/src/runtime/server.mjs`.
+- Zgodność kontraktu legacy:
+  - endpoint waliduje payload i dla brakującego/niepoprawnego `pct` zwraca
+    `400 { error: 'Pct invalid' }`,
+  - dla poprawnego payloadu zapisuje ustawienie i zwraca
+    `{ success, chatId, default_drop_pct }`.
+- Rozszerzono `GET /api/settings/:chatId`:
+  - endpoint zwraca teraz również `default_drop_pct`.
+- Dodano test kontraktowy:
+  - `P0-C: /api/settings/:chatId/drop-pct validates payload and persists default`
+    w `packages/api/test/contracts-v1.test.mjs`.
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`POST /api/settings/:chatId/drop-pct` -> DONE).

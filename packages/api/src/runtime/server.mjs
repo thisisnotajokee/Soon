@@ -2374,6 +2374,7 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
 
       const productIntervalMatch = pathname.match(/^\/api\/settings\/([^/]+)\/product-interval$/);
       const scanIntervalMatch = pathname.match(/^\/api\/settings\/([^/]+)\/scan-interval$/);
+      const settingsDropPctMatch = pathname.match(/^\/api\/settings\/([^/]+)\/drop-pct$/);
       const globalScanIntervalMatch = pathname.match(/^\/api\/settings\/([^/]+)\/global-scan-interval$/);
       const trackingsCacheRuntimeMatch = pathname.match(/^\/api\/settings\/([^/]+)\/trackings-cache-runtime$/);
       const trackingsCacheTtlMatch = pathname.match(/^\/api\/settings\/([^/]+)\/trackings-cache-ttl$/);
@@ -2389,11 +2390,13 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           state?.scanIntervalMin === undefined || state?.scanIntervalMin === null
             ? null
             : clampInt(state.scanIntervalMin, 60, 1, 24 * 60);
+        const defaultDropPct = clampInt(state?.default_drop_pct, 10, 1, 90);
         return sendJson(res, 200, {
           chatId,
           productIntervalMin,
           notificationsEnabled: true,
           scanIntervalMin,
+          default_drop_pct: defaultDropPct,
           updatedAt: state?.updatedAt ?? null,
         });
       }
@@ -2504,6 +2507,29 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           scan_interval_hours: hours,
           next_scan_at: nextScanAt,
         });
+      }
+
+      if (method === 'POST' && settingsDropPctMatch) {
+        const chatId = normalizeChatId(settingsDropPctMatch[1]);
+        const requestId = resolveCompatRequestId(req);
+        const body = await readJsonBody(req).catch(() => ({}));
+        const rawPct = body.pct ?? body.dropPct ?? body.default_drop_pct ?? body.value;
+        if (rawPct === undefined || rawPct === null || rawPct === '' || Number.isNaN(Number(rawPct))) {
+          return sendJson(res, 400, { error: 'Pct invalid', requestId });
+        }
+        const pct = clampInt(rawPct, 10, 1, 90);
+        const currentState = store.getRuntimeState ? await store.getRuntimeState(buildChatSettingsStateKey(chatId)) : null;
+        const previous = currentState?.stateValue ?? {};
+        const state = {
+          ...previous,
+          chatId,
+          default_drop_pct: pct,
+          updatedAt: new Date().toISOString(),
+        };
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(buildChatSettingsStateKey(chatId), state);
+        }
+        return sendJson(res, 200, { success: true, chatId, default_drop_pct: pct });
       }
 
       if (method === 'POST' && productIntervalMatch) {

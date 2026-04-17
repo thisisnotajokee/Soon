@@ -548,6 +548,38 @@ test('P0-C: /api/settings/:chatId/global-scan-interval requires admin and valida
   }
 });
 
+test('P0-C: /api/settings/:chatId/drop-pct validates payload and persists default', async () => {
+  await withServer(async (baseUrl) => {
+    const invalid = await readJson(
+      await fetch(`${baseUrl}/api/settings/777/drop-pct`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-request-id': 'req-drop-invalid' },
+        body: JSON.stringify({}),
+      }),
+    );
+    assert.equal(invalid.status, 400);
+    assert.equal(invalid.body.error, 'Pct invalid');
+    assert.equal(invalid.body.requestId, 'req-drop-invalid');
+
+    const ok = await readJson(
+      await fetch(`${baseUrl}/api/settings/777/drop-pct`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-request-id': 'req-drop-ok' },
+        body: JSON.stringify({ pct: 24 }),
+      }),
+    );
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.success, true);
+    assert.equal(ok.body.chatId, '777');
+    assert.equal(ok.body.default_drop_pct, 24);
+
+    const settings = await readJson(await fetch(`${baseUrl}/api/settings/777`));
+    assert.equal(settings.status, 200);
+    assert.equal(settings.body.chatId, '777');
+    assert.equal(settings.body.default_drop_pct, 24);
+  });
+});
+
 test('P0-C: admin bulk tracking compatibility endpoints', async () => {
   const previousAdminId = process.env.SOON_ADMIN_ID;
   process.env.SOON_ADMIN_ID = '2041';
