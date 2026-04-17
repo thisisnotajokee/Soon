@@ -531,6 +531,38 @@ export function createInMemoryStore() {
     };
   }
 
+  async function deleteAllCatalogDataGlobal(options = {}) {
+    const purgeAlertHistory = options?.purgeAlertHistory === true;
+    const trackingsCount = byAsin.size;
+    byAsin.clear();
+    trackingGlobalInactiveAsins.clear();
+    trackingGlobalDomainDisabled.clear();
+
+    return {
+      products: trackingsCount,
+      trackings: trackingsCount,
+      alert_log: purgeAlertHistory ? 0 : 0,
+      alert_log_preserved: !purgeAlertHistory,
+    };
+  }
+
+  async function deleteCatalogProductGlobal(asin, options = {}) {
+    const safeAsin = String(asin ?? '').trim();
+    const purgeAlertHistory = options?.purgeAlertHistory === true;
+    if (!safeAsin) return { products: 0, trackings: 0, alert_log_preserved: !purgeAlertHistory, chat_ids: [] };
+
+    const existed = byAsin.delete(safeAsin);
+    trackingGlobalInactiveAsins.delete(safeAsin);
+    trackingGlobalDomainDisabled.delete(safeAsin);
+    const count = existed ? 1 : 0;
+    return {
+      products: count,
+      trackings: count,
+      alert_log_preserved: !purgeAlertHistory,
+      chat_ids: [],
+    };
+  }
+
   async function getPriceHistory(asin, limit = 180) {
     const key = String(asin ?? '').trim();
     const item = byAsin.get(key);
@@ -1027,6 +1059,8 @@ export function createInMemoryStore() {
     activateAllTrackingsGlobal,
     deactivateTrackingsDomainsGlobal,
     activateTrackingsDomainsGlobal,
+    deleteAllCatalogDataGlobal,
+    deleteCatalogProductGlobal,
     getPriceHistory,
     recordAutomationCycle,
     listLatestAutomationRuns,

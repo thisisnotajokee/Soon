@@ -2367,3 +2367,20 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - `packages/api/test/contracts-v1.test.mjs` (`P0-C: admin bulk tracking compatibility endpoints`).
 - Zaktualizowano inwentarz endpointów:
   - `docs/API_ENDPOINT_INVENTORY.md` (4 endpointy admin bulk -> DONE).
+
+## [2026-04-17 22:20:00Z] P0-C admin catalog delete endpoints implemented
+- Dodano kompatybilne endpointy admin katalogu w `packages/api/src/runtime/server.mjs`:
+  - `DELETE /admin-api/data/products-global`
+  - `DELETE /admin-api/data/products/:asin`
+- Zachowany kontrakt legacy:
+  - admin auth (`SOON_ADMIN_ID` + `x-telegram-user-id`),
+  - `confirmText === DELETE_ALL_PRODUCTS` dla global delete,
+  - `mode` (`catalog_keep_alert_history` / `catalog_with_alert_history`),
+  - single delete wspiera `purgeAlertHistory`.
+- Dodano obsługę store:
+  - `packages/api/src/runtime/in-memory-store.mjs`
+  - `packages/api/src/runtime/postgres-store.mjs`
+- Dodano test kontraktowy:
+  - `P0-C: admin catalog delete compatibility endpoints` w `packages/api/test/contracts-v1.test.mjs`.
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md` (2 endpointy admin katalogu -> DONE).

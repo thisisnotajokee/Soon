@@ -1989,6 +1989,68 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         });
       }
 
+      if (method === 'DELETE' && pathname === '/admin-api/data/products-global') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!userId || !adminId || userId !== adminId) {
+          return sendJson(res, 403, { error: 'forbidden', requestId });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        const confirmText = String(body?.confirmText ?? '').trim();
+        if (confirmText !== 'DELETE_ALL_PRODUCTS') {
+          return sendJson(res, 400, { error: 'confirmText must be DELETE_ALL_PRODUCTS', requestId });
+        }
+        const mode = String(body?.mode ?? 'catalog_keep_alert_history').trim().toLowerCase();
+        if (!['catalog_keep_alert_history', 'catalog_with_alert_history'].includes(mode)) {
+          return sendJson(res, 400, { error: 'Invalid mode', requestId });
+        }
+        if (!store.deleteAllCatalogDataGlobal) {
+          return sendJson(res, 501, { error: 'not_implemented', requestId });
+        }
+        const purgeAlertHistory = mode === 'catalog_with_alert_history';
+        const deleted = await store.deleteAllCatalogDataGlobal({ purgeAlertHistory });
+        return sendJson(res, 200, {
+          success: true,
+          mode,
+          deleted,
+          action: 'global_catalog_delete',
+          executedBy: adminId,
+          executedAt: new Date().toISOString(),
+          requestId,
+        });
+      }
+
+      const adminDeleteSingleMatch = pathname.match(/^\/admin-api\/data\/products\/([^/]+)$/);
+      if (method === 'DELETE' && adminDeleteSingleMatch) {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!userId || !adminId || userId !== adminId) {
+          return sendJson(res, 403, { error: 'forbidden', requestId });
+        }
+        const asin = decodeURIComponent(adminDeleteSingleMatch[1]).trim().toUpperCase();
+        if (!asin) {
+          return sendJson(res, 400, { error: 'invalid_asin', requestId });
+        }
+        if (!store.deleteCatalogProductGlobal) {
+          return sendJson(res, 501, { error: 'not_implemented', requestId });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        const purgeAlertHistory = body?.purgeAlertHistory === true || url.searchParams.get('purgeAlertHistory') === '1';
+        const deleted = await store.deleteCatalogProductGlobal(asin, { purgeAlertHistory });
+        return sendJson(res, 200, {
+          success: true,
+          asin,
+          mode: purgeAlertHistory ? 'product_with_alert_history' : 'product_keep_alert_history',
+          deleted,
+          action: 'global_catalog_delete_single',
+          executedBy: adminId,
+          executedAt: new Date().toISOString(),
+          requestId,
+        });
+      }
+
       if (method === 'GET' && pathname === '/trackings') {
         const items = await store.listTrackings();
         return sendJson(res, 200, {
