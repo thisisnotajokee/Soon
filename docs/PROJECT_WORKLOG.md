@@ -2406,3 +2406,14 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - walidacja obecności zapisanych ASIN i pól kompatybilności.
 - Zaktualizowano inwentarz endpointów:
   - `docs/API_ENDPOINT_INVENTORY.md` (`GET /api/trackings/:chatId` -> DONE).
+
+## [2026-04-17 23:00:00Z] P0-C refresh-budget compatibility endpoint implemented
+- Dodano kompatybilny endpoint:
+  - `GET /api/refresh-budget/:chatId` w `packages/api/src/runtime/server.mjs`.
+- Zachowanie kompatybilne:
+  - dla non-admin: `{ restricted: true, reason: 'free_plan_no_manual_refresh' }`,
+  - dla admin (`SOON_ADMIN_ID`): status budżetu (`budget`, `used`, `remaining`, `retryInSec`, `bucket`).
+- Rozszerzono test kontraktowy `P0-C`:
+  - walidacja obu ścieżek (`restricted` i status admin).
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`GET /api/refresh-budget/:chatId` -> DONE).
