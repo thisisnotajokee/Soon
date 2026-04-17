@@ -2023,3 +2023,20 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ### Weryfikacja
 - `npm run test:contracts` -> PASS (`43/43`).
+
+## [2026-04-17 17:20:00Z] P0-D Keepa Core compatibility endpoints implemented
+- Wdrożono endpointy Keepa Core w `packages/api/src/runtime/server.mjs`:
+  - `GET /api/keepa/status`
+  - `GET /api/keepa/deals`
+  - `GET /api/keepa/history/:asin`
+  - `POST /api/keepa/watch-state/ingest`
+  - `POST /api/keepa/events/ingest`
+  - `GET /api/keepa/token-usage`
+- Dodano persistence Keepa ingest przez `runtime_state`:
+  - status, watch-index, events, deals, token-usage.
+- Zaktualizowano checklistę cutover:
+  - `docs/CUTOVER_P0_CONTRACT_SET_V1.md`: cały `P0-D` oznaczony jako `DONE`.
+- Dodano testy kontraktowe P0-D:
+  - ingest watch-state + status
+  - ingest events + deals + token-usage
+  - keepa history alias

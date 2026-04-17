@@ -45,12 +45,12 @@ Statusy:
 
 ## P0-D. Keepa Core
 
-1. `GET /api/keepa/status` — `MISSING`
-2. `GET /api/keepa/deals` — `MISSING`
-3. `GET /api/keepa/history/:asin` — `MISSING`
-4. `POST /api/keepa/watch-state/ingest` — `MISSING`
-5. `POST /api/keepa/events/ingest` — `MISSING`
-6. `GET /api/keepa/token-usage` — `MISSING`
+1. `GET /api/keepa/status` — `DONE`
+2. `GET /api/keepa/deals` — `DONE`
+3. `GET /api/keepa/history/:asin` — `DONE`
+4. `POST /api/keepa/watch-state/ingest` — `DONE`
+5. `POST /api/keepa/events/ingest` — `DONE`
+6. `GET /api/keepa/token-usage` — `DONE`
 
 ## P0-E. Hunter Core (backend only)
 
