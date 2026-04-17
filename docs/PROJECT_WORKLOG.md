@@ -2437,3 +2437,19 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
     - `POST /api/refresh/:asin` -> DONE.
 - Weryfikacja:
   - `npm --prefix /home/piotras/Soon run -s test:contracts` -> PASS (53/53).
+
+## [2026-04-17 23:35:00Z] P0-C settings read compatibility endpoint implemented
+- Dodano kompatybilny endpoint:
+  - `GET /api/settings/:chatId` w `packages/api/src/runtime/server.mjs`.
+- Endpoint zwraca podstawowe ustawienia legacy-compatible:
+  - `chatId`,
+  - `productIntervalMin`,
+  - `notificationsEnabled`,
+  - `scanIntervalMin`,
+  - `updatedAt`.
+- Rozszerzono test kontraktowy `P0-C: snooze + product interval settings contracts`:
+  - po zapisie `POST /api/settings/:chatId/product-interval` wykonywany jest odczyt `GET /api/settings/:chatId` i walidacja payloadu.
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md`:
+    - `GET /api/settings/:chatId` -> DONE,
+    - `POST /api/settings/:chatId/product-interval` -> DONE.
