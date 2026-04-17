@@ -131,6 +131,103 @@ function summarizeAutomationRuns(items, limit) {
   };
 }
 
+function classifyHunterTrendLabel(slopePctPerDay) {
+  const slope = Number(slopePctPerDay);
+  if (!Number.isFinite(slope)) return 'stable';
+  if (slope <= -2) return 'down_strong';
+  if (slope <= -0.2) return 'down';
+  if (slope >= 2) return 'up_strong';
+  if (slope >= 0.2) return 'up';
+  return 'stable';
+}
+
+function percentileVolatility(values) {
+  if (!Array.isArray(values) || values.length < 2) return 0;
+  const nums = values.map((value) => Number(value)).filter((value) => Number.isFinite(value) && value > 0);
+  if (nums.length < 2) return 0;
+  const mean = nums.reduce((acc, value) => acc + value, 0) / nums.length;
+  if (!Number.isFinite(mean) || mean <= 0) return 0;
+  const variance = nums.reduce((acc, value) => acc + (value - mean) ** 2, 0) / nums.length;
+  const stdDev = Math.sqrt(Math.max(0, variance));
+  return Number(((stdDev / mean) * 100).toFixed(4));
+}
+
+function buildHunterTrendFeatureRows({ tracking, historyPoints, lookbackHours }) {
+  if (!tracking || typeof tracking !== 'object') return [];
+  const asin = String(tracking.asin ?? '').trim();
+  if (!asin) return [];
+  const pricesNew = tracking.pricesNew && typeof tracking.pricesNew === 'object' ? tracking.pricesNew : {};
+  const domains = Object.keys(pricesNew).filter((domain) => /^[a-z]{2}$/.test(domain.toLowerCase()));
+  const fallbackDomain = 'de';
+  const usedDomains = domains.length ? domains : [fallbackDomain];
+
+  const nowMs = Date.now();
+  const lookbackMs = Math.max(1, Number(lookbackHours) || 24 * 7) * 60 * 60 * 1000;
+  const oldestAllowed = nowMs - lookbackMs;
+  const sortedHistory = (Array.isArray(historyPoints) ? historyPoints : [])
+    .map((item) => ({
+      ts: Date.parse(item?.ts ?? ''),
+      value: Number(item?.value),
+    }))
+    .filter((item) => Number.isFinite(item.ts) && Number.isFinite(item.value) && item.value > 0 && item.ts >= oldestAllowed)
+    .sort((a, b) => a.ts - b.ts);
+
+  if (sortedHistory.length < 2) {
+    const latestTs = new Date(Date.parse(tracking.updatedAt ?? '') || nowMs).toISOString();
+    return usedDomains.map((domain) => {
+      const marketPrice = Number(pricesNew[domain]);
+      return {
+        asin,
+        title: tracking.title ?? null,
+        domain,
+        lookbackHours: Number(lookbackHours),
+        points: sortedHistory.length,
+        slopePctPerDay: 0,
+        momentum24hPct: 0,
+        volatilityPct: 0,
+        trendLabel: 'stable',
+        latestPrice: Number.isFinite(marketPrice) ? Number(marketPrice.toFixed(2)) : null,
+        latestTs,
+        source: 'tracking-snapshot-v1',
+      };
+    });
+  }
+  const first = sortedHistory[0];
+  const last = sortedHistory[sortedHistory.length - 1];
+  const spanDays = Math.max((last.ts - first.ts) / (24 * 60 * 60 * 1000), 1 / 24);
+  const slopePctPerDay = Number((((last.value - first.value) / first.value) * 100 / spanDays).toFixed(4));
+
+  const target24hTs = last.ts - 24 * 60 * 60 * 1000;
+  const closest24h = sortedHistory.reduce((best, point) => {
+    if (!best) return point;
+    return Math.abs(point.ts - target24hTs) < Math.abs(best.ts - target24hTs) ? point : best;
+  }, null);
+  const momentum24hPct =
+    closest24h && Number.isFinite(closest24h.value) && closest24h.value > 0
+      ? Number((((last.value - closest24h.value) / closest24h.value) * 100).toFixed(4))
+      : 0;
+
+  const volatilityPct = percentileVolatility(sortedHistory.map((item) => item.value));
+  const trendLabel = classifyHunterTrendLabel(slopePctPerDay);
+  return usedDomains.map((domain) => {
+    const marketPrice = Number(pricesNew[domain]);
+    return {
+      asin,
+      title: tracking.title ?? null,
+      domain,
+      lookbackHours: Number(lookbackHours),
+      points: sortedHistory.length,
+      slopePctPerDay,
+      momentum24hPct,
+      volatilityPct,
+      trendLabel,
+      latestPrice: Number.isFinite(marketPrice) ? Number(marketPrice.toFixed(2)) : Number(last.value.toFixed(2)),
+      latestTs: new Date(last.ts).toISOString(),
+      source: 'tracking-history-v1',
+    };
+  });
+}
+
 function dayKeyFromTimestamp(ts) {
   return new Date(ts).toISOString().slice(0, 10);
 }
@@ -2097,6 +2194,76 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
                 alertCount: latest.alertCount,
               }
             : null,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/hunter-trend-features') {
+        const rawHours = Number(url.searchParams.get('hours') ?? 24 * 7);
+        const hours = Math.max(24, Math.min(24 * 180, Number.isFinite(rawHours) ? rawHours : 24 * 7));
+        const rawLimit = Number(url.searchParams.get('limit') ?? 400);
+        const limit = Math.max(20, Math.min(5000, Number.isFinite(rawLimit) ? rawLimit : 400));
+        const domainRaw = String(url.searchParams.get('domain') ?? '').trim().toLowerCase();
+        const domain = ['de', 'it', 'fr', 'es', 'uk', 'nl'].includes(domainRaw) ? domainRaw : null;
+        const trendRaw = String(url.searchParams.get('trend') ?? '').trim().toLowerCase();
+        const trend = ['down_strong', 'down', 'stable', 'up', 'up_strong'].includes(trendRaw) ? trendRaw : null;
+        const asins = String(url.searchParams.get('asins') ?? '')
+          .split(',')
+          .map((item) => item.trim().toUpperCase())
+          .filter((asin) => /^[A-Z0-9]{10}$/.test(asin))
+          .slice(0, 300);
+        const asinFilter = asins.length ? new Set(asins) : null;
+
+        const trackings = await store.listTrackings();
+        const scopedTrackings = asinFilter ? trackings.filter((item) => asinFilter.has(String(item.asin ?? '').toUpperCase())) : trackings;
+
+        const rows = [];
+        for (const tracking of scopedTrackings) {
+          const historyPoints = store.getPriceHistory
+            ? await store.getPriceHistory(tracking.asin, Math.max(48, Math.ceil(hours / 24) * 24))
+            : [];
+          rows.push(...buildHunterTrendFeatureRows({ tracking, historyPoints, lookbackHours: hours }));
+        }
+
+        const filteredRows = rows
+          .filter((row) => (domain ? row.domain === domain : true))
+          .filter((row) => (trend ? row.trendLabel === trend : true))
+          .sort((a, b) => Math.abs(Number(b.slopePctPerDay ?? 0)) - Math.abs(Number(a.slopePctPerDay ?? 0)))
+          .slice(0, limit);
+
+        const summaryMap = filteredRows.reduce((acc, row) => {
+          const key = row.trendLabel ?? 'unknown';
+          if (!acc.has(key)) {
+            acc.set(key, { trendLabel: key, count: 0, slopeSum: 0, momentumSum: 0, volatilitySum: 0 });
+          }
+          const item = acc.get(key);
+          item.count += 1;
+          item.slopeSum += Number(row.slopePctPerDay ?? 0);
+          item.momentumSum += Number(row.momentum24hPct ?? 0);
+          item.volatilitySum += Number(row.volatilityPct ?? 0);
+          return acc;
+        }, new Map());
+
+        const summary = [...summaryMap.values()]
+          .map((item) => ({
+            trendLabel: item.trendLabel,
+            count: item.count,
+            avgSlopePctPerDay: item.count ? Number((item.slopeSum / item.count).toFixed(4)) : 0,
+            avgMomentum24hPct: item.count ? Number((item.momentumSum / item.count).toFixed(4)) : 0,
+            avgVolatilityPct: item.count ? Number((item.volatilitySum / item.count).toFixed(4)) : 0,
+          }))
+          .sort((a, b) => b.count - a.count);
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          lookbackHours: hours,
+          filtered: {
+            domain: domain ?? 'all',
+            trend: trend ?? 'all',
+            asins: asins.length,
+          },
+          count: filteredRows.length,
+          summary,
+          rows: filteredRows,
         });
       }
 
