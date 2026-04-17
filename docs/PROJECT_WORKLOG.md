@@ -2493,3 +2493,20 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
     w `packages/api/test/contracts-v1.test.mjs`.
 - Zaktualizowano inwentarz endpointów:
   - `docs/API_ENDPOINT_INVENTORY.md` (`GET /api/settings/:chatId/trackings-cache-runtime` -> DONE).
+
+## [2026-04-18 00:35:00Z] P0-C trackings-cache-ttl compatibility endpoint implemented
+- Dodano kompatybilny endpoint:
+  - `POST /api/settings/:chatId/trackings-cache-ttl` w `packages/api/src/runtime/server.mjs`.
+- Zgodność kontraktu legacy:
+  - endpoint wymaga admin auth (`x-telegram-user-id` == `SOON_ADMIN_ID`),
+  - dla braku uprawnień zwraca `403 { error: 'forbidden' }`,
+  - dla admin zapisuje `ttl_ms` (0..300000) i zwraca `{ success, runtime }`.
+- Runtime cache:
+  - zapis TTL aktualizuje `trackings_cache_runtime`,
+  - `GET /api/settings/:chatId/trackings-cache-runtime` widzi nowe `ttlMs`.
+- Rozszerzono test kontraktowy:
+  - `P0-C: /api/settings/:chatId/trackings-cache-runtime requires admin and returns runtime payload`:
+    - walidacja `403` dla POST TTL bez uprawnień,
+    - walidacja poprawnego zapisu TTL i odczytu po GET runtime.
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`POST /api/settings/:chatId/trackings-cache-ttl` -> DONE).

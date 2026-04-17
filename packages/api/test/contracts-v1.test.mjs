@@ -455,6 +455,45 @@ test('P0-C: /api/settings/:chatId/trackings-cache-runtime requires admin and ret
       assert.ok(Array.isArray(ok.body.history));
       assert.ok(ok.body.history.length >= 1);
       assert.ok(ok.body.autotune === null || typeof ok.body.autotune === 'object');
+
+      const ttlForbidden = await readJson(
+        await fetch(`${baseUrl}/api/settings/2041/trackings-cache-ttl`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-telegram-user-id': '9999',
+            'x-request-id': 'req-cache-ttl-forbidden',
+          },
+          body: JSON.stringify({ ttl_ms: 45000 }),
+        }),
+      );
+      assert.equal(ttlForbidden.status, 403);
+      assert.equal(ttlForbidden.body.error, 'forbidden');
+      assert.equal(ttlForbidden.body.requestId, 'req-cache-ttl-forbidden');
+
+      const ttlUpdated = await readJson(
+        await fetch(`${baseUrl}/api/settings/2041/trackings-cache-ttl`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-telegram-user-id': '2041',
+            'x-request-id': 'req-cache-ttl-ok',
+          },
+          body: JSON.stringify({ ttl_ms: 45000 }),
+        }),
+      );
+      assert.equal(ttlUpdated.status, 200);
+      assert.equal(ttlUpdated.body.success, true);
+      assert.equal(ttlUpdated.body.chatId, '2041');
+      assert.equal(ttlUpdated.body.runtime.ttlMs, 45000);
+
+      const runtimeAfterTtl = await readJson(
+        await fetch(`${baseUrl}/api/settings/2041/trackings-cache-runtime`, {
+          headers: { 'x-telegram-user-id': '2041' },
+        }),
+      );
+      assert.equal(runtimeAfterTtl.status, 200);
+      assert.equal(runtimeAfterTtl.body.runtime.ttlMs, 45000);
     });
   } finally {
     if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
