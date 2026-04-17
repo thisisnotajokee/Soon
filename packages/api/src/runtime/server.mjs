@@ -45,6 +45,9 @@ const KEEPA_DEALS_STATE_KEY = 'keepa_deals';
 const KEEPA_TOKEN_USAGE_STATE_KEY = 'keepa_token_usage';
 const HUNTER_CUSTOM_CONFIG_STATE_KEY = 'hunter_custom_config';
 const HUNTER_LAST_RUN_STATE_KEY = 'hunter_last_run';
+const HUNTER_STRATEGY_LAST_STATE_KEY = 'hunter_strategy_last';
+const HUNTER_STRATEGY_STATUS_STATE_KEY = 'hunter_strategy_status';
+const HUNTER_STRATEGY_REPLAY_STATE_KEY = 'hunter_strategy_replay';
 const TOKEN_BUDGET_PROBE_DEFAULT_COOLDOWN_SEC = 24 * 60 * 60;
 const TOKEN_BUDGET_PROBE_AUTOTUNE_FALLBACK_MIN_COOLDOWN_SEC = 6 * 60 * 60;
 const TOKEN_BUDGET_PROBE_AUTOTUNE_FALLBACK_HIGH_COOLDOWN_SEC = 12 * 60 * 60;
@@ -2324,6 +2327,24 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           presets,
           triggers: triggerSummary,
           schedulerHunter: {},
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/hunter-bandit-context') {
+        const [lastState, strategyStatusState, replayState] = store.getRuntimeState
+          ? await Promise.all([
+              store.getRuntimeState(HUNTER_STRATEGY_LAST_STATE_KEY),
+              store.getRuntimeState(HUNTER_STRATEGY_STATUS_STATE_KEY),
+              store.getRuntimeState(HUNTER_STRATEGY_REPLAY_STATE_KEY),
+            ])
+          : [null, null, null];
+
+        return sendJson(res, 200, {
+          last: lastState?.stateValue ?? null,
+          status: strategyStatusState?.stateValue ?? null,
+          replay: replayState?.stateValue ?? null,
+          schedulerHunter: {},
+          schedulerRuntime: {},
         });
       }
 

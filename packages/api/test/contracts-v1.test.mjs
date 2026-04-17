@@ -377,6 +377,14 @@ test('P0-E: hunter run-now + slo + smart-engine + autonomy-health endpoints', as
     assert.ok(Array.isArray(efficiency.body.presets));
     assert.ok(efficiency.body.triggers && typeof efficiency.body.triggers === 'object');
 
+    const banditContext = await readJson(await fetch(`${baseUrl}/api/hunter-bandit-context`));
+    assert.equal(banditContext.status, 200);
+    assert.ok(Object.hasOwn(banditContext.body, 'last'));
+    assert.ok(Object.hasOwn(banditContext.body, 'status'));
+    assert.ok(Object.hasOwn(banditContext.body, 'replay'));
+    assert.ok(Object.hasOwn(banditContext.body, 'schedulerHunter'));
+    assert.ok(Object.hasOwn(banditContext.body, 'schedulerRuntime'));
+
     const trendFeatures = await readJson(
       await fetch(`${baseUrl}/api/hunter-trend-features?hours=168&limit=50&domain=de`),
     );

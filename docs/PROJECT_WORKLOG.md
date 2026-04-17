@@ -2107,3 +2107,22 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ### Weryfikacja
 - `npm run -s test:contracts` -> PASS.
+
+## [2026-04-17 19:05:00Z] Hunter bandit-context compatibility endpoint implemented
+- Dodano endpoint `GET /api/hunter-bandit-context` w `packages/api/src/runtime/server.mjs`.
+- Endpoint zwraca kompatybilny payload:
+  - `last`,
+  - `status`,
+  - `replay`,
+  - `schedulerHunter`,
+  - `schedulerRuntime`.
+- Dane `last/status/replay` są pobierane z `runtime_state`:
+  - `hunter_strategy_last`,
+  - `hunter_strategy_status`,
+  - `hunter_strategy_replay`.
+- Dodano test kontraktowy endpointu do `packages/api/test/contracts-v1.test.mjs`.
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md`: `GET /api/hunter-bandit-context` -> `DONE` (runtime path).
+
+### Weryfikacja
+- `npm run -s test:contracts` -> PASS.
