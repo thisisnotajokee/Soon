@@ -10,6 +10,27 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ---
 
+## [2026-04-17 20:35:00Z] Hunter ML engine + high-value metrics compatibility endpoints implemented
+
+### Scope
+
+- Added `GET /api/hunter-ml-engine` in Soon runtime API with legacy-compatible envelope:
+  `model`, `summary`, `rollout`, `smartEngine`.
+- Added `GET /api/hunter-high-value-metrics` in Soon runtime API with legacy-compatible KPI fields:
+  `runs`, `deals`, `tokens`, `avgPrice`, `avgDiscount`, `highValueHits`, `tokensPerDeal`, `hitShare`.
+- Added contract coverage for both endpoints in `packages/api/test/contracts-v1.test.mjs`.
+- Updated endpoint migration inventory to mark both hunter ops endpoints as implemented in Soon runtime.
+
+### Validation
+
+- `npm run -s test:contracts` -> PASS
+
+### Next
+
+- Continue hunter migration with `GET /api/hunter-category-pauses` and `POST /api/hunter-category-pauses/unpause`.
+
+---
+
 ## [2026-04-17 20:10:00Z] Hunter trend autotune health compatibility endpoint implemented
 
 ### Scope

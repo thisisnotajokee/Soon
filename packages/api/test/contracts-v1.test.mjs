@@ -433,6 +433,27 @@ test('P0-E: hunter run-now + slo + smart-engine + autonomy-health endpoints', as
     assert.ok(trendAutotuneHealth.body.rates && typeof trendAutotuneHealth.body.rates === 'object');
     assert.ok(trendAutotuneHealth.body.runMetrics && typeof trendAutotuneHealth.body.runMetrics === 'object');
     assert.ok(Object.hasOwn(trendAutotuneHealth.body, 'latest'));
+
+    const mlEngine = await readJson(await fetch(`${baseUrl}/api/hunter-ml-engine?hours=168`));
+    assert.equal(mlEngine.status, 200);
+    assert.ok(mlEngine.body.model && typeof mlEngine.body.model === 'object');
+    assert.ok(mlEngine.body.summary && typeof mlEngine.body.summary === 'object');
+    assert.ok(mlEngine.body.rollout && typeof mlEngine.body.rollout === 'object');
+    assert.ok(Object.hasOwn(mlEngine.body, 'smartEngine'));
+    assert.ok(Number.isFinite(Number(mlEngine.body.model.canaryPct)));
+    assert.ok(Array.isArray(mlEngine.body.summary.decisions));
+
+    const highValueMetrics = await readJson(await fetch(`${baseUrl}/api/hunter-high-value-metrics?hours=336`));
+    assert.equal(highValueMetrics.status, 200);
+    assert.ok(Number.isFinite(Number(highValueMetrics.body.windowHours)));
+    assert.ok(Number.isFinite(Number(highValueMetrics.body.runs)));
+    assert.ok(Number.isFinite(Number(highValueMetrics.body.deals)));
+    assert.ok(Number.isFinite(Number(highValueMetrics.body.tokens)));
+    assert.ok(Number.isFinite(Number(highValueMetrics.body.avgPrice)));
+    assert.ok(Number.isFinite(Number(highValueMetrics.body.avgDiscount)));
+    assert.ok(Number.isFinite(Number(highValueMetrics.body.highValueHits)));
+    assert.ok(Number.isFinite(Number(highValueMetrics.body.tokensPerDeal)));
+    assert.ok(Number.isFinite(Number(highValueMetrics.body.hitShare)));
   });
 });
 
