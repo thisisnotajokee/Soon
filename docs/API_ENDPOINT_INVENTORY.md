@@ -8,7 +8,7 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [x] `POST /admin-api/trackings/activate-domains` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /admin-api/trackings/deactivate-all` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /admin-api/trackings/deactivate-domains` — `packages/api/src/runtime/server.mjs`
-- [ ] `POST /api/add-product` — `src/routes/api/trackings/routes/mutate.js`
+- [x] `POST /api/add-product` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/ai/actions/:asin` — `src/routes/api/ai/routes/actions.js`
 - [ ] `POST /api/ai/actions/:asin/apply` — `src/routes/api/ai/routes/actions.js`
 - [ ] `GET /api/ai/analyze/:asin` — `src/routes/api/ai/routes/analysis.js`

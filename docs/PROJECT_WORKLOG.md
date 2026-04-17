@@ -2384,3 +2384,14 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - `P0-C: admin catalog delete compatibility endpoints` w `packages/api/test/contracts-v1.test.mjs`.
 - Zaktualizowano inwentarz endpointów:
   - `docs/API_ENDPOINT_INVENTORY.md` (2 endpointy admin katalogu -> DONE).
+
+## [2026-04-17 22:35:00Z] P0-C add-product compatibility alias implemented
+- Dodano endpoint kompatybilny:
+  - `POST /api/add-product` w `packages/api/src/runtime/server.mjs`.
+- Endpoint działa jako alias do `saveTracking` i zwraca ten sam contract (`status: saved`, `item`).
+- Rozszerzono test kontraktowy `P0-C`:
+  - zapis przez `/api/add-product`,
+  - widoczność nowego ASIN w `/api/dashboard/:chatId`,
+  - brak regresji po usunięciu innego trackingu.
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`POST /api/add-product` -> DONE).
