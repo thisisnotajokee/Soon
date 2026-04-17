@@ -265,6 +265,15 @@ test('P0-C: /api/trackings/save + /api/dashboard/:chatId + DELETE /api/trackings
     assert.ok(dashboard.body.items.some((item) => item.asin === asin));
     assert.ok(dashboard.body.items.some((item) => item.asin === asinAlias));
 
+    const trackingsCompat = await readJson(await fetch(`${baseUrl}/api/trackings/${chatId}`));
+    assert.equal(trackingsCompat.status, 200);
+    assert.ok(Array.isArray(trackingsCompat.body));
+    assert.ok(trackingsCompat.body.some((item) => item.asin === asin));
+    assert.ok(trackingsCompat.body.some((item) => item.asin === asinAlias));
+    const sampleCompat = trackingsCompat.body.find((item) => item.asin === asinAlias);
+    assert.equal(sampleCompat?.last_checked, null);
+    assert.equal(sampleCompat?.chat_id, chatId);
+
     const removed = await readJson(await fetch(`${baseUrl}/api/trackings/${chatId}/${asin}`, { method: 'DELETE' }));
     assert.equal(removed.status, 200);
     assert.equal(removed.body.status, 'deleted');

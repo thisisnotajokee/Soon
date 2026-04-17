@@ -2134,6 +2134,18 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         return sendJson(res, 200, { status: 'deleted', asin, chatId });
       }
 
+      const trackingsListMatch = pathname.match(/^\/api\/trackings\/([^/]+)$/);
+      if (method === 'GET' && trackingsListMatch) {
+        const chatId = normalizeChatId(trackingsListMatch[1]);
+        const items = await store.listTrackings();
+        const rows = items.map((item) => ({
+          ...item,
+          last_checked: null,
+          chat_id: chatId,
+        }));
+        return sendJson(res, 200, rows);
+      }
+
       const dashboardMatch = pathname.match(/^\/api\/dashboard\/([^/]+)$/);
       if (method === 'GET' && dashboardMatch) {
         const chatId = normalizeChatId(dashboardMatch[1]);
