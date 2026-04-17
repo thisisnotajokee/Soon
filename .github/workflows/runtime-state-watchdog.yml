@@ -15,7 +15,6 @@ jobs:
       SOON_RUNTIME_BEARER_TOKEN: ${{ secrets.SOON_RUNTIME_BEARER_TOKEN }}
       SOON_RUNTIME_API_KEY: ${{ secrets.SOON_RUNTIME_API_KEY }}
       SOON_TOKEN_PROBE_RESET_OPS_KEY: ${{ secrets.SOON_TOKEN_PROBE_RESET_OPS_KEY }}
-      SOON_RUNTIME_PROBE_RESET_OPS_KEY_LEGACY: ${{ secrets.SOON_RUNTIME_PROBE_RESET_OPS_KEY }}
       SOON_SELF_HEAL_COOLDOWN_WARN_SEC: ${{ vars.SOON_SELF_HEAL_COOLDOWN_WARN_SEC || '1800' }}
       SOON_SELF_HEAL_COOLDOWN_CRIT_SEC: ${{ vars.SOON_SELF_HEAL_COOLDOWN_CRIT_SEC || '7200' }}
       SOON_PROBE_RESET_PREFLIGHT_REQUIRE_GUARD: ${{ vars.SOON_PROBE_RESET_PREFLIGHT_REQUIRE_GUARD || '0' }}
@@ -53,11 +52,7 @@ jobs:
           set -euo pipefail
           mkdir -p ops/reports/doctor
           PROBE_RESET_SECRET_SOURCE="missing"
-          if [ -z "${SOON_TOKEN_PROBE_RESET_OPS_KEY:-}" ] && [ -n "${SOON_RUNTIME_PROBE_RESET_OPS_KEY_LEGACY:-}" ]; then
-            echo "[watchdog] using legacy fallback secret SOON_RUNTIME_PROBE_RESET_OPS_KEY (migrate to SOON_TOKEN_PROBE_RESET_OPS_KEY)"
-            export SOON_TOKEN_PROBE_RESET_OPS_KEY="$SOON_RUNTIME_PROBE_RESET_OPS_KEY_LEGACY"
-            PROBE_RESET_SECRET_SOURCE="legacy_fallback"
-          elif [ -n "${SOON_TOKEN_PROBE_RESET_OPS_KEY:-}" ]; then
+          if [ -n "${SOON_TOKEN_PROBE_RESET_OPS_KEY:-}" ]; then
             PROBE_RESET_SECRET_SOURCE="canonical"
           fi
           export SOON_PROBE_RESET_OPS_KEY_SOURCE="$PROBE_RESET_SECRET_SOURCE"
