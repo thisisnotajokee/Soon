@@ -38,6 +38,9 @@ const TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_STATE_KEY = 'token_budget_probe_ops_ke
 const TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_AUDIT_STATE_KEY = 'token_budget_probe_ops_key_rotation_audit_last';
 const TRACKING_CHAT_SETTINGS_PREFIX = 'tracking_chat_settings:';
 const TRACKING_SNOOZE_PREFIX = 'tracking_snooze:';
+const TRACKINGS_CACHE_RUNTIME_STATE_KEY = 'trackings_cache_runtime';
+const TRACKINGS_CACHE_AUTOTUNE_LAST_STATE_KEY = 'trackings_cache_autotune_last';
+const TRACKINGS_CACHE_RUNTIME_HISTORY_STATE_KEY = 'trackings_cache_runtime_history';
 const KEEPA_STATUS_STATE_KEY = 'keepa_status';
 const KEEPA_WATCH_INDEX_STATE_KEY = 'keepa_watch_index';
 const KEEPA_EVENTS_STATE_KEY = 'keepa_events';
@@ -2370,6 +2373,7 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
 
       const productIntervalMatch = pathname.match(/^\/api\/settings\/([^/]+)\/product-interval$/);
       const scanIntervalMatch = pathname.match(/^\/api\/settings\/([^/]+)\/scan-interval$/);
+      const trackingsCacheRuntimeMatch = pathname.match(/^\/api\/settings\/([^/]+)\/trackings-cache-runtime$/);
       const settingsMatch = pathname.match(/^\/api\/settings\/([^/]+)$/);
       if (method === 'GET' && settingsMatch) {
         const chatId = normalizeChatId(settingsMatch[1]);
@@ -2388,6 +2392,50 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           notificationsEnabled: true,
           scanIntervalMin,
           updatedAt: state?.updatedAt ?? null,
+        });
+      }
+
+      if (method === 'GET' && trackingsCacheRuntimeMatch) {
+        const chatId = normalizeChatId(trackingsCacheRuntimeMatch[1]);
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!userId || !adminId || userId !== adminId) {
+          return sendJson(res, 403, { error: 'forbidden', requestId });
+        }
+
+        const runtimeState = store.getRuntimeState ? await store.getRuntimeState(TRACKINGS_CACHE_RUNTIME_STATE_KEY) : null;
+        const autotuneState = store.getRuntimeState
+          ? await store.getRuntimeState(TRACKINGS_CACHE_AUTOTUNE_LAST_STATE_KEY)
+          : null;
+        const historyState = store.getRuntimeState
+          ? await store.getRuntimeState(TRACKINGS_CACHE_RUNTIME_HISTORY_STATE_KEY)
+          : null;
+
+        const runtime = runtimeState?.stateValue ?? {
+          ttlMs: clampInt(process.env.SOON_TRACKINGS_CACHE_TTL_MS, 30000, 0, 300000),
+          maxEntries: clampInt(process.env.SOON_TRACKINGS_CACHE_MAX_ENTRIES, 1000, 1, 100000),
+          currentEntries: 0,
+          evictionCount: 0,
+        };
+
+        const sample = {
+          ts: new Date().toISOString(),
+          ttlMs: Number(runtime.ttlMs ?? 0),
+          currentEntries: Number(runtime.currentEntries ?? 0),
+          maxEntries: Number(runtime.maxEntries ?? 0),
+        };
+        const nextHistory = [...(Array.isArray(historyState?.stateValue) ? historyState.stateValue : []), sample].slice(-288);
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(TRACKINGS_CACHE_RUNTIME_HISTORY_STATE_KEY, nextHistory);
+        }
+
+        return sendJson(res, 200, {
+          success: true,
+          chatId,
+          runtime,
+          autotune: autotuneState?.stateValue ?? null,
+          history: nextHistory,
         });
       }
 

@@ -428,6 +428,40 @@ test('P0-C: snooze + product interval settings contracts', async () => {
   });
 });
 
+test('P0-C: /api/settings/:chatId/trackings-cache-runtime requires admin and returns runtime payload', async () => {
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(async (baseUrl) => {
+      const forbidden = await readJson(
+        await fetch(`${baseUrl}/api/settings/2041/trackings-cache-runtime`, {
+          headers: { 'x-telegram-user-id': '9999', 'x-request-id': 'req-cache-runtime-forbidden' },
+        }),
+      );
+      assert.equal(forbidden.status, 403);
+      assert.equal(forbidden.body.error, 'forbidden');
+      assert.equal(forbidden.body.requestId, 'req-cache-runtime-forbidden');
+
+      const ok = await readJson(
+        await fetch(`${baseUrl}/api/settings/2041/trackings-cache-runtime`, {
+          headers: { 'x-telegram-user-id': '2041', 'x-request-id': 'req-cache-runtime-ok' },
+        }),
+      );
+      assert.equal(ok.status, 200);
+      assert.equal(ok.body.success, true);
+      assert.equal(ok.body.chatId, '2041');
+      assert.ok(ok.body.runtime && typeof ok.body.runtime === 'object');
+      assert.ok(Array.isArray(ok.body.history));
+      assert.ok(ok.body.history.length >= 1);
+      assert.ok(ok.body.autotune === null || typeof ok.body.autotune === 'object');
+    });
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
 test('P0-C: admin bulk tracking compatibility endpoints', async () => {
   const previousAdminId = process.env.SOON_ADMIN_ID;
   process.env.SOON_ADMIN_ID = '2041';

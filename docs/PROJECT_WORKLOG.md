@@ -2477,3 +2477,19 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
     - walidacja `scanIntervalMin` w `GET /api/settings/:chatId`.
 - Zaktualizowano inwentarz endpointów:
   - `docs/API_ENDPOINT_INVENTORY.md` (`POST /api/settings/:chatId/scan-interval` -> DONE).
+
+## [2026-04-18 00:20:00Z] P0-C trackings-cache-runtime compatibility endpoint implemented
+- Dodano kompatybilny endpoint:
+  - `GET /api/settings/:chatId/trackings-cache-runtime` w `packages/api/src/runtime/server.mjs`.
+- Zgodność kontraktu legacy:
+  - endpoint wymaga uprawnień admin (`x-telegram-user-id` == `SOON_ADMIN_ID`),
+  - dla braku uprawnień zwraca `403 { error: 'forbidden' }`,
+  - dla admin zwraca `{ success, runtime, autotune, history }`.
+- Runtime cache payload:
+  - domyślny runtime tworzony z env fallback (`SOON_TRACKINGS_CACHE_TTL_MS`, `SOON_TRACKINGS_CACHE_MAX_ENTRIES`),
+  - snapshot runtime dopisywany do historii i kompaktowany do 288 próbek.
+- Dodano test kontraktowy:
+  - `P0-C: /api/settings/:chatId/trackings-cache-runtime requires admin and returns runtime payload`
+    w `packages/api/test/contracts-v1.test.mjs`.
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`GET /api/settings/:chatId/trackings-cache-runtime` -> DONE).
