@@ -48,6 +48,12 @@ const HUNTER_LAST_RUN_STATE_KEY = 'hunter_last_run';
 const HUNTER_STRATEGY_LAST_STATE_KEY = 'hunter_strategy_last';
 const HUNTER_STRATEGY_STATUS_STATE_KEY = 'hunter_strategy_status';
 const HUNTER_STRATEGY_REPLAY_STATE_KEY = 'hunter_strategy_replay';
+const HUNTER_TREND_AUTOTUNE_LAST_STATE_KEY = 'hunter:trend:autotune:last:v1';
+const HUNTER_TREND_AUTOTUNE_HISTORY_STATE_KEY = 'hunter:trend:autotune:history:v1';
+const HUNTER_TREND_AUTOTUNE_ROLLBACK_STATE_KEY = 'hunter:trend:autotune:rollback:v1';
+const HUNTER_TREND_AUTOTUNE_COOLDOWN_BOOST_STATE_KEY = 'hunter:trend:autotune:cooldown:boost:v1';
+const HUNTER_TREND_HEALTH_ACTION_LAST_STATE_KEY = 'hunter:trend:health:action:last:v1';
+const HUNTER_TREND_HEALTH_AUDIT_STATE_KEY = 'hunter:trend:health:audit:v1';
 const TOKEN_BUDGET_PROBE_DEFAULT_COOLDOWN_SEC = 24 * 60 * 60;
 const TOKEN_BUDGET_PROBE_AUTOTUNE_FALLBACK_MIN_COOLDOWN_SEC = 6 * 60 * 60;
 const TOKEN_BUDGET_PROBE_AUTOTUNE_FALLBACK_HIGH_COOLDOWN_SEC = 12 * 60 * 60;
@@ -2242,6 +2248,198 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
                 alertCount: latest.alertCount,
               }
             : null,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/hunter-trend-autotune-health') {
+        const rawHours = Number(url.searchParams.get('hours') ?? 24 * 14);
+        const hours = Math.max(24, Math.min(24 * 180, Number.isFinite(rawHours) ? rawHours : 24 * 14));
+        const rawLimit = Number(url.searchParams.get('limit') ?? 240);
+        const limit = Math.max(20, Math.min(1000, Number.isFinite(rawLimit) ? rawLimit : 240));
+        const toMs = (iso) => {
+          const ts = Date.parse(iso ?? '');
+          return Number.isFinite(ts) ? ts : 0;
+        };
+        const avg = (arr = []) => {
+          const nums = (Array.isArray(arr) ? arr : []).map(Number).filter((value) => Number.isFinite(value));
+          return nums.length ? nums.reduce((sum, value) => sum + value, 0) / nums.length : 0;
+        };
+        const now = Date.now();
+        const minTs = now - hours * 60 * 60 * 1000;
+        const getStateValue = async (stateKey, fallback = null) => {
+          if (!store.getRuntimeState) return fallback;
+          const state = await store.getRuntimeState(stateKey);
+          return state?.stateValue ?? fallback;
+        };
+
+        const [historyRaw, last, rollbackPending, cooldownBoost, healthAction, auditRaw] = await Promise.all([
+          getStateValue(HUNTER_TREND_AUTOTUNE_HISTORY_STATE_KEY, []),
+          getStateValue(HUNTER_TREND_AUTOTUNE_LAST_STATE_KEY, null),
+          getStateValue(HUNTER_TREND_AUTOTUNE_ROLLBACK_STATE_KEY, null),
+          getStateValue(HUNTER_TREND_AUTOTUNE_COOLDOWN_BOOST_STATE_KEY, null),
+          getStateValue(HUNTER_TREND_HEALTH_ACTION_LAST_STATE_KEY, null),
+          getStateValue(HUNTER_TREND_HEALTH_AUDIT_STATE_KEY, []),
+        ]);
+
+        const history = (Array.isArray(historyRaw) ? historyRaw : [])
+          .filter((row) => toMs(row?.at) >= minTs)
+          .slice(0, limit)
+          .sort((a, b) => toMs(a?.at) - toMs(b?.at));
+        const audit = (Array.isArray(auditRaw) ? auditRaw : [])
+          .filter((row) => toMs(row?.at) >= minTs)
+          .slice(0, 120);
+
+        const points = history
+          .map((row) => ({
+            at: row?.at,
+            rollback: row?.rollback === true,
+            changed: row?.changed === true,
+            labelWeight: Number(row?.to?.labelWeight ?? row?.labelWeight),
+            momentumWeight: Number(row?.to?.momentumWeight ?? row?.momentumWeight),
+            slopeWeight: Number(row?.to?.slopeWeight ?? row?.slopeWeight),
+            volatilityPenaltyWeight: Number(
+              row?.to?.volatilityPenaltyWeight ?? row?.volatilityPenaltyWeight,
+            ),
+          }))
+          .filter((row) =>
+            [
+              row.labelWeight,
+              row.momentumWeight,
+              row.slopeWeight,
+              row.volatilityPenaltyWeight,
+            ].every((value) => Number.isFinite(value)),
+          );
+
+        const rollbackCount = history.filter((row) => row?.rollback === true).length;
+        const changedCount = history.filter((row) => row?.changed === true).length;
+        const rollbackRate = history.length > 0 ? rollbackCount / history.length : 0;
+        const changeRate = history.length > 0 ? changedCount / history.length : 0;
+
+        let drift = {
+          labelWeight: 0,
+          momentumWeight: 0,
+          slopeWeight: 0,
+          volatilityPenaltyWeight: 0,
+          composite: 0,
+        };
+        let stability = {
+          avgAbsDeltaLabel: 0,
+          avgAbsDeltaMomentum: 0,
+          avgAbsDeltaSlope: 0,
+          avgAbsDeltaVolatility: 0,
+          avgAbsDeltaComposite: 0,
+        };
+
+        if (points.length >= 2) {
+          const first = points[0];
+          const lastPoint = points[points.length - 1];
+          drift = {
+            labelWeight: Number(Math.abs(lastPoint.labelWeight - first.labelWeight).toFixed(4)),
+            momentumWeight: Number(Math.abs(lastPoint.momentumWeight - first.momentumWeight).toFixed(4)),
+            slopeWeight: Number(Math.abs(lastPoint.slopeWeight - first.slopeWeight).toFixed(4)),
+            volatilityPenaltyWeight: Number(
+              Math.abs(lastPoint.volatilityPenaltyWeight - first.volatilityPenaltyWeight).toFixed(4),
+            ),
+            composite: 0,
+          };
+          drift.composite = Number(
+            (
+              drift.labelWeight +
+              drift.momentumWeight +
+              drift.slopeWeight +
+              drift.volatilityPenaltyWeight
+            ).toFixed(4),
+          );
+
+          const deltas = [];
+          for (let idx = 1; idx < points.length; idx += 1) {
+            const prev = points[idx - 1];
+            const current = points[idx];
+            deltas.push({
+              label: Math.abs(current.labelWeight - prev.labelWeight),
+              momentum: Math.abs(current.momentumWeight - prev.momentumWeight),
+              slope: Math.abs(current.slopeWeight - prev.slopeWeight),
+              volatility: Math.abs(current.volatilityPenaltyWeight - prev.volatilityPenaltyWeight),
+            });
+          }
+          stability = {
+            avgAbsDeltaLabel: Number(avg(deltas.map((item) => item.label)).toFixed(4)),
+            avgAbsDeltaMomentum: Number(avg(deltas.map((item) => item.momentum)).toFixed(4)),
+            avgAbsDeltaSlope: Number(avg(deltas.map((item) => item.slope)).toFixed(4)),
+            avgAbsDeltaVolatility: Number(avg(deltas.map((item) => item.volatility)).toFixed(4)),
+            avgAbsDeltaComposite: Number(
+              avg(deltas.map((item) => item.label + item.momentum + item.slope + item.volatility)).toFixed(4),
+            ),
+          };
+        }
+
+        const runsRaw = store.listLatestAutomationRuns ? await store.listLatestAutomationRuns(400) : [];
+        const runs = runsRaw
+          .filter((run) => {
+            const ts = toMs(run?.startedAt ?? run?.finishedAt);
+            return ts > 0 && ts >= minTs;
+          })
+          .filter((run) => !String(run?.status ?? '').startsWith('error'))
+          .filter((run) => !String(run?.status ?? '').startsWith('skipped'));
+        const totalDeals = runs.reduce((sum, run) => sum + Number(run?.decisionCount ?? 0), 0);
+        const totalTokens = runs.reduce((sum, run) => {
+          const direct = Number(run?.tokensSpent ?? run?.tokenCost);
+          if (Number.isFinite(direct)) return sum + direct;
+          const snapshotTotal = Number(run?.tokenSnapshot?.summary?.totalTokenCostSelected);
+          return Number.isFinite(snapshotTotal) ? sum + snapshotTotal : sum;
+        }, 0);
+        const zeroRuns = runs.filter((run) => Number(run?.decisionCount ?? 0) <= 0).length;
+        const runMetrics = {
+          runs: runs.length,
+          avgDealsPerRun: runs.length > 0 ? Number((totalDeals / runs.length).toFixed(3)) : 0,
+          tokensPerDeal: totalDeals > 0 ? Number((totalTokens / totalDeals).toFixed(3)) : null,
+          zeroRate: runs.length > 0 ? Number((zeroRuns / runs.length).toFixed(4)) : 0,
+        };
+
+        const rollbackPenalty = Math.min(45, rollbackRate * 120);
+        const stabilityPenalty = Math.min(30, stability.avgAbsDeltaComposite * 140);
+        const driftPenalty = Math.min(25, drift.composite * 10);
+        const healthScore = Math.max(
+          0,
+          Math.min(100, Math.round(100 - rollbackPenalty - stabilityPenalty - driftPenalty)),
+        );
+        const status = healthScore >= 75 ? 'ok' : healthScore >= 50 ? 'warn' : 'degraded';
+
+        return sendJson(res, 200, {
+          windowHours: hours,
+          status,
+          healthScore,
+          samples: {
+            history: history.length,
+            weightPoints: points.length,
+            runs: runs.length,
+          },
+          rates: {
+            rollbackRate: Number(rollbackRate.toFixed(4)),
+            changeRate: Number(changeRate.toFixed(4)),
+          },
+          rollback: {
+            count: rollbackCount,
+            pending: Boolean(rollbackPending?.at),
+            pendingState: rollbackPending || null,
+          },
+          cooldownBoost: {
+            active: Number.parseInt(cooldownBoost?.remainingRuns, 10) > 0,
+            state: cooldownBoost || null,
+          },
+          autoreact: {
+            lastAction: healthAction || null,
+            audit,
+          },
+          drift,
+          stability,
+          penalties: {
+            rollback: Number(rollbackPenalty.toFixed(2)),
+            stability: Number(stabilityPenalty.toFixed(2)),
+            drift: Number(driftPenalty.toFixed(2)),
+          },
+          runMetrics,
+          latest: last || null,
         });
       }
 

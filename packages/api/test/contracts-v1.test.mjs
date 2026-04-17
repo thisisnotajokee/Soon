@@ -421,6 +421,18 @@ test('P0-E: hunter run-now + slo + smart-engine + autonomy-health endpoints', as
     assert.ok(trendFeatures.body.rows.length >= 1);
     assert.ok(['down_strong', 'down', 'stable', 'up', 'up_strong'].includes(trendFeatures.body.rows[0].trendLabel));
     assert.ok(Array.isArray(trendFeatures.body.summary));
+
+    const trendAutotuneHealth = await readJson(
+      await fetch(`${baseUrl}/api/hunter-trend-autotune-health?hours=336&limit=120`),
+    );
+    assert.equal(trendAutotuneHealth.status, 200);
+    assert.ok(['ok', 'warn', 'degraded'].includes(String(trendAutotuneHealth.body.status)));
+    assert.ok(Number.isFinite(Number(trendAutotuneHealth.body.windowHours)));
+    assert.ok(Number.isFinite(Number(trendAutotuneHealth.body.healthScore)));
+    assert.ok(trendAutotuneHealth.body.samples && typeof trendAutotuneHealth.body.samples === 'object');
+    assert.ok(trendAutotuneHealth.body.rates && typeof trendAutotuneHealth.body.rates === 'object');
+    assert.ok(trendAutotuneHealth.body.runMetrics && typeof trendAutotuneHealth.body.runMetrics === 'object');
+    assert.ok(Object.hasOwn(trendAutotuneHealth.body, 'latest'));
   });
 });
 

@@ -10,6 +10,26 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ---
 
+## [2026-04-17 20:10:00Z] Hunter trend autotune health compatibility endpoint implemented
+
+### Scope
+
+- Added `GET /api/hunter-trend-autotune-health` in Soon runtime API with legacy-compatible response sections:
+  `samples`, `rates`, `rollback`, `cooldownBoost`, `autoreact`, `drift`, `stability`, `penalties`, `runMetrics`, `latest`.
+- Wired endpoint to runtime state keys (`hunter:trend:*`) with safe fallbacks when state is not yet populated.
+- Added contract coverage for `/api/hunter-trend-autotune-health` in `packages/api/test/contracts-v1.test.mjs`.
+- Updated endpoint migration inventory to mark `/api/hunter-trend-autotune-health` as implemented.
+
+### Validation
+
+- `npm run -s test:contracts` -> PASS
+
+### Next
+
+- Continue hunter migration with `GET /api/hunter-ml-engine` + `GET /api/hunter-high-value-metrics`.
+
+---
+
 ## 2026-04-16 — Token Control Plane v4 (capped policy in automation)
 
 ### Zakres
