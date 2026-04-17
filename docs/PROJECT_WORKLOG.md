@@ -1980,3 +1980,15 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - `npm run ops:deploy:snapshot`
   - `npm run ops:deploy:rollback -- <git-ref> --yes`
 - Dodano runbook: `docs/POST_DEPLOY_BACKUP_ROLLBACK_RUNBOOK_V1.md` (procedura + checklista GO/NO-GO).
+
+## [2026-04-17 14:35:00Z] VM210 sync + autonomy timers + parity audit
+- VM210: bezpiecznie zsynchronizowano `main` do `origin/main` (backup branch + patch zachowane lokalnie na VM).
+- Wdrożono timery systemd na VM210:
+  - `soon-ops-check.timer` (co 30 min)
+  - `soon-self-heal-triage.timer` (co godzinę, artifact `ops/reports/doctor/self-heal-triage.json`)
+- Weryfikacja po sync: `soon-api`, `cloudflared`, health local/public, `make check` -> PASS.
+- Wykonano automatyczny parity audit `ambot-pro` vs `Soon` (exact endpoint match):
+  - total legacy endpointów: `161`
+  - pokryte w Soon: `2`
+  - brakujące: `159`
+- Raport: `docs/CUTOVER_PARITY_AUDIT_2026-04-17.md`.
