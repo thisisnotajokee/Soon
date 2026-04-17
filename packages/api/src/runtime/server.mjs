@@ -43,6 +43,11 @@ const TRACKINGS_CACHE_AUTOTUNE_LAST_STATE_KEY = 'trackings_cache_autotune_last';
 const TRACKINGS_CACHE_RUNTIME_HISTORY_STATE_KEY = 'trackings_cache_runtime_history';
 const GLOBAL_SCAN_INTERVAL_STATE_KEY = 'global_scan_interval_hours';
 const SETTINGS_SCAN_POLICY_STATE_KEY = 'settings_scan_policy_v1';
+const MOBILE_TRACKING_PREFERENCES_PREFIX = 'mobile_tracking_preferences_v1:';
+const MOBILE_WEB_DEALS_HISTORY_STATE_KEY = 'mobile_web_deals_history_v1';
+const MOBILE_SESSION_PREFIX = 'mobile_auth_session_v1:';
+const MOBILE_SESSION_INDEX_PREFIX = 'mobile_auth_user_sessions_v1:';
+const MOBILE_API_VERSION = 'v1';
 const KEEPA_STATUS_STATE_KEY = 'keepa_status';
 const KEEPA_WATCH_INDEX_STATE_KEY = 'keepa_watch_index';
 const KEEPA_EVENTS_STATE_KEY = 'keepa_events';
@@ -927,6 +932,417 @@ function createCompatWebToken(userId) {
   if (!normalizedUserId) return null;
   const nonce = crypto.randomBytes(32).toString('hex');
   return `${normalizedUserId}.${Date.now().toString(36)}.${nonce}`;
+}
+
+function normalizeMobilePagination(url) {
+  const limitRaw = Number.parseInt(String(url.searchParams.get('limit') ?? '50'), 10);
+  const offsetRaw = Number.parseInt(String(url.searchParams.get('offset') ?? '0'), 10);
+  const limit = Number.isInteger(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 50;
+  const offset = Number.isInteger(offsetRaw) ? Math.max(offsetRaw, 0) : 0;
+  return { limit, offset };
+}
+
+function computeMobileDropPct(avgPrice, bestPrice) {
+  const avg = Number(avgPrice);
+  const best = Number(bestPrice);
+  if (!Number.isFinite(avg) || avg <= 0 || !Number.isFinite(best) || best <= 0 || best >= avg) return 0;
+  return Number((((avg - best) / avg) * 100).toFixed(2));
+}
+
+function normalizeMarketPriceValue(raw) {
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? Number(value.toFixed(2)) : null;
+}
+
+function buildMobileMarketPrices(prices = {}) {
+  if (!prices || typeof prices !== 'object') return {};
+  const out = {};
+  for (const [market, raw] of Object.entries(prices)) {
+    const normalized = normalizeMarketPriceValue(raw);
+    if (normalized !== null) out[String(market)] = normalized;
+  }
+  return out;
+}
+
+function buildMobileTrackingItem(item) {
+  const pricesNew = buildMobileMarketPrices(item?.pricesNew ?? {});
+  const pricesUsed = buildMobileMarketPrices(item?.pricesUsed ?? {});
+  const newValues = Object.values(pricesNew);
+  const bestPrice = newValues.length ? Math.min(...newValues) : 0;
+  const avgPrice = newValues.length ? Number((newValues.reduce((sum, value) => sum + value, 0) / newValues.length).toFixed(2)) : 0;
+  const priceTrend = Array.isArray(item?.historyPoints)
+    ? item.historyPoints
+        .slice(-30)
+        .map((point) => ({
+          ts: point?.ts ?? null,
+          value: normalizeMarketPriceValue(point?.value) ?? 0,
+        }))
+        .filter((point) => point.ts)
+    : [];
+
+  return {
+    asin: String(item?.asin ?? '').trim().toUpperCase(),
+    title: item?.title ?? null,
+    imageUrl: item?.imageUrl ?? null,
+    dealScore: Number(item?.dealScore ?? 0),
+    watchlistScore: Number(item?.watchlistScore ?? 0),
+    rating: item?.rating ?? null,
+    reviews: item?.reviews ?? null,
+    bestPrice,
+    avgPrice,
+    dropPct: computeMobileDropPct(avgPrice, bestPrice),
+    targetPrice: normalizeMarketPriceValue(item?.targetPriceNew),
+    targetPriceUsed: normalizeMarketPriceValue(item?.targetPriceUsed),
+    alertDropPct: Number.isFinite(Number(item?.thresholdDropPct)) ? Number(item.thresholdDropPct) : null,
+    scanInterval: Number.isFinite(Number(item?.scanInterval)) ? Number(item.scanInterval) : null,
+    enabledDomains: Object.keys(pricesNew),
+    preferredSizeType: item?.preferredSizeType ?? null,
+    preferredSize: item?.preferredSize ?? null,
+    preferredSizeSystem: item?.preferredSizeSystem ?? null,
+    snoozedUntil: item?.snoozedUntil ?? null,
+    marketPrices: pricesNew,
+    marketPricesUsed: pricesUsed,
+    category: item?.category ?? null,
+    buyboxSeller: item?.buyboxSeller ?? null,
+    buyboxIsAmazon: item?.buyboxIsAmazon ?? null,
+    outOfStock: item?.outOfStock ?? false,
+    popularity: Number(item?.popularity ?? 0),
+    createdAt: item?.createdAt ?? null,
+    lastChecked: item?.updatedAt ?? null,
+    priceTrend,
+  };
+}
+
+function mobileTrackingPreferencesKey(userId, asin) {
+  return `${MOBILE_TRACKING_PREFERENCES_PREFIX}${String(userId ?? '').trim()}:${String(asin ?? '').trim().toUpperCase()}`;
+}
+
+function parseNullablePriceValue(raw) {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? Number(parsed.toFixed(2)) : Number.NaN;
+}
+
+async function hydrateMobileTrackingItem(store, userId, item) {
+  const asin = String(item?.asin ?? '').trim().toUpperCase();
+  const snoozeState = store.getRuntimeState ? await store.getRuntimeState(buildTrackingSnoozeStateKey(userId, asin)) : null;
+  const snooze = snoozeState?.stateValue ?? null;
+  const snoozedUntil = snooze?.until ?? item?.snoozedUntil ?? null;
+  return buildMobileTrackingItem({
+    ...item,
+    snoozedUntil,
+  });
+}
+
+function mobileSessionKey(sessionId) {
+  return `${MOBILE_SESSION_PREFIX}${String(sessionId ?? '').trim().toLowerCase()}`;
+}
+
+function mobileSessionIndexKey(userId) {
+  return `${MOBILE_SESSION_INDEX_PREFIX}${String(userId ?? '').trim()}`;
+}
+
+function parseMobilePositiveUserId(value) {
+  const parsed = Number.parseInt(String(value ?? '').trim(), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function getMobileTokenTtls() {
+  return {
+    accessTtlSeconds: clampInt(process.env.MOBILE_ACCESS_TOKEN_TTL_SECONDS, 15 * 60, 300, 24 * 60 * 60),
+    refreshTtlSeconds: clampInt(
+      process.env.MOBILE_REFRESH_TOKEN_TTL_SECONDS,
+      30 * 24 * 60 * 60,
+      24 * 60 * 60,
+      90 * 24 * 60 * 60,
+    ),
+  };
+}
+
+function getMobileMaxSessionsPerUser() {
+  return clampInt(process.env.MOBILE_MAX_SESSIONS_PER_USER, 5, 1, 20);
+}
+
+function getMobileSessionSecret() {
+  const explicit = String(process.env.MOBILE_SESSION_SECRET ?? '').trim();
+  if (explicit) return explicit;
+  const telegramToken = String(
+    process.env.TELEGRAM_BOT_TOKEN ?? process.env.TELEGRAM_TOKEN ?? process.env.BOT_TOKEN ?? '',
+  ).trim();
+  if (telegramToken) return `${telegramToken}:mobile:v1`;
+  return 'soon-mobile-v1-dev-secret';
+}
+
+function signWithMobileSecret(data) {
+  return crypto.createHmac('sha256', getMobileSessionSecret()).update(String(data)).digest('hex');
+}
+
+function safeEqualHex(left, right) {
+  try {
+    const a = Buffer.from(String(left ?? ''), 'hex');
+    const b = Buffer.from(String(right ?? ''), 'hex');
+    return a.length > 0 && a.length === b.length && crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
+function extractBearerToken(req) {
+  const authHeader = String(req.headers.authorization ?? req.headers.Authorization ?? '').trim();
+  if (!authHeader.toLowerCase().startsWith('bearer ')) return '';
+  return authHeader.slice(7).trim();
+}
+
+function createMobileAccessToken(userId, sessionId, issuedAtSec = Math.floor(Date.now() / 1000)) {
+  const uid = parseMobilePositiveUserId(userId);
+  const sid = String(sessionId ?? '').trim().toLowerCase();
+  if (!uid || !/^[a-f0-9]{12,64}$/i.test(sid)) return null;
+  const { accessTtlSeconds } = getMobileTokenTtls();
+  const iat = Number.parseInt(String(issuedAtSec), 10);
+  const exp = iat + accessTtlSeconds;
+  const payload = `m1.${uid}.${iat}.${exp}.${sid}`;
+  const sig = signWithMobileSecret(payload);
+  return `${payload}.${sig}`;
+}
+
+function parseMobileAccessToken(rawToken) {
+  try {
+    const token = String(rawToken ?? '').trim();
+    const m = token.match(/^m1\.(\d+)\.(\d+)\.(\d+)\.([a-f0-9]{12,64})\.([a-f0-9]{64})$/i);
+    if (!m) return null;
+    const userId = parseMobilePositiveUserId(m[1]);
+    const iat = Number.parseInt(m[2], 10);
+    const exp = Number.parseInt(m[3], 10);
+    const sessionId = String(m[4]).toLowerCase();
+    const sig = String(m[5]).toLowerCase();
+    if (!userId || !Number.isInteger(iat) || !Number.isInteger(exp) || exp <= iat) return null;
+    const now = Math.floor(Date.now() / 1000);
+    if (now > exp || iat > now + 300) return null;
+    const payload = `m1.${userId}.${iat}.${exp}.${sessionId}`;
+    const expected = signWithMobileSecret(payload);
+    if (!safeEqualHex(expected, sig)) return null;
+    return { userId, sessionId };
+  } catch {
+    return null;
+  }
+}
+
+function createMobileRefreshToken(userId, sessionId, issuedAtSec = Math.floor(Date.now() / 1000)) {
+  const uid = parseMobilePositiveUserId(userId);
+  const sid = String(sessionId ?? '').trim().toLowerCase();
+  if (!uid || !/^[a-f0-9]{12,64}$/i.test(sid)) return null;
+  const { refreshTtlSeconds } = getMobileTokenTtls();
+  const iat = Number.parseInt(String(issuedAtSec), 10);
+  const exp = iat + refreshTtlSeconds;
+  const nonce = crypto.randomBytes(8).toString('hex');
+  const payload = `mr1.${uid}.${iat}.${exp}.${sid}.${nonce}`;
+  const sig = signWithMobileSecret(payload);
+  return `${payload}.${sig}`;
+}
+
+function parseMobileRefreshToken(rawToken) {
+  try {
+    const token = String(rawToken ?? '').trim();
+    const m = token.match(/^mr1\.(\d+)\.(\d+)\.(\d+)\.([a-f0-9]{12,64})\.([a-f0-9]{16})\.([a-f0-9]{64})$/i);
+    if (!m) return null;
+    const userId = parseMobilePositiveUserId(m[1]);
+    const iat = Number.parseInt(m[2], 10);
+    const exp = Number.parseInt(m[3], 10);
+    const sessionId = String(m[4]).toLowerCase();
+    const nonce = String(m[5]).toLowerCase();
+    const sig = String(m[6]).toLowerCase();
+    if (!userId || !Number.isInteger(iat) || !Number.isInteger(exp) || exp <= iat) return null;
+    const now = Math.floor(Date.now() / 1000);
+    if (now > exp || iat > now + 300) return null;
+    const payload = `mr1.${userId}.${iat}.${exp}.${sessionId}.${nonce}`;
+    const expected = signWithMobileSecret(payload);
+    if (!safeEqualHex(expected, sig)) return null;
+    return { userId, sessionId, nonce };
+  } catch {
+    return null;
+  }
+}
+
+async function loadMobileSessionIndex(store, userId) {
+  const raw = store.getRuntimeState ? await store.getRuntimeState(mobileSessionIndexKey(userId)) : null;
+  const state = raw?.stateValue;
+  if (!Array.isArray(state)) return [];
+  const seen = new Set();
+  const nowIso = new Date().toISOString();
+  const normalized = [];
+  for (const item of state) {
+    const sessionId = String(item?.sessionId ?? '').trim().toLowerCase();
+    if (!sessionId || seen.has(sessionId)) continue;
+    seen.add(sessionId);
+    normalized.push({
+      sessionId,
+      createdAt: String(item?.createdAt ?? nowIso),
+      lastSeenAt: String(item?.lastSeenAt ?? item?.updatedAt ?? item?.createdAt ?? nowIso),
+      revokedAt: item?.revokedAt ? String(item.revokedAt) : null,
+    });
+  }
+  normalized.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+  return normalized.slice(-200);
+}
+
+async function saveMobileSessionIndex(store, userId, index) {
+  if (store.setRuntimeState) {
+    await store.setRuntimeState(mobileSessionIndexKey(userId), index);
+  }
+}
+
+async function upsertMobileSessionIndex(store, userId, sessionId, { createdAt, lastSeenAt } = {}) {
+  const sid = String(sessionId ?? '').trim().toLowerCase();
+  if (!sid) return;
+  const nowIso = new Date().toISOString();
+  const index = await loadMobileSessionIndex(store, userId);
+  const existing = index.find((item) => item.sessionId === sid);
+  if (existing) {
+    existing.lastSeenAt = String(lastSeenAt ?? nowIso);
+    if (createdAt) existing.createdAt = String(createdAt);
+    existing.revokedAt = null;
+  } else {
+    index.push({
+      sessionId: sid,
+      createdAt: String(createdAt ?? nowIso),
+      lastSeenAt: String(lastSeenAt ?? createdAt ?? nowIso),
+      revokedAt: null,
+    });
+  }
+  await saveMobileSessionIndex(store, userId, index);
+}
+
+async function revokeMobileSessionById(store, userId, sessionId) {
+  const sid = String(sessionId ?? '').trim().toLowerCase();
+  if (!sid) return false;
+  const nowIso = new Date().toISOString();
+  const sessionState = store.getRuntimeState ? await store.getRuntimeState(mobileSessionKey(sid)) : null;
+  const session = sessionState?.stateValue ?? null;
+  if (session && Number(session.userId) === Number(userId) && !session.revokedAt && store.setRuntimeState) {
+    await store.setRuntimeState(mobileSessionKey(sid), {
+      ...session,
+      revokedAt: nowIso,
+      updatedAt: nowIso,
+    });
+  }
+  const index = await loadMobileSessionIndex(store, userId);
+  const rec = index.find((item) => item.sessionId === sid);
+  if (!rec) return false;
+  rec.revokedAt = nowIso;
+  rec.lastSeenAt = nowIso;
+  await saveMobileSessionIndex(store, userId, index);
+  return true;
+}
+
+async function revokeMobileOverflowSessions(store, userId, maxActiveSessions, keepSessionId = '') {
+  const keep = String(keepSessionId ?? '').trim().toLowerCase();
+  const index = await loadMobileSessionIndex(store, userId);
+  const active = index
+    .filter((item) => !item.revokedAt)
+    .sort((a, b) => String(a.lastSeenAt || a.createdAt).localeCompare(String(b.lastSeenAt || b.createdAt)));
+  const revoked = [];
+  while (active.length > maxActiveSessions) {
+    const candidate = active.find((item) => item.sessionId !== keep) || active[0];
+    const idx = active.findIndex((item) => item.sessionId === candidate.sessionId);
+    if (idx >= 0) active.splice(idx, 1);
+    const ok = await revokeMobileSessionById(store, userId, candidate.sessionId);
+    if (ok) revoked.push(candidate.sessionId);
+  }
+  return revoked;
+}
+
+function resolveMobileSessionIdFromRequest(req) {
+  const access = parseMobileAccessToken(extractBearerToken(req));
+  return String(access?.sessionId ?? '').trim().toLowerCase();
+}
+
+async function createMobileSessionSnapshot(store, userId, req) {
+  const currentSessionId = resolveMobileSessionIdFromRequest(req);
+  const index = await loadMobileSessionIndex(store, userId);
+  const sessions = await Promise.all(
+    index.map(async (entry) => {
+      const sessionState = store.getRuntimeState ? await store.getRuntimeState(mobileSessionKey(entry.sessionId)) : null;
+      const cached = sessionState?.stateValue ?? null;
+      if (!cached || Number(cached.userId) !== Number(userId)) {
+        return {
+          ...entry,
+          userAgent: null,
+          ip: null,
+          updatedAt: null,
+          revokedAt: entry.revokedAt || null,
+        };
+      }
+      return {
+        ...entry,
+        userAgent: cached.userAgent || null,
+        ip: cached.ip || null,
+        updatedAt: cached.updatedAt || null,
+        revokedAt: cached.revokedAt || entry.revokedAt || null,
+      };
+    }),
+  );
+  sessions.sort((a, b) => {
+    const aTs = String(a.lastSeenAt || a.updatedAt || a.createdAt || '');
+    const bTs = String(b.lastSeenAt || b.updatedAt || b.createdAt || '');
+    return bTs.localeCompare(aTs);
+  });
+  return sessions.map((entry) => ({
+    sessionId: entry.sessionId,
+    isCurrent: entry.sessionId === currentSessionId,
+    isActive: !entry.revokedAt,
+    createdAt: entry.createdAt || null,
+    lastSeenAt: entry.lastSeenAt || null,
+    updatedAt: entry.updatedAt || null,
+    revokedAt: entry.revokedAt || null,
+    ip: entry.ip || null,
+    userAgent: entry.userAgent || null,
+  }));
+}
+
+async function createMobileSessionTokens(store, userId, req) {
+  const { accessTtlSeconds, refreshTtlSeconds } = getMobileTokenTtls();
+  const sessionId = crypto.randomBytes(12).toString('hex');
+  const accessToken = createMobileAccessToken(userId, sessionId);
+  const refreshToken = createMobileRefreshToken(userId, sessionId);
+  if (!accessToken || !refreshToken) return null;
+  const nowIso = new Date().toISOString();
+  const record = {
+    userId: Number(userId),
+    refreshTokenHash: hashSecret(refreshToken),
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    revokedAt: null,
+    ip: String(req.socket?.remoteAddress ?? ''),
+    userAgent: String(req.headers['user-agent'] ?? '').slice(0, 220),
+    refreshExpiresAt: new Date(Date.now() + refreshTtlSeconds * 1000).toISOString(),
+  };
+  if (store.setRuntimeState) {
+    await store.setRuntimeState(mobileSessionKey(sessionId), record);
+  }
+  await upsertMobileSessionIndex(store, userId, sessionId, { createdAt: nowIso, lastSeenAt: nowIso });
+  const maxSessions = getMobileMaxSessionsPerUser();
+  const revokedSessionIds = await revokeMobileOverflowSessions(store, userId, maxSessions, sessionId);
+  return {
+    accessToken,
+    refreshToken,
+    sessionId,
+    revokedSessionIds,
+    maxSessions,
+    accessTtlSeconds,
+    refreshTtlSeconds,
+  };
+}
+
+async function resolveMobileAuthenticatedUserId(req, url, store) {
+  const fromCompat = resolveCompatAuthUserId(req, url);
+  const compatUserId = parseMobilePositiveUserId(fromCompat);
+  if (compatUserId) return compatUserId;
+  const parsedAccess = parseMobileAccessToken(extractBearerToken(req));
+  if (!parsedAccess) return null;
+  const sessionState = store.getRuntimeState ? await store.getRuntimeState(mobileSessionKey(parsedAccess.sessionId)) : null;
+  const session = sessionState?.stateValue ?? null;
+  if (!session || Number(session.userId) !== parsedAccess.userId || session.revokedAt) return null;
+  return parsedAccess.userId;
 }
 
 function currentManualRefreshBucketUtc(nowTs = Date.now()) {
@@ -1835,6 +2251,429 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           userId,
           webToken,
           requestId: resolveCompatRequestId(req),
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/mobile/v1/auth/telegram') {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const issued = await createMobileSessionTokens(store, userId, req);
+        if (!issued) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const adminId = resolveCompatAdminId();
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          tokenType: 'Bearer',
+          accessToken: issued.accessToken,
+          refreshToken: issued.refreshToken,
+          expiresIn: issued.accessTtlSeconds,
+          refreshExpiresIn: issued.refreshTtlSeconds,
+          userId,
+          isAdmin: Boolean(adminId && String(adminId) === String(userId)),
+          maxSessionsPerUser: issued.maxSessions,
+          revokedSessionIds: issued.revokedSessionIds,
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/mobile/v1/auth/refresh') {
+        const requestId = resolveCompatRequestId(req);
+        const body = await readJsonBody(req).catch(() => ({}));
+        const supplied = String(body?.refreshToken || extractBearerToken(req) || '').trim();
+        const parsed = parseMobileRefreshToken(supplied);
+        if (!parsed) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const sessionState = store.getRuntimeState ? await store.getRuntimeState(mobileSessionKey(parsed.sessionId)) : null;
+        const session = sessionState?.stateValue ?? null;
+        if (!session || Number(session.userId) !== Number(parsed.userId) || session.revokedAt) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        if (!secretsEqual(String(session.refreshTokenHash || ''), hashSecret(supplied))) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const { accessTtlSeconds, refreshTtlSeconds } = getMobileTokenTtls();
+        const accessToken = createMobileAccessToken(parsed.userId, parsed.sessionId);
+        const refreshToken = createMobileRefreshToken(parsed.userId, parsed.sessionId);
+        if (!accessToken || !refreshToken) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(mobileSessionKey(parsed.sessionId), {
+            ...session,
+            refreshTokenHash: hashSecret(refreshToken),
+            updatedAt: new Date().toISOString(),
+            refreshExpiresAt: new Date(Date.now() + refreshTtlSeconds * 1000).toISOString(),
+          });
+        }
+        await upsertMobileSessionIndex(store, parsed.userId, parsed.sessionId, {
+          lastSeenAt: new Date().toISOString(),
+        });
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          tokenType: 'Bearer',
+          accessToken,
+          refreshToken,
+          expiresIn: accessTtlSeconds,
+          refreshExpiresIn: refreshTtlSeconds,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/mobile/v1/session') {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const adminId = resolveCompatAdminId();
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          userId,
+          isAdmin: Boolean(adminId && String(adminId) === String(userId)),
+          serverTime: new Date().toISOString(),
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/mobile/v1/dashboard') {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const rawTrackings = await store.listTrackings();
+        const items = await Promise.all(rawTrackings.map((item) => hydrateMobileTrackingItem(store, userId, item)));
+        const topDrop = items.length
+          ? [...items].sort((a, b) => Number(b.dropPct || 0) - Number(a.dropPct || 0))[0]
+          : null;
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          summary: {
+            trackedProducts: items.length,
+            avgDropPct:
+              items.length > 0
+                ? Number((items.reduce((sum, item) => sum + Number(item.dropPct || 0), 0) / items.length).toFixed(2))
+                : 0,
+          },
+          topDrop: topDrop
+            ? {
+                asin: topDrop.asin,
+                title: topDrop.title,
+                dropPct: topDrop.dropPct,
+                bestPrice: topDrop.bestPrice,
+                avgPrice: topDrop.avgPrice,
+              }
+            : null,
+          trackedProducts: items.length,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/mobile/v1/trackings') {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const { limit, offset } = normalizeMobilePagination(url);
+        const rawTrackings = await store.listTrackings();
+        const mapped = await Promise.all(rawTrackings.map((item) => hydrateMobileTrackingItem(store, userId, item)));
+        const items = mapped.slice(offset, offset + limit);
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          pagination: { limit, offset, count: items.length },
+          items,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/mobile/v1/deals') {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const includeSuspicious = parseBooleanInput(url.searchParams.get('includeSuspicious'), false);
+        const { limit, offset } = normalizeMobilePagination(url);
+        const rawTrackings = await store.listTrackings();
+        const mapped = await Promise.all(rawTrackings.map((item) => hydrateMobileTrackingItem(store, userId, item)));
+        const sorted = mapped.sort((a, b) => Number(b.dropPct || 0) - Number(a.dropPct || 0));
+        const items = sorted.slice(offset, offset + limit).map((item, idx) => ({
+          id: `${item.asin}-${offset + idx + 1}`,
+          asin: item.asin,
+          alertType: 'drop_detected',
+          title: item.title,
+          imageUrl: item.imageUrl,
+          details: null,
+          bestPrice: item.bestPrice,
+          avgPrice: item.avgPrice,
+          dealScore: item.dealScore,
+          rating: item.rating,
+          reviews: item.reviews,
+          marketPrices: item.marketPrices,
+          createdAt: item.lastChecked || new Date().toISOString(),
+          isSuspiciousPrice: false,
+          suspiciousReasons: [],
+          priceTrend: item.priceTrend,
+        }));
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          pagination: { limit, offset, count: items.length },
+          filters: {
+            includeSuspicious,
+            filteredSuspiciousCount: 0,
+          },
+          items,
+        });
+      }
+
+      const mobileDetailMatch = pathname.match(/^\/api\/mobile\/v1\/products\/([^/]+)\/detail$/);
+      if (method === 'GET' && mobileDetailMatch) {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const asin = decodeURIComponent(mobileDetailMatch[1]).trim().toUpperCase();
+        const detail = await store.getProductDetail(asin);
+        if (!detail) {
+          return sendJson(res, 404, { error: 'not_found', asin });
+        }
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          ...detail,
+        });
+      }
+
+      const mobilePreferencesMatch = pathname.match(/^\/api\/mobile\/v1\/trackings\/([^/]+)\/preferences$/);
+      if (method === 'POST' && mobilePreferencesMatch) {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        if (!store.updateThresholds) {
+          return sendJson(res, 501, { error: 'not_implemented', requestId });
+        }
+        const asin = decodeURIComponent(mobilePreferencesMatch[1]).trim().toUpperCase();
+        if (!asin) {
+          return sendJson(res, 400, { error: 'invalid_asin', requestId });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        const targetPrice = parseNullablePriceValue(body?.targetPrice);
+        const targetPriceUsed = parseNullablePriceValue(body?.targetPriceUsed);
+        if (Number.isNaN(targetPrice) || Number.isNaN(targetPriceUsed)) {
+          return sendJson(res, 400, { error: 'Invalid target prices', requestId });
+        }
+        let existing = store.getTracking ? await store.getTracking(asin) : null;
+        if (!existing && store.saveTracking) {
+          await store.saveTracking({ asin });
+          existing = store.getTracking ? await store.getTracking(asin) : null;
+        }
+        if (!existing) {
+          return sendJson(res, 404, { error: 'not_found', asin, requestId });
+        }
+        const thresholdDropPct =
+          body?.alertDropPct === undefined ? undefined : clampInt(body.alertDropPct, existing.thresholdDropPct ?? 10, 1, 90);
+        await store.updateThresholds(asin, {
+          thresholdDropPct,
+          targetPriceNew: targetPrice,
+          targetPriceUsed,
+        });
+        const preferenceState = {
+          enabledDomains: Array.isArray(body?.enabledDomains) ? body.enabledDomains : null,
+          scanInterval: Number.isFinite(Number(body?.scanInterval)) ? Number(body.scanInterval) : null,
+          sizeType: body?.sizeType ?? null,
+          sizeValue: body?.sizeValue ?? null,
+          sizeSystem: body?.sizeSystem ?? null,
+          updatedAt: new Date().toISOString(),
+        };
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(mobileTrackingPreferencesKey(userId, asin), preferenceState);
+        }
+        const refreshed = store.getTracking ? await store.getTracking(asin) : null;
+        const hydrated = refreshed ? await hydrateMobileTrackingItem(store, userId, refreshed) : null;
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          ok: true,
+          item: hydrated,
+        });
+      }
+
+      const mobileSnoozeMatch = pathname.match(/^\/api\/mobile\/v1\/trackings\/([^/]+)\/snooze$/);
+      if ((method === 'POST' || method === 'DELETE') && mobileSnoozeMatch) {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const asin = decodeURIComponent(mobileSnoozeMatch[1]).trim().toUpperCase();
+        if (!asin) {
+          return sendJson(res, 400, { error: 'invalid_asin', requestId });
+        }
+        const tracking = store.getTracking ? await store.getTracking(asin) : null;
+        if (!tracking) {
+          return sendJson(res, 404, { error: 'not_found', asin, requestId });
+        }
+        const snoozeKey = buildTrackingSnoozeStateKey(userId, asin);
+        if (method === 'DELETE') {
+          if (store.setRuntimeState) {
+            await store.setRuntimeState(snoozeKey, null);
+          }
+          const hydrated = await hydrateMobileTrackingItem(store, userId, tracking);
+          return sendJson(res, 200, {
+            apiVersion: MOBILE_API_VERSION,
+            ok: true,
+            item: hydrated,
+          });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        const days = clampInt(body?.days, 7, 1, 90);
+        const nowMs = Date.now();
+        const until = new Date(nowMs + days * 24 * 60 * 60 * 1000).toISOString();
+        const state = {
+          asin,
+          chatId: String(userId),
+          days,
+          from: new Date(nowMs).toISOString(),
+          until,
+          reason: 'mobile_manual',
+        };
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(snoozeKey, state);
+        }
+        const hydrated = await hydrateMobileTrackingItem(store, userId, tracking);
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          ok: true,
+          days,
+          item: hydrated,
+        });
+      }
+
+      const mobileDeleteTrackingMatch = pathname.match(/^\/api\/mobile\/v1\/trackings\/([^/]+)$/);
+      if (method === 'DELETE' && mobileDeleteTrackingMatch) {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        if (!store.deleteTracking) {
+          return sendJson(res, 501, { error: 'not_implemented', requestId });
+        }
+        const asin = decodeURIComponent(mobileDeleteTrackingMatch[1]).trim().toUpperCase();
+        if (!asin) {
+          return sendJson(res, 400, { error: 'invalid_asin', requestId });
+        }
+        const deleted = await store.deleteTracking(asin);
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(buildTrackingSnoozeStateKey(userId, asin), null);
+          await store.setRuntimeState(mobileTrackingPreferencesKey(userId, asin), null);
+        }
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          ok: true,
+          deleted: deleted?.deleted ? 1 : 0,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/mobile/v1/web-deals/history') {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const limit = clampInt(url.searchParams.get('limit'), 120, 1, 300);
+        const source = String(url.searchParams.get('source') ?? '').trim().toLowerCase();
+        const historyState = store.getRuntimeState
+          ? await store.getRuntimeState(MOBILE_WEB_DEALS_HISTORY_STATE_KEY)
+          : null;
+        const allRows = Array.isArray(historyState?.stateValue) ? historyState.stateValue : [];
+        const filtered = allRows.filter((row) =>
+          source ? String(row?.sourceId ?? '').trim().toLowerCase() === source : true,
+        );
+        const rows = filtered
+          .slice()
+          .sort((a, b) => String(b?.sentAt ?? '').localeCompare(String(a?.sentAt ?? '')))
+          .slice(0, limit);
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          rows,
+          meta: {
+            sourceId: source || 'all',
+            limit,
+            total: rows.length,
+            generatedAt: new Date().toISOString(),
+          },
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/mobile/v1/auth/logout') {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const sessionId = resolveMobileSessionIdFromRequest(req);
+        if (sessionId) {
+          await revokeMobileSessionById(store, userId, sessionId);
+        }
+        return sendJson(res, 200, { apiVersion: MOBILE_API_VERSION, ok: true });
+      }
+
+      if (method === 'POST' && pathname === '/api/mobile/v1/auth/logout-all') {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        const includeCurrent = parseBooleanInput(body?.includeCurrent, false);
+        const currentSessionId = resolveMobileSessionIdFromRequest(req);
+        const index = await loadMobileSessionIndex(store, userId);
+        let revokedCount = 0;
+        for (const entry of index) {
+          if (entry.revokedAt) continue;
+          if (!includeCurrent && entry.sessionId === currentSessionId) continue;
+          const revoked = await revokeMobileSessionById(store, userId, entry.sessionId);
+          if (revoked) revokedCount += 1;
+        }
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          ok: true,
+          revokedCount,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/mobile/v1/auth/sessions') {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const items = await createMobileSessionSnapshot(store, userId, req);
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          maxSessionsPerUser: getMobileMaxSessionsPerUser(),
+          items,
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/mobile/v1/auth/sessions/revoke') {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        const sessionId = String(body?.sessionId || '').trim().toLowerCase();
+        if (!sessionId) {
+          return sendJson(res, 400, { error: 'sessionId required', requestId });
+        }
+        const revoked = await revokeMobileSessionById(store, userId, sessionId);
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          ok: revoked,
         });
       }
 
@@ -2843,6 +3682,57 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           status: 'ok',
           source: tokenUsageState ? 'ingest' : 'default',
           ...tokenUsage,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/keepa/watch-state/summary') {
+        const rawLimit = Number(url.searchParams.get('limit') ?? 50);
+        const limit = Math.max(1, Math.min(500, Number.isFinite(rawLimit) ? rawLimit : 50));
+        const indexState = store.getRuntimeState ? await store.getRuntimeState(KEEPA_WATCH_INDEX_STATE_KEY) : null;
+        const asins = Array.isArray(indexState?.stateValue?.asins) ? indexState.stateValue.asins : [];
+        const items = [];
+        if (store.getRuntimeState) {
+          for (const asin of asins.slice(0, limit)) {
+            const watchState = await store.getRuntimeState(buildKeepaWatchStateKey(asin));
+            if (watchState?.stateValue) {
+              items.push(watchState.stateValue);
+            }
+          }
+        }
+        return sendJson(res, 200, {
+          status: 'ok',
+          count: items.length,
+          watchedAsins: asins.length,
+          items,
+          updatedAt: indexState?.stateValue?.updatedAt ?? null,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/keepa/nl-reliability') {
+        const trackings = await store.listTrackings();
+        const total = trackings.length;
+        const withNlNew = trackings.filter((item) => Number.isFinite(Number(item?.pricesNew?.nl)) && Number(item.pricesNew.nl) > 0);
+        const withNlUsed = trackings.filter(
+          (item) => Number.isFinite(Number(item?.pricesUsed?.nl)) && Number(item.pricesUsed.nl) > 0,
+        );
+        const coverageNewPct = total > 0 ? Number(((withNlNew.length / total) * 100).toFixed(2)) : 0;
+        const coverageUsedPct = total > 0 ? Number(((withNlUsed.length / total) * 100).toFixed(2)) : 0;
+        const reliabilityScore = Number(((coverageNewPct * 0.7 + coverageUsedPct * 0.3)).toFixed(2));
+        return sendJson(res, 200, {
+          status: 'ok',
+          market: 'nl',
+          totals: {
+            trackings: total,
+            withNewPrice: withNlNew.length,
+            withUsedPrice: withNlUsed.length,
+          },
+          coverage: {
+            newPct: coverageNewPct,
+            usedPct: coverageUsedPct,
+          },
+          reliabilityScore,
+          health: reliabilityScore >= 80 ? 'good' : reliabilityScore >= 50 ? 'warn' : 'bad',
+          checkedAt: new Date().toISOString(),
         });
       }
 

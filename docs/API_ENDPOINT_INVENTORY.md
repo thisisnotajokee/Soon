@@ -84,29 +84,29 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `GET /api/keepa/deals` — `src/routes/api/keepa/routes/read.js`
 - [ ] `POST /api/keepa/events/ingest` — `src/routes/api/keepa/routes/ingest.js`
 - [ ] `GET /api/keepa/history/:asin` — `src/routes/api/keepa/routes/read.js`
-- [ ] `GET /api/keepa/nl-reliability` — `src/routes/api/keepa/routes/read.js`
+- [x] `GET /api/keepa/nl-reliability` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/keepa/status` — `src/routes/api/keepa/routes/read.js`
 - [ ] `GET /api/keepa/token-usage` — `src/routes/api/keepa/routes/read.js`
 - [ ] `POST /api/keepa/watch-state/ingest` — `src/routes/api/keepa/routes/ingest.js`
-- [ ] `GET /api/keepa/watch-state/summary` — `src/routes/api/keepa/routes/read.js`
+- [x] `GET /api/keepa/watch-state/summary` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/launch-readiness` — `src/routes/api/analytics/system-routes.js`
 - [x] `GET /api/logs` — `packages/api/src/runtime/server.mjs`
-- [ ] `POST /api/mobile/v1/auth/logout` — `src/routes/api/mobile-auth-routes.js`
-- [ ] `POST /api/mobile/v1/auth/logout-all` — `src/routes/api/mobile-auth-routes.js`
-- [ ] `POST /api/mobile/v1/auth/refresh` — `src/routes/api/mobile-auth-routes.js`
-- [ ] `GET /api/mobile/v1/auth/sessions` — `src/routes/api/mobile-auth-routes.js`
-- [ ] `POST /api/mobile/v1/auth/sessions/revoke` — `src/routes/api/mobile-auth-routes.js`
-- [ ] `POST /api/mobile/v1/auth/telegram` — `src/routes/api/mobile-auth-routes.js`
-- [ ] `GET /api/mobile/v1/dashboard` — `src/routes/api/mobile-data-routes.js`
-- [ ] `GET /api/mobile/v1/deals` — `src/routes/api/mobile-data-routes.js`
-- [ ] `GET /api/mobile/v1/products/:asin/detail` — `src/routes/api/mobile-data-routes.js`
-- [ ] `GET /api/mobile/v1/session` — `src/routes/api/mobile-auth-routes.js`
-- [ ] `GET /api/mobile/v1/trackings` — `src/routes/api/mobile-data-routes.js`
-- [ ] `DELETE /api/mobile/v1/trackings/:asin` — `src/routes/api/mobile-data-routes.js`
-- [ ] `POST /api/mobile/v1/trackings/:asin/preferences` — `src/routes/api/mobile-data-routes.js`
-- [ ] `DELETE /api/mobile/v1/trackings/:asin/snooze` — `src/routes/api/mobile-data-routes.js`
-- [ ] `POST /api/mobile/v1/trackings/:asin/snooze` — `src/routes/api/mobile-data-routes.js`
-- [ ] `GET /api/mobile/v1/web-deals/history` — `src/routes/api/mobile-data-routes.js`
+- [x] `POST /api/mobile/v1/auth/logout` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /api/mobile/v1/auth/logout-all` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /api/mobile/v1/auth/refresh` — `packages/api/src/runtime/server.mjs`
+- [x] `GET /api/mobile/v1/auth/sessions` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /api/mobile/v1/auth/sessions/revoke` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /api/mobile/v1/auth/telegram` — `packages/api/src/runtime/server.mjs`
+- [x] `GET /api/mobile/v1/dashboard` — `packages/api/src/runtime/server.mjs`
+- [x] `GET /api/mobile/v1/deals` — `packages/api/src/runtime/server.mjs`
+- [x] `GET /api/mobile/v1/products/:asin/detail` — `packages/api/src/runtime/server.mjs`
+- [x] `GET /api/mobile/v1/session` — `packages/api/src/runtime/server.mjs`
+- [x] `GET /api/mobile/v1/trackings` — `packages/api/src/runtime/server.mjs`
+- [x] `DELETE /api/mobile/v1/trackings/:asin` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /api/mobile/v1/trackings/:asin/preferences` — `packages/api/src/runtime/server.mjs`
+- [x] `DELETE /api/mobile/v1/trackings/:asin/snooze` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /api/mobile/v1/trackings/:asin/snooze` — `packages/api/src/runtime/server.mjs`
+- [x] `GET /api/mobile/v1/web-deals/history` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/ops/keepa-history-bootstrap` — `src/routes/api/core/routes/ops.js`
 - [ ] `GET /api/ops/metrics` — `src/routes/api/core/routes/ops.js`
 - [ ] `GET /api/perf/routes` — `src/routes/api/analytics/system-routes.js`

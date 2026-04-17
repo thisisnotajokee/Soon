@@ -129,6 +129,334 @@ test('P0-C: core auth/session compatibility endpoints', async () => {
   }
 });
 
+test('P0-C: mobile v1 auth/session compatibility endpoints', async () => {
+  const store = createInMemoryStore();
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(
+      async (baseUrl) => {
+        const unauthorizedSession = await readJson(await fetch(`${baseUrl}/api/mobile/v1/session`));
+        assert.equal(unauthorizedSession.status, 401);
+        assert.equal(unauthorizedSession.body.error, 'Unauthorized');
+
+        const login1 = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/auth/telegram`, {
+            method: 'POST',
+            headers: { 'x-telegram-user-id': '2041', 'x-request-id': 'req-mobile-login-1' },
+          }),
+        );
+        assert.equal(login1.status, 200);
+        assert.equal(login1.body.apiVersion, 'v1');
+        assert.equal(login1.body.tokenType, 'Bearer');
+        assert.equal(login1.body.userId, 2041);
+        assert.equal(login1.body.isAdmin, true);
+        assert.ok(typeof login1.body.accessToken === 'string' && login1.body.accessToken.length > 24);
+        assert.ok(typeof login1.body.refreshToken === 'string' && login1.body.refreshToken.length > 24);
+        assert.ok(Number.isInteger(login1.body.expiresIn));
+        assert.ok(Number.isInteger(login1.body.refreshExpiresIn));
+        assert.ok(Number.isInteger(login1.body.maxSessionsPerUser));
+        assert.ok(Array.isArray(login1.body.revokedSessionIds));
+
+        const refreshBad = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/auth/refresh`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-request-id': 'req-mobile-refresh-bad' },
+            body: JSON.stringify({ refreshToken: 'bad-token' }),
+          }),
+        );
+        assert.equal(refreshBad.status, 401);
+        assert.equal(refreshBad.body.error, 'Unauthorized');
+        assert.equal(refreshBad.body.requestId, 'req-mobile-refresh-bad');
+
+        const refreshOk = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/auth/refresh`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-request-id': 'req-mobile-refresh-ok' },
+            body: JSON.stringify({ refreshToken: login1.body.refreshToken }),
+          }),
+        );
+        assert.equal(refreshOk.status, 200);
+        assert.equal(refreshOk.body.apiVersion, 'v1');
+        assert.equal(refreshOk.body.tokenType, 'Bearer');
+        assert.ok(typeof refreshOk.body.accessToken === 'string' && refreshOk.body.accessToken.length > 24);
+        assert.ok(typeof refreshOk.body.refreshToken === 'string' && refreshOk.body.refreshToken.length > 24);
+
+        const sessionOk = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/session`, {
+            headers: { authorization: `Bearer ${refreshOk.body.accessToken}` },
+          }),
+        );
+        assert.equal(sessionOk.status, 200);
+        assert.equal(sessionOk.body.apiVersion, 'v1');
+        assert.equal(sessionOk.body.userId, 2041);
+        assert.equal(sessionOk.body.isAdmin, true);
+        assert.ok(typeof sessionOk.body.serverTime === 'string');
+
+        const sessions1 = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/auth/sessions`, {
+            headers: { authorization: `Bearer ${refreshOk.body.accessToken}` },
+          }),
+        );
+        assert.equal(sessions1.status, 200);
+        assert.equal(sessions1.body.apiVersion, 'v1');
+        assert.ok(Number.isInteger(sessions1.body.maxSessionsPerUser));
+        assert.ok(Array.isArray(sessions1.body.items));
+        assert.ok(sessions1.body.items.length >= 1);
+        const current1 = sessions1.body.items.find((item) => item.isCurrent);
+        assert.ok(current1);
+        assert.ok(current1.sessionId);
+
+        const login2 = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/auth/telegram`, {
+            method: 'POST',
+            headers: { 'x-telegram-user-id': '2041', 'x-request-id': 'req-mobile-login-2' },
+          }),
+        );
+        assert.equal(login2.status, 200);
+        assert.ok(typeof login2.body.accessToken === 'string' && login2.body.accessToken.length > 24);
+
+        const sessions2 = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/auth/sessions`, {
+            headers: { authorization: `Bearer ${login2.body.accessToken}` },
+          }),
+        );
+        assert.equal(sessions2.status, 200);
+        const current2 = sessions2.body.items.find((item) => item.isCurrent);
+        assert.ok(current2 && current2.sessionId);
+        const previousSession = sessions2.body.items.find((item) => item.sessionId !== current2.sessionId && item.isActive);
+        assert.ok(previousSession && previousSession.sessionId);
+
+        const revokeMissing = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/auth/sessions/revoke`, {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${login2.body.accessToken}`,
+              'content-type': 'application/json',
+              'x-request-id': 'req-mobile-revoke-missing',
+            },
+            body: JSON.stringify({}),
+          }),
+        );
+        assert.equal(revokeMissing.status, 400);
+        assert.equal(revokeMissing.body.error, 'sessionId required');
+        assert.equal(revokeMissing.body.requestId, 'req-mobile-revoke-missing');
+
+        const revokeOk = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/auth/sessions/revoke`, {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${login2.body.accessToken}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({ sessionId: previousSession.sessionId }),
+          }),
+        );
+        assert.equal(revokeOk.status, 200);
+        assert.equal(revokeOk.body.apiVersion, 'v1');
+        assert.equal(revokeOk.body.ok, true);
+
+        const logoutAll = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/auth/logout-all`, {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${login2.body.accessToken}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({ includeCurrent: false }),
+          }),
+        );
+        assert.equal(logoutAll.status, 200);
+        assert.equal(logoutAll.body.apiVersion, 'v1');
+        assert.equal(logoutAll.body.ok, true);
+        assert.ok(Number.isInteger(logoutAll.body.revokedCount));
+
+        const logout = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/auth/logout`, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${login2.body.accessToken}` },
+          }),
+        );
+        assert.equal(logout.status, 200);
+        assert.equal(logout.body.apiVersion, 'v1');
+        assert.equal(logout.body.ok, true);
+
+        const sessionAfterLogout = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/session`, {
+            headers: { authorization: `Bearer ${login2.body.accessToken}` },
+          }),
+        );
+        assert.equal(sessionAfterLogout.status, 401);
+        assert.equal(sessionAfterLogout.body.error, 'Unauthorized');
+      },
+      { store },
+    );
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
+test('P0-C: mobile v1 data compatibility endpoints (dashboard/trackings/detail)', async () => {
+  const store = createInMemoryStore();
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(
+      async (baseUrl) => {
+        const login = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/auth/telegram`, {
+            method: 'POST',
+            headers: { 'x-telegram-user-id': '2041' },
+          }),
+        );
+        assert.equal(login.status, 200);
+        const accessToken = login.body.accessToken;
+        assert.ok(typeof accessToken === 'string' && accessToken.length > 24);
+
+        const dashboard = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/dashboard`, {
+            headers: { authorization: `Bearer ${accessToken}` },
+          }),
+        );
+        assert.equal(dashboard.status, 200);
+        assert.equal(dashboard.body.apiVersion, 'v1');
+        assert.ok(Number.isInteger(dashboard.body.trackedProducts));
+        assert.ok(dashboard.body.summary);
+
+        const trackings = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/trackings?limit=2&offset=0`, {
+            headers: { authorization: `Bearer ${accessToken}` },
+          }),
+        );
+        assert.equal(trackings.status, 200);
+        assert.equal(trackings.body.apiVersion, 'v1');
+        assert.ok(trackings.body.pagination);
+        assert.ok(Array.isArray(trackings.body.items));
+        assert.ok(trackings.body.items.length >= 1);
+
+        const first = trackings.body.items[0];
+        assert.ok(first.asin);
+        assert.ok(Object.prototype.hasOwnProperty.call(first, 'marketPrices'));
+        assert.ok(Object.prototype.hasOwnProperty.call(first, 'marketPricesUsed'));
+        assert.ok(Array.isArray(first.priceTrend));
+
+        const detail = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/products/${encodeURIComponent(first.asin)}/detail`, {
+            headers: { authorization: `Bearer ${accessToken}` },
+          }),
+        );
+        assert.equal(detail.status, 200);
+        assert.equal(detail.body.apiVersion, 'v1');
+        assert.equal(detail.body.asin, first.asin);
+        assert.ok(detail.body.thresholds);
+        assert.ok(Array.isArray(detail.body.historyPoints));
+
+        const deals = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/deals?limit=2`, {
+            headers: { authorization: `Bearer ${accessToken}` },
+          }),
+        );
+        assert.equal(deals.status, 200);
+        assert.equal(deals.body.apiVersion, 'v1');
+        assert.ok(Array.isArray(deals.body.items));
+        assert.ok(deals.body.pagination);
+        assert.ok(deals.body.filters);
+
+        const preferences = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/trackings/${encodeURIComponent(first.asin)}/preferences`, {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${accessToken}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({
+              targetPrice: 1999.99,
+              targetPriceUsed: 1799.99,
+              alertDropPct: 12,
+              enabledDomains: ['de', 'nl'],
+              scanInterval: 6,
+            }),
+          }),
+        );
+        assert.equal(preferences.status, 200);
+        assert.equal(preferences.body.apiVersion, 'v1');
+        assert.equal(preferences.body.ok, true);
+        assert.equal(preferences.body.item.asin, first.asin);
+        assert.equal(preferences.body.item.targetPrice, 1999.99);
+        assert.equal(preferences.body.item.targetPriceUsed, 1799.99);
+        assert.equal(preferences.body.item.alertDropPct, 12);
+
+        const snooze = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/trackings/${encodeURIComponent(first.asin)}/snooze`, {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${accessToken}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({ days: 3 }),
+          }),
+        );
+        assert.equal(snooze.status, 200);
+        assert.equal(snooze.body.apiVersion, 'v1');
+        assert.equal(snooze.body.ok, true);
+        assert.equal(snooze.body.days, 3);
+        assert.ok(snooze.body.item.snoozedUntil);
+
+        const unsnooze = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/trackings/${encodeURIComponent(first.asin)}/snooze`, {
+            method: 'DELETE',
+            headers: { authorization: `Bearer ${accessToken}` },
+          }),
+        );
+        assert.equal(unsnooze.status, 200);
+        assert.equal(unsnooze.body.apiVersion, 'v1');
+        assert.equal(unsnooze.body.ok, true);
+        assert.equal(unsnooze.body.item.snoozedUntil, null);
+
+        const webDealsHistory = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/web-deals/history?limit=5`, {
+            headers: { authorization: `Bearer ${accessToken}` },
+          }),
+        );
+        assert.equal(webDealsHistory.status, 200);
+        assert.equal(webDealsHistory.body.apiVersion, 'v1');
+        assert.ok(Array.isArray(webDealsHistory.body.rows));
+        assert.ok(webDealsHistory.body.meta);
+
+        const mobileDelete = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/trackings/${encodeURIComponent(first.asin)}`, {
+            method: 'DELETE',
+            headers: { authorization: `Bearer ${accessToken}` },
+          }),
+        );
+        assert.equal(mobileDelete.status, 200);
+        assert.equal(mobileDelete.body.apiVersion, 'v1');
+        assert.equal(mobileDelete.body.ok, true);
+        assert.equal(mobileDelete.body.deleted, 1);
+
+        const trackingsAfterDelete = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/trackings?limit=20`, {
+            headers: { authorization: `Bearer ${accessToken}` },
+          }),
+        );
+        assert.equal(trackingsAfterDelete.status, 200);
+        assert.ok(trackingsAfterDelete.body.items.every((item) => item.asin !== first.asin));
+
+        const unauthorizedTrackings = await readJson(await fetch(`${baseUrl}/api/mobile/v1/trackings`));
+        assert.equal(unauthorizedTrackings.status, 401);
+        assert.equal(unauthorizedTrackings.body.error, 'Unauthorized');
+      },
+      { store },
+    );
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
 test('P0-C: core live logs compatibility endpoint', async () => {
   const store = createInMemoryStore();
   const previousAdminId = process.env.SOON_ADMIN_ID;
@@ -974,6 +1302,14 @@ test('P0-D: keepa watch-state ingest + status endpoint', async () => {
     assert.equal(status.body.provider, 'keepa');
     assert.equal(status.body.watchedAsins, 2);
     assert.ok(status.body.lastWatchStateIngestAt);
+
+    const summary = await readJson(await fetch(`${baseUrl}/api/keepa/watch-state/summary?limit=5`));
+    assert.equal(summary.status, 200);
+    assert.equal(summary.body.status, 'ok');
+    assert.equal(summary.body.watchedAsins, 2);
+    assert.ok(Array.isArray(summary.body.items));
+    assert.equal(summary.body.count, 2);
+    assert.ok(summary.body.items.every((item) => item.asin));
   });
 });
 
@@ -1044,6 +1380,21 @@ test('P0-D: keepa history alias returns timeline for existing ASIN', async () =>
     assert.equal(history.body.asin, asin);
     assert.ok(Array.isArray(history.body.items));
     assert.ok(history.body.count >= 1);
+  });
+});
+
+test('P0-D: keepa nl-reliability exposes coverage summary', async () => {
+  await withServer(async (baseUrl) => {
+    const reliability = await readJson(await fetch(`${baseUrl}/api/keepa/nl-reliability`));
+    assert.equal(reliability.status, 200);
+    assert.equal(reliability.body.status, 'ok');
+    assert.equal(reliability.body.market, 'nl');
+    assert.ok(reliability.body.totals);
+    assert.ok(reliability.body.coverage);
+    assert.ok(Number.isFinite(Number(reliability.body.coverage.newPct)));
+    assert.ok(Number.isFinite(Number(reliability.body.coverage.usedPct)));
+    assert.ok(Number.isFinite(Number(reliability.body.reliabilityScore)));
+    assert.ok(['good', 'warn', 'bad'].includes(reliability.body.health));
   });
 });
 

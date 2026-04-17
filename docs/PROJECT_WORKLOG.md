@@ -2624,3 +2624,67 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
     w `packages/api/test/contracts-v1.test.mjs`.
 - Zaktualizowano inwentarz endpointów:
   - `docs/API_ENDPOINT_INVENTORY.md` (`POST /api/settings/:chatId/preferences` -> DONE).
+
+## [2026-04-18 03:05:00Z] P0-C mobile auth/session v1 compatibility block implemented
+- Dodano kompatybilne endpointy mobile auth/session:
+  - `POST /api/mobile/v1/auth/telegram`,
+  - `POST /api/mobile/v1/auth/refresh`,
+  - `GET /api/mobile/v1/session`,
+  - `POST /api/mobile/v1/auth/logout`,
+  - `POST /api/mobile/v1/auth/logout-all`,
+  - `GET /api/mobile/v1/auth/sessions`,
+  - `POST /api/mobile/v1/auth/sessions/revoke`.
+- Wdrożono nowe helpery token/session w `packages/api/src/runtime/server.mjs`:
+  - podpisywane tokeny access/refresh (`m1` / `mr1`),
+  - indeks sesji użytkownika w runtime-state,
+  - rotacja/revoke sesji i limit aktywnych sesji.
+- Dodano test kontraktowy:
+  - `P0-C: mobile v1 auth/session compatibility endpoints`
+    w `packages/api/test/contracts-v1.test.mjs`.
+- Zaktualizowano inwentarz endpointów:
+  - wszystkie endpointy `mobile v1 auth/session` oznaczone jako DONE.
+
+## [2026-04-18 03:20:00Z] P0-C mobile data v1 core endpoints implemented
+- Dodano kompatybilne endpointy mobile-data (rdzeń widoków):
+  - `GET /api/mobile/v1/dashboard`,
+  - `GET /api/mobile/v1/trackings`,
+  - `GET /api/mobile/v1/products/:asin/detail`.
+- Implementacja zawiera:
+  - paginację `limit/offset` dla listy trackings,
+  - mapowanie danych trackingów do kontraktu mobile (`marketPrices`, `marketPricesUsed`, `priceTrend`, `dropPct`),
+  - autoryzację mobile access tokenem zgodnie z nowym blokiem auth/session.
+- Dodano test kontraktowy:
+  - `P0-C: mobile v1 data compatibility endpoints (dashboard/trackings/detail)`
+    w `packages/api/test/contracts-v1.test.mjs`.
+- Zaktualizowano inwentarz endpointów:
+  - `dashboard`, `trackings`, `products/:asin/detail` oznaczone jako DONE.
+
+## [2026-04-18 03:45:00Z] P0-C mobile data v1 remaining endpoints implemented
+- Dodano brakujące endpointy mobile-data:
+  - `GET /api/mobile/v1/deals`,
+  - `POST /api/mobile/v1/trackings/:asin/preferences`,
+  - `POST /api/mobile/v1/trackings/:asin/snooze`,
+  - `DELETE /api/mobile/v1/trackings/:asin/snooze`,
+  - `DELETE /api/mobile/v1/trackings/:asin`,
+  - `GET /api/mobile/v1/web-deals/history`.
+- Uspójniono mapowanie mobile trackings:
+  - listy `dashboard/trackings/deals` uwzględniają runtime `snooze` per `chatId+asin`.
+- Dodano test kontraktowy rozszerzony:
+  - `P0-C: mobile v1 data compatibility endpoints (dashboard/trackings/detail)` teraz pokrywa
+    `deals`, `preferences`, `snooze/unsnooze`, `delete tracking`, `web-deals/history`.
+- Zaktualizowano `docs/API_ENDPOINT_INVENTORY.md`:
+  - wszystkie endpointy `mobile v1 data` oznaczone jako DONE.
+
+## [2026-04-18 04:05:00Z] P0-D keepa coverage endpoints completed
+- Dodano brakujące endpointy Keepa:
+  - `GET /api/keepa/watch-state/summary`,
+  - `GET /api/keepa/nl-reliability`.
+- Kontrakt:
+  - `watch-state/summary` zwraca listę aktualnych wpisów watch-state z runtime indeksu (`count`, `watchedAsins`, `items`),
+  - `nl-reliability` zwraca metryki pokrycia cen NL (`newPct`, `usedPct`, `reliabilityScore`, `health`).
+- Rozszerzono testy kontraktowe:
+  - `P0-D: keepa watch-state ingest + status endpoint` (assert dla `watch-state/summary`),
+  - nowy test `P0-D: keepa nl-reliability exposes coverage summary`.
+- Zaktualizowano `docs/API_ENDPOINT_INVENTORY.md`:
+  - `GET /api/keepa/watch-state/summary` -> DONE,
+  - `GET /api/keepa/nl-reliability` -> DONE.
