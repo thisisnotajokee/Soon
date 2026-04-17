@@ -91,6 +91,10 @@ const RUNTIME_STATE_ALLOWLIST = new Set([
   TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_STATE_KEY,
   TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_AUDIT_STATE_KEY,
 ]);
+const API_LOG_BUFFER_MAX_ENTRIES = 1200;
+
+let apiLogNextId = 1;
+const apiLogEntries = [];
 
 function aggregateRunMetrics(items) {
   const runs = items.length;
@@ -917,6 +921,36 @@ function createCompatWebToken(userId) {
   if (!normalizedUserId) return null;
   const nonce = crypto.randomBytes(32).toString('hex');
   return `${normalizedUserId}.${Date.now().toString(36)}.${nonce}`;
+}
+
+function appendApiLog(level, message) {
+  const normalizedLevel = ['error', 'warn', 'info', 'debug'].includes(String(level ?? '').toLowerCase())
+    ? String(level).toLowerCase()
+    : 'info';
+  const entry = {
+    id: apiLogNextId++,
+    ts: new Date().toISOString(),
+    level: normalizedLevel,
+    message: String(message ?? '').slice(0, 5000),
+  };
+  apiLogEntries.push(entry);
+  if (apiLogEntries.length > API_LOG_BUFFER_MAX_ENTRIES) {
+    apiLogEntries.splice(0, apiLogEntries.length - API_LOG_BUFFER_MAX_ENTRIES);
+  }
+  return entry;
+}
+
+function getApiBufferedLogs({ sinceId = null, limit = 120 } = {}) {
+  const safeLimit = Math.min(500, Math.max(1, Number.parseInt(limit, 10) || 120));
+  const safeSince = Number.isInteger(Number.parseInt(sinceId, 10)) ? Number.parseInt(sinceId, 10) : null;
+  const items = safeSince === null
+    ? apiLogEntries.slice(-safeLimit)
+    : apiLogEntries.filter((entry) => entry.id > safeSince).slice(-safeLimit);
+  return {
+    items,
+    nextId: apiLogNextId - 1,
+    maxEntries: API_LOG_BUFFER_MAX_ENTRIES,
+  };
 }
 
 function buildKeepaWatchStateKey(asin) {
@@ -1820,6 +1854,25 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           },
           requestId,
         });
+      }
+
+      if (method === 'GET' && pathname === '/api/logs') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        if (!userId || !adminId || userId !== adminId) {
+          return sendJson(res, 403, { error: 'forbidden', requestId: resolveCompatRequestId(req) });
+        }
+        if (apiLogEntries.length === 0) {
+          appendApiLog('info', '[soon-api] log buffer initialized');
+        }
+        appendApiLog('info', `[soon-api] /api/logs polled by admin=${adminId}`);
+        const limit = Number.parseInt(String(url.searchParams.get('limit') ?? '120'), 10);
+        const sinceId = Number.parseInt(String(url.searchParams.get('sinceId') ?? ''), 10);
+        const payload = getApiBufferedLogs({
+          limit: Number.isFinite(limit) ? limit : 120,
+          sinceId: Number.isFinite(sinceId) ? sinceId : null,
+        });
+        return sendJson(res, 200, payload);
       }
 
       if (method === 'GET' && pathname === '/trackings') {
