@@ -2709,3 +2709,20 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
     w `packages/api/test/contracts-v1.test.mjs`.
 - Zaktualizowano `docs/API_ENDPOINT_INVENTORY.md`:
   - wszystkie powyższe endpointy oznaczone jako DONE.
+
+## [2026-04-18 05:05:00Z] P0-C ops compatibility endpoints + inventory sync
+- Dodano brakujące endpointy operacyjne (admin-only):
+  - `GET /api/ops/metrics`,
+  - `GET /api/ops/keepa-history-bootstrap`.
+- Kontrakt endpointów:
+  - oba endpointy zwracają `403 Forbidden` bez uprawnień admina,
+  - `ops/metrics` zwraca runtime snapshot (`runtime`, `trackings`, `scheduler`, `keepa`, `selfHeal`),
+  - `ops/keepa-history-bootstrap` zwraca stan backlogu i próbkę ASIN-ów (`status`, `backlog`, `global`, `sample`).
+- Rozszerzono test:
+  - `P0-C: core system/version/config compatibility endpoints`
+  - nowe asercje dla `ops/metrics` i `ops/keepa-history-bootstrap`.
+- Zsynchronizowano dokumentację z faktycznym stanem runtime:
+  - `docs/API_ENDPOINT_INVENTORY.md` (oznaczenia DONE dla endpointów keepa/ops/trackings/dashboard/history, które już działają w `packages/api/src/runtime/server.mjs`),
+  - `docs/FULL_MECHANICS_INVENTORY.md` (`O001`, `O002`, `O005`, `O006` -> DONE).
+- Walidacja:
+  - `npm run test:contracts` -> PASS (`66/66`).

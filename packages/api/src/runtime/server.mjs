@@ -2410,6 +2410,114 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         });
       }
 
+      if (method === 'GET' && pathname === '/api/ops/keepa-history-bootstrap') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+
+        const sampleLimit = clampInt(url.searchParams.get('sampleLimit'), 8, 1, 50);
+        const trackings = await store.listTrackings();
+        const watchIndexState = store.getRuntimeState ? await store.getRuntimeState(KEEPA_WATCH_INDEX_STATE_KEY) : null;
+        const watchIndex = watchIndexState?.stateValue ?? {};
+        const byAsin = watchIndex?.byAsin && typeof watchIndex.byAsin === 'object' ? watchIndex.byAsin : {};
+
+        const sample = [];
+        let pending = 0;
+        let ok = 0;
+        for (const item of trackings) {
+          const asin = String(item?.asin || '').trim().toUpperCase();
+          if (!asin) continue;
+          const state = byAsin[asin];
+          const hasWatch = Boolean(state && (state.lastSeenAt || state.lastUpdatedAt || state.updatedAt));
+          if (hasWatch) ok += 1;
+          else pending += 1;
+          if (sample.length < sampleLimit) {
+            sample.push({
+              asin,
+              status: hasWatch ? 'ok' : 'missing',
+              updatedAt: state?.lastSeenAt ?? state?.lastUpdatedAt ?? state?.updatedAt ?? null,
+              lastSyncedAt: state?.lastSyncedAt ?? null,
+            });
+          }
+        }
+
+        const payload = {
+          generatedAt: new Date().toISOString(),
+          status: pending > 0 ? 'degraded' : 'healthy',
+          backlog: {
+            trackedWithoutHistory: pending,
+            pending,
+            error: 0,
+            noData: 0,
+            missingSync: pending,
+            oldestOpenUpdatedAt: null,
+          },
+          global: {
+            totalRows: trackings.length,
+            pending,
+            error: 0,
+            noData: 0,
+            ok,
+            latestUpdatedAt: sample.find((row) => row.updatedAt)?.updatedAt ?? null,
+          },
+          sample,
+          requestId,
+        };
+        return sendJson(res, 200, payload);
+      }
+
+      if (method === 'GET' && pathname === '/api/ops/metrics') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+
+        const trackings = await store.listTrackings();
+        const schedulerState = store.getRuntimeState ? await store.getRuntimeState('scheduler_status') : null;
+        const keepaStatusState = store.getRuntimeState ? await store.getRuntimeState(KEEPA_STATUS_STATE_KEY) : null;
+        const selfHealState = store.getRuntimeState ? await store.getRuntimeState('self_heal_runtime_state') : null;
+
+        const memory = process.memoryUsage();
+        return sendJson(res, 200, {
+          generatedAt: new Date().toISOString(),
+          scheduler: schedulerState?.stateValue ?? null,
+          runtime: {
+            node: process.version,
+            uptimeSec: Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000)),
+            pid: process.pid,
+            host: os.hostname(),
+            memoryMb: {
+              rss: Number((memory.rss / 1024 / 1024).toFixed(2)),
+              heapUsed: Number((memory.heapUsed / 1024 / 1024).toFixed(2)),
+              heapTotal: Number((memory.heapTotal / 1024 / 1024).toFixed(2)),
+            },
+            cpu: {
+              load1m: Number(os.loadavg()[0] || 0),
+              cores: os.cpus().length,
+            },
+          },
+          trackings: {
+            total: trackings.length,
+          },
+          keepa: keepaStatusState?.stateValue ?? null,
+          ai: {
+            requestsTotal: 0,
+            fallbacksTotal: 0,
+            fallbackRatePct: 0,
+            requests24h: 0,
+            fallbacks24h: 0,
+            fallbackRate24hPct: 0,
+          },
+          selfHeal: selfHealState?.stateValue ?? null,
+          requestId,
+        });
+      }
+
       if (method === 'GET' && pathname === '/api/system-health') {
         const userId = resolveCompatAuthUserId(req, url);
         const adminId = resolveCompatAdminId();

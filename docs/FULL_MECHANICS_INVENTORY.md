@@ -215,12 +215,12 @@ Uwaga:
 
 ## O. Runtime health i self-heal
 
-- [ ] O001. `/api/system-health`.
-- [ ] O002. `/api/system-health/history`.
+- [x] O001. `/api/system-health`.
+- [x] O002. `/api/system-health/history`.
 - [x] O003. `/api/runtime-self-heal-status`.
 - [x] O004. `/api/check-alert-status`.
-- [ ] O005. `/api/ops/metrics`.
-- [ ] O006. `/api/ops/keepa-history-bootstrap`.
+- [x] O005. `/api/ops/metrics`.
+- [x] O006. `/api/ops/keepa-history-bootstrap`.
 - [ ] O007. scan stop / scan run-now.
 - [ ] O008. runtime watchdog jobs.
 - [ ] O009. offender detection (`runtime:offenders`).

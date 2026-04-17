@@ -165,6 +165,28 @@ test('P0-C: core system/version/config compatibility endpoints', async () => {
         assert.ok(Array.isArray(launchReady.body.blockers));
         assert.ok(typeof launchReady.body.ready === 'boolean');
 
+        const opsMetricsForbidden = await readJson(await fetch(`${baseUrl}/api/ops/metrics`));
+        assert.equal(opsMetricsForbidden.status, 403);
+        assert.equal(opsMetricsForbidden.body.error, 'Forbidden');
+
+        const opsMetrics = await readJson(
+          await fetch(`${baseUrl}/api/ops/metrics`, { headers: { 'x-telegram-user-id': '2041' } }),
+        );
+        assert.equal(opsMetrics.status, 200);
+        assert.ok(opsMetrics.body.runtime);
+        assert.ok(opsMetrics.body.trackings);
+        assert.ok(Number.isFinite(Number(opsMetrics.body.trackings.total)));
+
+        const keepaBootstrap = await readJson(
+          await fetch(`${baseUrl}/api/ops/keepa-history-bootstrap?sampleLimit=5`, {
+            headers: { 'x-telegram-user-id': '2041' },
+          }),
+        );
+        assert.equal(keepaBootstrap.status, 200);
+        assert.ok(typeof keepaBootstrap.body.status === 'string');
+        assert.ok(keepaBootstrap.body.backlog);
+        assert.ok(Array.isArray(keepaBootstrap.body.sample));
+
         const systemHealthPublic = await readJson(await fetch(`${baseUrl}/api/system-health`));
         assert.equal(systemHealthPublic.status, 200);
         assert.equal(systemHealthPublic.body.status, 'ok');

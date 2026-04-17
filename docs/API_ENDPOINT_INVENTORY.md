@@ -38,7 +38,7 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `GET /api/categories/:chatId` — `src/routes/api/analytics/misc-routes.js`
 - [x] `GET /api/check-alert-status` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/config` — `packages/api/src/runtime/server.mjs`
-- [ ] `GET /api/dashboard/:chatId` — `src/routes/api/trackings/routes/read.js`
+- [x] `GET /api/dashboard/:chatId` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/deals/comments` — `src/routes/api/deals-feedback.js`
 - [ ] `POST /api/deals/comments` — `src/routes/api/deals-feedback.js`
 - [ ] `GET /api/deals/comments/stats` — `src/routes/api/deals-feedback.js`
@@ -58,7 +58,7 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `POST /api/forum/threads/:threadId/report` — `src/routes/api/forum.js`
 - [ ] `POST /api/forum/threads/:threadId/vote` — `src/routes/api/forum.js`
 - [ ] `GET /api/heatmap/:asin` — `src/routes/api/analytics/misc-routes.js`
-- [ ] `GET /api/history/:asin` — `src/routes/api/trackings/routes/read.js`
+- [x] `GET /api/history/:asin` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/hunter-autonomy-decision-health` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/hunter-bandit-context` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/hunter-category-pauses` — `packages/api/src/runtime/server.mjs`
@@ -81,13 +81,13 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [x] `GET /api/hunter-trend-autotune-health` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/hunter-trend-features` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/hunter/deals-feed` — `packages/api/src/runtime/server.mjs`
-- [ ] `GET /api/keepa/deals` — `src/routes/api/keepa/routes/read.js`
-- [ ] `POST /api/keepa/events/ingest` — `src/routes/api/keepa/routes/ingest.js`
-- [ ] `GET /api/keepa/history/:asin` — `src/routes/api/keepa/routes/read.js`
+- [x] `GET /api/keepa/deals` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /api/keepa/events/ingest` — `packages/api/src/runtime/server.mjs`
+- [x] `GET /api/keepa/history/:asin` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/keepa/nl-reliability` — `packages/api/src/runtime/server.mjs`
-- [ ] `GET /api/keepa/status` — `src/routes/api/keepa/routes/read.js`
-- [ ] `GET /api/keepa/token-usage` — `src/routes/api/keepa/routes/read.js`
-- [ ] `POST /api/keepa/watch-state/ingest` — `src/routes/api/keepa/routes/ingest.js`
+- [x] `GET /api/keepa/status` — `packages/api/src/runtime/server.mjs`
+- [x] `GET /api/keepa/token-usage` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /api/keepa/watch-state/ingest` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/keepa/watch-state/summary` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/launch-readiness` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/logs` — `packages/api/src/runtime/server.mjs`
@@ -107,8 +107,8 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [x] `DELETE /api/mobile/v1/trackings/:asin/snooze` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/mobile/v1/trackings/:asin/snooze` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/mobile/v1/web-deals/history` — `packages/api/src/runtime/server.mjs`
-- [ ] `GET /api/ops/keepa-history-bootstrap` — `src/routes/api/core/routes/ops.js`
-- [ ] `GET /api/ops/metrics` — `src/routes/api/core/routes/ops.js`
+- [x] `GET /api/ops/keepa-history-bootstrap` — `packages/api/src/runtime/server.mjs`
+- [x] `GET /api/ops/metrics` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/perf/routes` — `src/routes/api/analytics/system-routes.js`
 - [ ] `GET /api/popular` — `src/routes/api/analytics/misc-routes.js`
 - [ ] `GET /api/popularity/:asin` — `src/routes/api/analytics/misc-routes.js`
@@ -153,12 +153,12 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `GET /api/tags/:chatId` — `src/routes/api/analytics/misc-routes.js`
 - [ ] `GET /api/token-efficiency` — `src/routes/api/analytics/system-routes.js`
 - [x] `GET /api/trackings/:chatId` — `packages/api/src/runtime/server.mjs`
-- [ ] `DELETE /api/trackings/:chatId/:asin` — `src/routes/api/trackings/routes/mutate.js`
+- [x] `DELETE /api/trackings/:chatId/:asin` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/trackings/:chatId/:asin/drop-pct` — `packages/api/src/runtime/server.mjs`
-- [ ] `DELETE /api/trackings/:chatId/:asin/snooze` — `src/routes/api/trackings/routes/mutate.js`
-- [ ] `POST /api/trackings/:chatId/:asin/snooze` — `src/routes/api/trackings/routes/mutate.js`
+- [x] `DELETE /api/trackings/:chatId/:asin/snooze` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /api/trackings/:chatId/:asin/snooze` — `packages/api/src/runtime/server.mjs`
 - [ ] `DELETE /api/trackings/:chatId/all` — `src/routes/api/trackings/routes/mutate.js`
-- [ ] `POST /api/trackings/save` — `src/routes/api/trackings/routes/mutate.js`
+- [x] `POST /api/trackings/save` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/version` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/web-deals/amazon` — `src/routes/api/web-deals.js`
 - [ ] `GET /api/web-deals/history` — `src/routes/api/web-deals.js`
