@@ -64,11 +64,11 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [x] `GET /api/hunter-category-pauses` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/hunter-category-pauses/unpause` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/hunter-config` — `packages/api/src/runtime/server.mjs`
-- [ ] `POST /api/hunter-config/auto-apply-run` — `src/routes/api/settings/routes/hunter.js`
+- [x] `POST /api/hunter-config/auto-apply-run` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/hunter-config/custom` — `packages/api/src/runtime/server.mjs`
-- [ ] `POST /api/hunter-config/momentum-run` — `src/routes/api/settings/routes/hunter.js`
-- [ ] `DELETE /api/hunter-config/preset` — `src/routes/api/settings/routes/hunter.js`
-- [ ] `POST /api/hunter-config/preset` — `src/routes/api/settings/routes/hunter.js`
+- [x] `POST /api/hunter-config/momentum-run` — `packages/api/src/runtime/server.mjs`
+- [x] `DELETE /api/hunter-config/preset` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /api/hunter-config/preset` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/hunter-config/recommendation` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/hunter-config/run-now` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/hunter-efficiency` — `packages/api/src/runtime/server.mjs`

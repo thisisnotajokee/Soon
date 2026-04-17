@@ -390,6 +390,9 @@ export function createPostgresStore({
       WHERE r.started_at::date = $1::date
         AND a.asin <> 'system'
       GROUP BY a.asin
+      ON CONFLICT (day, asin) DO UPDATE SET
+        alert_count = EXCLUDED.alert_count,
+        updated_at = now()
     `,
       [dayKey],
     );
