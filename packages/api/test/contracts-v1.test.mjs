@@ -396,10 +396,23 @@ test('P0-C: snooze + product interval settings contracts', async () => {
     assert.equal(settings.body.chatId, chatId);
     assert.equal(settings.body.productIntervalMin, 45);
 
+    const scanSettings = await readJson(
+      await fetch(`${baseUrl}/api/settings/${chatId}/scan-interval`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ scanIntervalMin: 30 }),
+      }),
+    );
+    assert.equal(scanSettings.status, 200);
+    assert.equal(scanSettings.body.status, 'updated');
+    assert.equal(scanSettings.body.chatId, chatId);
+    assert.equal(scanSettings.body.scanIntervalMin, 30);
+
     const settingsRead = await readJson(await fetch(`${baseUrl}/api/settings/${chatId}`));
     assert.equal(settingsRead.status, 200);
     assert.equal(settingsRead.body.chatId, chatId);
     assert.equal(settingsRead.body.productIntervalMin, 45);
+    assert.equal(settingsRead.body.scanIntervalMin, 30);
     assert.equal(settingsRead.body.notificationsEnabled, true);
 
     const dashboard = await readJson(await fetch(`${baseUrl}/api/dashboard/${chatId}`));

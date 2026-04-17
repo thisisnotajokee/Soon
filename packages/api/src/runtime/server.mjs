@@ -2369,6 +2369,7 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
       }
 
       const productIntervalMatch = pathname.match(/^\/api\/settings\/([^/]+)\/product-interval$/);
+      const scanIntervalMatch = pathname.match(/^\/api\/settings\/([^/]+)\/scan-interval$/);
       const settingsMatch = pathname.match(/^\/api\/settings\/([^/]+)$/);
       if (method === 'GET' && settingsMatch) {
         const chatId = normalizeChatId(settingsMatch[1]);
@@ -2377,11 +2378,15 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           : null;
         const state = chatSettingsState?.stateValue ?? null;
         const productIntervalMin = clampInt(state?.productIntervalMin ?? 60, 60, 1, 24 * 60);
+        const scanIntervalMin =
+          state?.scanIntervalMin === undefined || state?.scanIntervalMin === null
+            ? null
+            : clampInt(state.scanIntervalMin, 60, 1, 24 * 60);
         return sendJson(res, 200, {
           chatId,
           productIntervalMin,
           notificationsEnabled: true,
-          scanIntervalMin: null,
+          scanIntervalMin,
           updatedAt: state?.updatedAt ?? null,
         });
       }
@@ -2389,6 +2394,8 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
       if (method === 'POST' && productIntervalMatch) {
         const chatId = normalizeChatId(productIntervalMatch[1]);
         const body = await readJsonBody(req).catch(() => ({}));
+        const currentState = store.getRuntimeState ? await store.getRuntimeState(buildChatSettingsStateKey(chatId)) : null;
+        const previous = currentState?.stateValue ?? {};
         const intervalMin = clampInt(
           body.productIntervalMin ?? body.intervalMin ?? body.intervalMinutes ?? body.value ?? 60,
           60,
@@ -2396,6 +2403,7 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           24 * 60,
         );
         const state = {
+          ...previous,
           chatId,
           productIntervalMin: intervalMin,
           updatedAt: new Date().toISOString(),
@@ -2404,6 +2412,34 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           await store.setRuntimeState(buildChatSettingsStateKey(chatId), state);
         }
         return sendJson(res, 200, { status: 'updated', ...state });
+      }
+
+      if (method === 'POST' && scanIntervalMatch) {
+        const chatId = normalizeChatId(scanIntervalMatch[1]);
+        const body = await readJsonBody(req).catch(() => ({}));
+        const currentState = store.getRuntimeState ? await store.getRuntimeState(buildChatSettingsStateKey(chatId)) : null;
+        const previous = currentState?.stateValue ?? {};
+        const intervalMin = clampInt(
+          body.scanIntervalMin ?? body.intervalMin ?? body.scanEveryMin ?? body.value ?? 60,
+          60,
+          1,
+          24 * 60,
+        );
+        const state = {
+          ...previous,
+          chatId,
+          scanIntervalMin: intervalMin,
+          updatedAt: new Date().toISOString(),
+        };
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(buildChatSettingsStateKey(chatId), state);
+        }
+        return sendJson(res, 200, {
+          status: 'updated',
+          chatId,
+          scanIntervalMin: intervalMin,
+          updatedAt: state.updatedAt,
+        });
       }
 
       if (method === 'GET' && pathname === '/api/keepa/status') {
