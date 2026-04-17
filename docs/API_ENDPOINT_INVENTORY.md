@@ -84,11 +84,11 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `GET /api/keepa/deals` — `src/routes/api/keepa/routes/read.js`
 - [ ] `POST /api/keepa/events/ingest` — `src/routes/api/keepa/routes/ingest.js`
 - [ ] `GET /api/keepa/history/:asin` — `src/routes/api/keepa/routes/read.js`
-- [ ] `GET /api/keepa/nl-reliability` — `src/routes/api/keepa/routes/read.js`
+- [x] `GET /api/keepa/nl-reliability` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/keepa/status` — `src/routes/api/keepa/routes/read.js`
 - [ ] `GET /api/keepa/token-usage` — `src/routes/api/keepa/routes/read.js`
 - [ ] `POST /api/keepa/watch-state/ingest` — `src/routes/api/keepa/routes/ingest.js`
-- [ ] `GET /api/keepa/watch-state/summary` — `src/routes/api/keepa/routes/read.js`
+- [x] `GET /api/keepa/watch-state/summary` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/launch-readiness` — `src/routes/api/analytics/system-routes.js`
 - [x] `GET /api/logs` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/mobile/v1/auth/logout` — `packages/api/src/runtime/server.mjs`

@@ -3685,6 +3685,57 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         });
       }
 
+      if (method === 'GET' && pathname === '/api/keepa/watch-state/summary') {
+        const rawLimit = Number(url.searchParams.get('limit') ?? 50);
+        const limit = Math.max(1, Math.min(500, Number.isFinite(rawLimit) ? rawLimit : 50));
+        const indexState = store.getRuntimeState ? await store.getRuntimeState(KEEPA_WATCH_INDEX_STATE_KEY) : null;
+        const asins = Array.isArray(indexState?.stateValue?.asins) ? indexState.stateValue.asins : [];
+        const items = [];
+        if (store.getRuntimeState) {
+          for (const asin of asins.slice(0, limit)) {
+            const watchState = await store.getRuntimeState(buildKeepaWatchStateKey(asin));
+            if (watchState?.stateValue) {
+              items.push(watchState.stateValue);
+            }
+          }
+        }
+        return sendJson(res, 200, {
+          status: 'ok',
+          count: items.length,
+          watchedAsins: asins.length,
+          items,
+          updatedAt: indexState?.stateValue?.updatedAt ?? null,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/keepa/nl-reliability') {
+        const trackings = await store.listTrackings();
+        const total = trackings.length;
+        const withNlNew = trackings.filter((item) => Number.isFinite(Number(item?.pricesNew?.nl)) && Number(item.pricesNew.nl) > 0);
+        const withNlUsed = trackings.filter(
+          (item) => Number.isFinite(Number(item?.pricesUsed?.nl)) && Number(item.pricesUsed.nl) > 0,
+        );
+        const coverageNewPct = total > 0 ? Number(((withNlNew.length / total) * 100).toFixed(2)) : 0;
+        const coverageUsedPct = total > 0 ? Number(((withNlUsed.length / total) * 100).toFixed(2)) : 0;
+        const reliabilityScore = Number(((coverageNewPct * 0.7 + coverageUsedPct * 0.3)).toFixed(2));
+        return sendJson(res, 200, {
+          status: 'ok',
+          market: 'nl',
+          totals: {
+            trackings: total,
+            withNewPrice: withNlNew.length,
+            withUsedPrice: withNlUsed.length,
+          },
+          coverage: {
+            newPct: coverageNewPct,
+            usedPct: coverageUsedPct,
+          },
+          reliabilityScore,
+          health: reliabilityScore >= 80 ? 'good' : reliabilityScore >= 50 ? 'warn' : 'bad',
+          checkedAt: new Date().toISOString(),
+        });
+      }
+
       if (method === 'GET' && pathname === '/api/keepa/deals') {
         const rawLimit = Number(url.searchParams.get('limit') ?? 20);
         const limit = Math.max(1, Math.min(200, Number.isFinite(rawLimit) ? rawLimit : 20));

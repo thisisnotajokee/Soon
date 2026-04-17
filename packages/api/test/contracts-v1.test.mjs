@@ -1302,6 +1302,14 @@ test('P0-D: keepa watch-state ingest + status endpoint', async () => {
     assert.equal(status.body.provider, 'keepa');
     assert.equal(status.body.watchedAsins, 2);
     assert.ok(status.body.lastWatchStateIngestAt);
+
+    const summary = await readJson(await fetch(`${baseUrl}/api/keepa/watch-state/summary?limit=5`));
+    assert.equal(summary.status, 200);
+    assert.equal(summary.body.status, 'ok');
+    assert.equal(summary.body.watchedAsins, 2);
+    assert.ok(Array.isArray(summary.body.items));
+    assert.equal(summary.body.count, 2);
+    assert.ok(summary.body.items.every((item) => item.asin));
   });
 });
 
@@ -1372,6 +1380,21 @@ test('P0-D: keepa history alias returns timeline for existing ASIN', async () =>
     assert.equal(history.body.asin, asin);
     assert.ok(Array.isArray(history.body.items));
     assert.ok(history.body.count >= 1);
+  });
+});
+
+test('P0-D: keepa nl-reliability exposes coverage summary', async () => {
+  await withServer(async (baseUrl) => {
+    const reliability = await readJson(await fetch(`${baseUrl}/api/keepa/nl-reliability`));
+    assert.equal(reliability.status, 200);
+    assert.equal(reliability.body.status, 'ok');
+    assert.equal(reliability.body.market, 'nl');
+    assert.ok(reliability.body.totals);
+    assert.ok(reliability.body.coverage);
+    assert.ok(Number.isFinite(Number(reliability.body.coverage.newPct)));
+    assert.ok(Number.isFinite(Number(reliability.body.coverage.usedPct)));
+    assert.ok(Number.isFinite(Number(reliability.body.reliabilityScore)));
+    assert.ok(['good', 'warn', 'bad'].includes(reliability.body.health));
   });
 });
 

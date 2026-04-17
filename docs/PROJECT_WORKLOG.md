@@ -2674,3 +2674,17 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
     `deals`, `preferences`, `snooze/unsnooze`, `delete tracking`, `web-deals/history`.
 - Zaktualizowano `docs/API_ENDPOINT_INVENTORY.md`:
   - wszystkie endpointy `mobile v1 data` oznaczone jako DONE.
+
+## [2026-04-18 04:05:00Z] P0-D keepa coverage endpoints completed
+- Dodano brakujące endpointy Keepa:
+  - `GET /api/keepa/watch-state/summary`,
+  - `GET /api/keepa/nl-reliability`.
+- Kontrakt:
+  - `watch-state/summary` zwraca listę aktualnych wpisów watch-state z runtime indeksu (`count`, `watchedAsins`, `items`),
+  - `nl-reliability` zwraca metryki pokrycia cen NL (`newPct`, `usedPct`, `reliabilityScore`, `health`).
+- Rozszerzono testy kontraktowe:
+  - `P0-D: keepa watch-state ingest + status endpoint` (assert dla `watch-state/summary`),
+  - nowy test `P0-D: keepa nl-reliability exposes coverage summary`.
+- Zaktualizowano `docs/API_ENDPOINT_INVENTORY.md`:
+  - `GET /api/keepa/watch-state/summary` -> DONE,
+  - `GET /api/keepa/nl-reliability` -> DONE.
