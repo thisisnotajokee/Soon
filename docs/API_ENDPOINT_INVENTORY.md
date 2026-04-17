@@ -132,7 +132,7 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `GET /api/settings/:chatId/alert-profiles` — `src/routes/api/settings/routes/core.js`
 - [ ] `POST /api/settings/:chatId/alert-profiles` — `src/routes/api/settings/routes/core.js`
 - [ ] `POST /api/settings/:chatId/drop-pct` — `src/routes/api/settings/routes/core.js`
-- [ ] `POST /api/settings/:chatId/global-scan-interval` — `src/routes/api/settings/routes/core.js`
+- [x] `POST /api/settings/:chatId/global-scan-interval` — `packages/api/src/runtime/server.mjs`
 - [ ] `POST /api/settings/:chatId/notification-channels` — `src/routes/api/settings/routes/core.js`
 - [ ] `POST /api/settings/:chatId/notifications` — `src/routes/api/settings/routes/core.js`
 - [ ] `POST /api/settings/:chatId/preferences` — `src/routes/api/settings/routes/core.js`

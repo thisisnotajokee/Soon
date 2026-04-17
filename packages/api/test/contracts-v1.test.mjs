@@ -501,6 +501,53 @@ test('P0-C: /api/settings/:chatId/trackings-cache-runtime requires admin and ret
   }
 });
 
+test('P0-C: /api/settings/:chatId/global-scan-interval requires admin and validates payload', async () => {
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(async (baseUrl) => {
+      const forbidden = await readJson(
+        await fetch(`${baseUrl}/api/settings/2041/global-scan-interval`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-telegram-user-id': '9999', 'x-request-id': 'req-gsi-forbidden' },
+          body: JSON.stringify({ hours: 6 }),
+        }),
+      );
+      assert.equal(forbidden.status, 403);
+      assert.equal(forbidden.body.error, 'forbidden');
+      assert.equal(forbidden.body.requestId, 'req-gsi-forbidden');
+
+      const invalid = await readJson(
+        await fetch(`${baseUrl}/api/settings/2041/global-scan-interval`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-telegram-user-id': '2041', 'x-request-id': 'req-gsi-invalid' },
+          body: JSON.stringify({}),
+        }),
+      );
+      assert.equal(invalid.status, 400);
+      assert.equal(invalid.body.error, 'Global interval invalid');
+      assert.equal(invalid.body.requestId, 'req-gsi-invalid');
+
+      const ok = await readJson(
+        await fetch(`${baseUrl}/api/settings/2041/global-scan-interval`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-telegram-user-id': '2041', 'x-request-id': 'req-gsi-ok' },
+          body: JSON.stringify({ hours: 8 }),
+        }),
+      );
+      assert.equal(ok.status, 200);
+      assert.equal(ok.body.success, true);
+      assert.equal(ok.body.chatId, '2041');
+      assert.equal(ok.body.scan_interval_hours, 8);
+      assert.ok(typeof ok.body.next_scan_at === 'string' && ok.body.next_scan_at.length > 10);
+    });
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
 test('P0-C: admin bulk tracking compatibility endpoints', async () => {
   const previousAdminId = process.env.SOON_ADMIN_ID;
   process.env.SOON_ADMIN_ID = '2041';

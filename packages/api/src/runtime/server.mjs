@@ -41,6 +41,7 @@ const TRACKING_SNOOZE_PREFIX = 'tracking_snooze:';
 const TRACKINGS_CACHE_RUNTIME_STATE_KEY = 'trackings_cache_runtime';
 const TRACKINGS_CACHE_AUTOTUNE_LAST_STATE_KEY = 'trackings_cache_autotune_last';
 const TRACKINGS_CACHE_RUNTIME_HISTORY_STATE_KEY = 'trackings_cache_runtime_history';
+const GLOBAL_SCAN_INTERVAL_STATE_KEY = 'global_scan_interval_hours';
 const KEEPA_STATUS_STATE_KEY = 'keepa_status';
 const KEEPA_WATCH_INDEX_STATE_KEY = 'keepa_watch_index';
 const KEEPA_EVENTS_STATE_KEY = 'keepa_events';
@@ -2373,6 +2374,7 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
 
       const productIntervalMatch = pathname.match(/^\/api\/settings\/([^/]+)\/product-interval$/);
       const scanIntervalMatch = pathname.match(/^\/api\/settings\/([^/]+)\/scan-interval$/);
+      const globalScanIntervalMatch = pathname.match(/^\/api\/settings\/([^/]+)\/global-scan-interval$/);
       const trackingsCacheRuntimeMatch = pathname.match(/^\/api\/settings\/([^/]+)\/trackings-cache-runtime$/);
       const trackingsCacheTtlMatch = pathname.match(/^\/api\/settings\/([^/]+)\/trackings-cache-ttl$/);
       const settingsMatch = pathname.match(/^\/api\/settings\/([^/]+)$/);
@@ -2469,6 +2471,39 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           await store.setRuntimeState(TRACKINGS_CACHE_RUNTIME_STATE_KEY, runtime);
         }
         return sendJson(res, 200, { success: true, chatId, runtime });
+      }
+
+      if (method === 'POST' && globalScanIntervalMatch) {
+        const chatId = normalizeChatId(globalScanIntervalMatch[1]);
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!userId || !adminId || userId !== adminId) {
+          return sendJson(res, 403, { error: 'forbidden', requestId });
+        }
+
+        const body = await readJsonBody(req).catch(() => ({}));
+        const rawHours = Number(body.hours);
+        if (!Number.isFinite(rawHours)) {
+          return sendJson(res, 400, { error: 'Global interval invalid', requestId });
+        }
+        const hours = clampInt(rawHours, 6, 1, 24);
+        const nextScanAt = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+        const state = {
+          hours,
+          nextScanAt,
+          actor: userId,
+          updatedAt: new Date().toISOString(),
+        };
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(GLOBAL_SCAN_INTERVAL_STATE_KEY, state);
+        }
+        return sendJson(res, 200, {
+          success: true,
+          chatId,
+          scan_interval_hours: hours,
+          next_scan_at: nextScanAt,
+        });
       }
 
       if (method === 'POST' && productIntervalMatch) {

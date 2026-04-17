@@ -2510,3 +2510,17 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
     - walidacja poprawnego zapisu TTL i odczytu po GET runtime.
 - Zaktualizowano inwentarz endpointów:
   - `docs/API_ENDPOINT_INVENTORY.md` (`POST /api/settings/:chatId/trackings-cache-ttl` -> DONE).
+
+## [2026-04-18 00:50:00Z] P0-C global-scan-interval compatibility endpoint implemented
+- Dodano kompatybilny endpoint:
+  - `POST /api/settings/:chatId/global-scan-interval` w `packages/api/src/runtime/server.mjs`.
+- Zgodność kontraktu legacy:
+  - endpoint wymaga admin auth (`x-telegram-user-id` == `SOON_ADMIN_ID`),
+  - dla braku uprawnień zwraca `403 { error: 'forbidden' }`,
+  - dla niepoprawnego payloadu (brak `hours`) zwraca `400 { error: 'Global interval invalid' }`,
+  - dla poprawnego payloadu zwraca `{ success, scan_interval_hours, next_scan_at }`.
+- Rozszerzono test kontraktowy:
+  - `P0-C: /api/settings/:chatId/global-scan-interval requires admin and validates payload`
+    w `packages/api/test/contracts-v1.test.mjs`.
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`POST /api/settings/:chatId/global-scan-interval` -> DONE).
