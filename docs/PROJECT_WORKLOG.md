@@ -2606,3 +2606,21 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - `docs/API_ENDPOINT_INVENTORY.md`:
     - `GET /api/settings/:chatId/scan-policy` -> DONE,
     - `POST /api/settings/:chatId/scan-policy` -> DONE.
+
+## [2026-04-18 02:25:00Z] P0-C preferences settings compatibility endpoint implemented
+- Dodano kompatybilny endpoint:
+  - `POST /api/settings/:chatId/preferences` w `packages/api/src/runtime/server.mjs`.
+- Zgodność kontraktu legacy:
+  - dla niepoprawnego payloadu endpoint zwraca
+    `400 { error: 'Invalid preferences payload' }`,
+  - dla poprawnego payloadu zwraca
+    `{ success: true }`.
+- Runtime state:
+  - payload preferencji jest zapisywany do `tracking_chat_settings:{chatId}` jako `preferences`,
+  - jeśli payload zawiera `alert_profiles`/`notification_channels`, wartości są mapowane do pól
+    kompatybilnych z pozostałymi endpointami settings.
+- Dodano test kontraktowy:
+  - `P0-C: /api/settings/:chatId/preferences validates payload and persists`
+    w `packages/api/test/contracts-v1.test.mjs`.
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`POST /api/settings/:chatId/preferences` -> DONE).

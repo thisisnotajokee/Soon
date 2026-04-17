@@ -2380,6 +2380,7 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
       const settingsNotificationChannelsMatch = pathname.match(/^\/api\/settings\/([^/]+)\/notification-channels$/);
       const settingsAlertProfilesMatch = pathname.match(/^\/api\/settings\/([^/]+)\/alert-profiles$/);
       const settingsScanPolicyMatch = pathname.match(/^\/api\/settings\/([^/]+)\/scan-policy$/);
+      const settingsPreferencesMatch = pathname.match(/^\/api\/settings\/([^/]+)\/preferences$/);
       const globalScanIntervalMatch = pathname.match(/^\/api\/settings\/([^/]+)\/global-scan-interval$/);
       const trackingsCacheRuntimeMatch = pathname.match(/^\/api\/settings\/([^/]+)\/trackings-cache-runtime$/);
       const trackingsCacheTtlMatch = pathname.match(/^\/api\/settings\/([^/]+)\/trackings-cache-ttl$/);
@@ -2715,6 +2716,43 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
             idleScavengerMinWindowMin: next.idleScavengerMinWindowMin,
           },
         });
+      }
+
+      if (method === 'POST' && settingsPreferencesMatch) {
+        const chatId = normalizeChatId(settingsPreferencesMatch[1]);
+        const body = await readJsonBody(req).catch(() => ({}));
+        if (!body || typeof body !== 'object' || Array.isArray(body)) {
+          return sendJson(res, 400, { error: 'Invalid preferences payload' });
+        }
+        const preferences = JSON.parse(JSON.stringify(body));
+        const currentState = store.getRuntimeState ? await store.getRuntimeState(buildChatSettingsStateKey(chatId)) : null;
+        const previous = currentState?.stateValue ?? {};
+        const state = {
+          ...previous,
+          chatId,
+          preferences,
+          updatedAt: new Date().toISOString(),
+        };
+        if (
+          preferences.alert_profiles &&
+          typeof preferences.alert_profiles === 'object' &&
+          !Array.isArray(preferences.alert_profiles)
+        ) {
+          state.alert_profiles = preferences.alert_profiles;
+        }
+        if (
+          preferences.notification_channels &&
+          typeof preferences.notification_channels === 'object' &&
+          !Array.isArray(preferences.notification_channels)
+        ) {
+          state.notification_channels = Object.fromEntries(
+            Object.entries(preferences.notification_channels).map(([key, value]) => [key, Boolean(value)]),
+          );
+        }
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(buildChatSettingsStateKey(chatId), state);
+        }
+        return sendJson(res, 200, { success: true });
       }
 
       if (method === 'POST' && productIntervalMatch) {
