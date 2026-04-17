@@ -2395,3 +2395,14 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - brak regresji po usunięciu innego trackingu.
 - Zaktualizowano inwentarz endpointów:
   - `docs/API_ENDPOINT_INVENTORY.md` (`POST /api/add-product` -> DONE).
+
+## [2026-04-17 22:45:00Z] P0-C trackings list compatibility endpoint implemented
+- Dodano kompatybilny endpoint:
+  - `GET /api/trackings/:chatId` w `packages/api/src/runtime/server.mjs`.
+- Endpoint zwraca legacy-like payload jako lista (`array`) trackowanych pozycji
+  z polami kompatybilnymi (`last_checked: null`, `chat_id`).
+- Rozszerzono test kontraktowy `P0-C`:
+  - odczyt listy przez `/api/trackings/:chatId`,
+  - walidacja obecności zapisanych ASIN i pól kompatybilności.
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`GET /api/trackings/:chatId` -> DONE).
