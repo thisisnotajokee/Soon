@@ -2759,3 +2759,16 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - nowy test `P0-C: /api/scan-kpi + /api/scan-plan/:chatId compatibility endpoints`.
 - Aktualizacja dokumentacji:
   - `docs/API_ENDPOINT_INVENTORY.md` (`scan-kpi`, `scan-plan` -> DONE).
+
+## [2026-04-18 06:10:00Z] P0-C perf + token efficiency compatibility endpoints completed
+- Dodano brakujące endpointy kompatybilności analytics/system:
+  - `GET /api/perf/routes` (admin-only),
+  - `GET /api/token-efficiency`.
+- Kontrakt endpointów:
+  - `perf/routes` zwraca snapshot wydajności (`window_sec`, `samples`, `overall`, `routes`, `slow_routes`, `rate_limits`, `rate_limit_config`),
+  - `token-efficiency` zwraca metryki okna (`windowHours`, `tokensSpent`, `alerts`, `tokensPerAlert`, `latestScan`, `cumulative`).
+- Rozszerzono testy kontraktowe:
+  - nowy test `P0-C: /api/perf/routes + /api/token-efficiency compatibility endpoints`.
+- Aktualizacja dokumentacji:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`perf/routes`, `token-efficiency` -> DONE),
+  - `docs/FULL_MECHANICS_INVENTORY.md` (`N002`, `N003`, `N004` -> DONE).

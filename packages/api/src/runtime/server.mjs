@@ -3639,6 +3639,76 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         });
       }
 
+      if (method === 'GET' && pathname === '/api/perf/routes') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+
+        const windowSec = clampInt(url.searchParams.get('windowSec'), 900, 60, 24 * 3600);
+        const limit = clampInt(url.searchParams.get('limit'), 20, 1, 100);
+        const schedulerState = store.getRuntimeState ? await store.getRuntimeState('scheduler_status') : null;
+        const metrics = schedulerState?.stateValue?.metrics ?? {};
+
+        const snapshot = {
+          window_sec: windowSec,
+          samples: Number(metrics?.apiSamples || 0),
+          overall: {
+            p50_ms: Number(metrics?.apiP50Ms || 0),
+            p95_ms: Number(metrics?.apiP95Ms || 0),
+            p99_ms: Number(metrics?.apiP99Ms || 0),
+          },
+          routes: Array.isArray(metrics?.apiRoutes) ? metrics.apiRoutes.slice(0, limit) : [],
+          slow_routes: Array.isArray(metrics?.slowRoutes) ? metrics.slowRoutes.slice(0, limit) : [],
+          rate_limits: metrics?.rateLimits && typeof metrics.rateLimits === 'object' ? metrics.rateLimits : {},
+          rate_limit_config: metrics?.rateLimitConfig && typeof metrics.rateLimitConfig === 'object'
+            ? metrics.rateLimitConfig
+            : {
+                enabled: false,
+              },
+          requestId,
+        };
+        return sendJson(res, 200, snapshot);
+      }
+
+      if (method === 'GET' && pathname === '/api/token-efficiency') {
+        const hours = clampInt(url.searchParams.get('hours'), 24, 1, 24 * 30);
+        const schedulerState = store.getRuntimeState ? await store.getRuntimeState('scheduler_status') : null;
+        const tokenUsageState = store.getRuntimeState ? await store.getRuntimeState(KEEPA_TOKEN_USAGE_STATE_KEY) : null;
+        const tokenUsage = normalizeKeepaTokenUsage(tokenUsageState?.stateValue ?? {});
+        const metrics = schedulerState?.stateValue?.metrics ?? {};
+
+        const tokensSpent = Number(tokenUsage.used || 0);
+        const alerts = Number(metrics?.lastAlerts || 0);
+        const tokensPerAlert = alerts > 0 ? Number((tokensSpent / alerts).toFixed(2)) : null;
+        const scanned = Number(metrics?.lastScanned || 0);
+        const estimated = Number(metrics?.lastEstimatedTokens || 0);
+        const tokensPerScanned = scanned > 0 ? Number((estimated / scanned).toFixed(2)) : null;
+
+        return sendJson(res, 200, {
+          windowHours: hours,
+          tokensSpent: Number(tokensSpent.toFixed(2)),
+          alerts,
+          tokensPerAlert,
+          latestScan: {
+            scanned,
+            alerts,
+            estimatedTokens: estimated,
+            coldSkipped: Number(metrics?.lastColdSkipped || 0),
+            budgetTokens: Number(metrics?.lastBudgetTokens || 0),
+            tokensPerScanned,
+          },
+          cumulative: {
+            estimatedTokens: Number(metrics?.cumulativeEstimatedTokens || 0),
+            totalScans: Number(metrics?.totalScans || 0),
+            totalScanned: Number(metrics?.totalScanned || 0),
+            totalAlerts: Number(metrics?.totalAlerts || 0),
+          },
+        });
+      }
+
       if (method === 'POST' && pathname === '/api/scan/run-now') {
         const userId = resolveCompatAuthUserId(req, url);
         const adminId = resolveCompatAdminId();

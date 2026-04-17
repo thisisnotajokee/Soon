@@ -1296,6 +1296,42 @@ test('P0-C: /api/scan-kpi + /api/scan-plan/:chatId compatibility endpoints', asy
   });
 });
 
+test('P0-C: /api/perf/routes + /api/token-efficiency compatibility endpoints', async () => {
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(async (baseUrl) => {
+      const perfForbidden = await readJson(await fetch(`${baseUrl}/api/perf/routes`));
+      assert.equal(perfForbidden.status, 403);
+      assert.equal(perfForbidden.body.error, 'Forbidden');
+
+      const perfAdmin = await readJson(
+        await fetch(`${baseUrl}/api/perf/routes?windowSec=600&limit=10`, {
+          headers: { 'x-telegram-user-id': '2041' },
+        }),
+      );
+      assert.equal(perfAdmin.status, 200);
+      assert.equal(perfAdmin.body.window_sec, 600);
+      assert.ok(Number.isFinite(Number(perfAdmin.body.samples)));
+      assert.ok(perfAdmin.body.overall && typeof perfAdmin.body.overall === 'object');
+      assert.ok(Array.isArray(perfAdmin.body.routes));
+      assert.ok(Array.isArray(perfAdmin.body.slow_routes));
+
+      const tokenEfficiency = await readJson(await fetch(`${baseUrl}/api/token-efficiency?hours=48`));
+      assert.equal(tokenEfficiency.status, 200);
+      assert.equal(tokenEfficiency.body.windowHours, 48);
+      assert.ok(Number.isFinite(Number(tokenEfficiency.body.tokensSpent)));
+      assert.ok(Number.isFinite(Number(tokenEfficiency.body.alerts)));
+      assert.ok(tokenEfficiency.body.latestScan && typeof tokenEfficiency.body.latestScan === 'object');
+      assert.ok(tokenEfficiency.body.cumulative && typeof tokenEfficiency.body.cumulative === 'object');
+    });
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
 test('P0-C: /api/settings/:chatId/preferences validates payload and persists', async () => {
   await withServer(async (baseUrl) => {
     const invalid = await readJson(

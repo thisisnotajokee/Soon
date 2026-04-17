@@ -109,7 +109,7 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [x] `GET /api/mobile/v1/web-deals/history` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/ops/keepa-history-bootstrap` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/ops/metrics` — `packages/api/src/runtime/server.mjs`
-- [ ] `GET /api/perf/routes` — `src/routes/api/analytics/system-routes.js`
+- [x] `GET /api/perf/routes` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/popular` — `src/routes/api/analytics/misc-routes.js`
 - [ ] `GET /api/popularity/:asin` — `src/routes/api/analytics/misc-routes.js`
 - [ ] `GET /api/price-errors` — `src/routes/api/analytics/alerts-history-routes.js`
@@ -151,7 +151,7 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [x] `GET /api/system-stats/history` — `packages/api/src/runtime/server.mjs`
 - [ ] `POST /api/system/restart` — `src/routes/api/analytics/system-routes.js`
 - [ ] `GET /api/tags/:chatId` — `src/routes/api/analytics/misc-routes.js`
-- [ ] `GET /api/token-efficiency` — `src/routes/api/analytics/system-routes.js`
+- [x] `GET /api/token-efficiency` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/trackings/:chatId` — `packages/api/src/runtime/server.mjs`
 - [x] `DELETE /api/trackings/:chatId/:asin` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/trackings/:chatId/:asin/drop-pct` — `packages/api/src/runtime/server.mjs`

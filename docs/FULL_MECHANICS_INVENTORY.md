@@ -203,9 +203,9 @@ Uwaga:
 ## N. Analytics / Command Center
 
 - [ ] N001. System stats i history.
-- [ ] N002. Token efficiency metrics.
-- [ ] N003. Scan KPI.
-- [ ] N004. Route perf metrics.
+- [x] N002. Token efficiency metrics.
+- [x] N003. Scan KPI.
+- [x] N004. Route perf metrics.
 - [ ] N005. Launch readiness endpoint.
 - [ ] N006. Config introspection endpoint.
 - [ ] N007. Popular/popularity/category/tag stats.
