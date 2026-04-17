@@ -10,6 +10,35 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ---
 
+## [2026-04-17 21:35:00Z] Hunter config recommendation endpoint + inventory consistency pass
+
+### Scope
+
+- Added `GET /api/hunter-config/recommendation` in Soon runtime API.
+  - Returns recommendation envelope compatible with hunter config flow:
+    - `recommendation.preset|confidence|reasons|metrics`,
+    - `autoApply.enabled|minConfidence|minRuns`.
+- Added contract coverage for `/api/hunter-config/recommendation`.
+- Updated API inventory consistency for hunter endpoints already implemented in Soon runtime:
+  - `GET /api/hunter-config`
+  - `POST /api/hunter-config/custom`
+  - `POST /api/hunter-config/run-now`
+  - `GET /api/hunter-slo`
+  - `GET /api/hunter-smart-engine`
+  - `GET /api/hunter-autonomy-decision-health`
+  - `GET /api/hunter-config/recommendation`
+
+### Validation
+
+- `npm run -s test:contracts` -> PASS
+
+### Next
+
+- Continue migration with remaining hunter config execution endpoints:
+  `POST /api/hunter-config/auto-apply-run` and `POST /api/hunter-config/momentum-run`.
+
+---
+
 ## [2026-04-17 21:15:00Z] Hunter deals-feed compatibility endpoint implemented
 
 ### Scope

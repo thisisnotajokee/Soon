@@ -2079,6 +2079,94 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         });
       }
 
+      if (method === 'GET' && pathname === '/api/hunter-config/recommendation') {
+        const defaultConfig = buildDefaultHunterConfig();
+        const customState = store.getRuntimeState ? await store.getRuntimeState(HUNTER_CUSTOM_CONFIG_STATE_KEY) : null;
+        const customConfig =
+          customState?.stateValue && typeof customState.stateValue === 'object'
+            ? customState.stateValue.config ?? {}
+            : {};
+        const effectiveConfig = mergeHunterConfig(defaultConfig, customConfig);
+
+        const nowMs = Date.now();
+        const windowHours = 24;
+        const minTs = nowMs - windowHours * 60 * 60 * 1000;
+        const runs = store.listLatestAutomationRuns
+          ? (await store.listLatestAutomationRuns(500)).filter((run) => {
+              const ts = Date.parse(run?.startedAt ?? run?.finishedAt ?? '');
+              return Number.isFinite(ts) && ts >= minTs;
+            })
+          : [];
+
+        const decisions = runs.flatMap((run) => (Array.isArray(run?.decisions) ? run.decisions : []));
+        const avgDecisionCount =
+          runs.length > 0
+            ? Number(
+                (
+                  runs.reduce((sum, run) => sum + Number(run?.decisionCount ?? 0), 0) / runs.length
+                ).toFixed(4),
+              )
+            : 0;
+        const avgConfidence =
+          decisions.length > 0
+            ? Number(
+                (
+                  decisions.reduce((sum, decision) => sum + Number(decision?.confidence ?? 0), 0) /
+                  decisions.length
+                ).toFixed(4),
+              )
+            : 0;
+        const purchaseAlerts = runs.reduce((sum, run) => sum + Number(run?.purchaseAlertCount ?? 0), 0);
+        const technicalAlerts = runs.reduce((sum, run) => sum + Number(run?.technicalAlertCount ?? 0), 0);
+        const totalAlerts = purchaseAlerts + technicalAlerts;
+        const purchaseAlertShare = totalAlerts > 0 ? Number((purchaseAlerts / totalAlerts).toFixed(4)) : 0;
+
+        let preset = 'safe';
+        let confidence = 0.55;
+        const reasons = [];
+
+        if (runs.length < 3) {
+          reasons.push('insufficient_samples_24h');
+        } else {
+          if (avgDecisionCount >= 1.5 && avgConfidence >= 0.75 && purchaseAlertShare >= 0.6) {
+            preset = 'aggressive';
+            confidence = 0.86;
+            reasons.push('strong_decision_density');
+          } else if (avgDecisionCount >= 1 && avgConfidence >= 0.68) {
+            preset = 'balanced';
+            confidence = 0.78;
+            reasons.push('stable_runtime_kpi');
+          } else {
+            preset = 'safe';
+            confidence = 0.64;
+            reasons.push('conservative_runtime_kpi');
+          }
+        }
+
+        return sendJson(res, 200, {
+          isAdmin: false,
+          canManage: false,
+          windowHours,
+          recommendation: {
+            preset,
+            confidence: Number(confidence.toFixed(4)),
+            reasons,
+            metrics: {
+              runs: runs.length,
+              decisions: decisions.length,
+              avgDecisionCount,
+              avgConfidence,
+              purchaseAlertShare,
+            },
+          },
+          autoApply: {
+            enabled: effectiveConfig?.hunterAutoApplyRecommendation === true,
+            minConfidence: Number(effectiveConfig?.hunterAutoApplyMinConfidence ?? 0.82),
+            minRuns: Number(effectiveConfig?.hunterAutoApplyMinRuns ?? 3),
+          },
+        });
+      }
+
       if (method === 'POST' && pathname === '/api/hunter-config/custom') {
         if (!store.setRuntimeState) {
           return sendJson(res, 501, { error: 'not_implemented' });
