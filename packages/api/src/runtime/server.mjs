@@ -43,6 +43,8 @@ const TRACKINGS_CACHE_AUTOTUNE_LAST_STATE_KEY = 'trackings_cache_autotune_last';
 const TRACKINGS_CACHE_RUNTIME_HISTORY_STATE_KEY = 'trackings_cache_runtime_history';
 const GLOBAL_SCAN_INTERVAL_STATE_KEY = 'global_scan_interval_hours';
 const SETTINGS_SCAN_POLICY_STATE_KEY = 'settings_scan_policy_v1';
+const MOBILE_TRACKING_PREFERENCES_PREFIX = 'mobile_tracking_preferences_v1:';
+const MOBILE_WEB_DEALS_HISTORY_STATE_KEY = 'mobile_web_deals_history_v1';
 const MOBILE_SESSION_PREFIX = 'mobile_auth_session_v1:';
 const MOBILE_SESSION_INDEX_PREFIX = 'mobile_auth_user_sessions_v1:';
 const MOBILE_API_VERSION = 'v1';
@@ -1009,6 +1011,27 @@ function buildMobileTrackingItem(item) {
     lastChecked: item?.updatedAt ?? null,
     priceTrend,
   };
+}
+
+function mobileTrackingPreferencesKey(userId, asin) {
+  return `${MOBILE_TRACKING_PREFERENCES_PREFIX}${String(userId ?? '').trim()}:${String(asin ?? '').trim().toUpperCase()}`;
+}
+
+function parseNullablePriceValue(raw) {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? Number(parsed.toFixed(2)) : Number.NaN;
+}
+
+async function hydrateMobileTrackingItem(store, userId, item) {
+  const asin = String(item?.asin ?? '').trim().toUpperCase();
+  const snoozeState = store.getRuntimeState ? await store.getRuntimeState(buildTrackingSnoozeStateKey(userId, asin)) : null;
+  const snooze = snoozeState?.stateValue ?? null;
+  const snoozedUntil = snooze?.until ?? item?.snoozedUntil ?? null;
+  return buildMobileTrackingItem({
+    ...item,
+    snoozedUntil,
+  });
 }
 
 function mobileSessionKey(sessionId) {
@@ -2321,7 +2344,7 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           return sendJson(res, 401, { error: 'Unauthorized', requestId });
         }
         const rawTrackings = await store.listTrackings();
-        const items = rawTrackings.map((item) => buildMobileTrackingItem(item));
+        const items = await Promise.all(rawTrackings.map((item) => hydrateMobileTrackingItem(store, userId, item)));
         const topDrop = items.length
           ? [...items].sort((a, b) => Number(b.dropPct || 0) - Number(a.dropPct || 0))[0]
           : null;
@@ -2355,11 +2378,51 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         }
         const { limit, offset } = normalizeMobilePagination(url);
         const rawTrackings = await store.listTrackings();
-        const mapped = rawTrackings.map((item) => buildMobileTrackingItem(item));
+        const mapped = await Promise.all(rawTrackings.map((item) => hydrateMobileTrackingItem(store, userId, item)));
         const items = mapped.slice(offset, offset + limit);
         return sendJson(res, 200, {
           apiVersion: MOBILE_API_VERSION,
           pagination: { limit, offset, count: items.length },
+          items,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/mobile/v1/deals') {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const includeSuspicious = parseBooleanInput(url.searchParams.get('includeSuspicious'), false);
+        const { limit, offset } = normalizeMobilePagination(url);
+        const rawTrackings = await store.listTrackings();
+        const mapped = await Promise.all(rawTrackings.map((item) => hydrateMobileTrackingItem(store, userId, item)));
+        const sorted = mapped.sort((a, b) => Number(b.dropPct || 0) - Number(a.dropPct || 0));
+        const items = sorted.slice(offset, offset + limit).map((item, idx) => ({
+          id: `${item.asin}-${offset + idx + 1}`,
+          asin: item.asin,
+          alertType: 'drop_detected',
+          title: item.title,
+          imageUrl: item.imageUrl,
+          details: null,
+          bestPrice: item.bestPrice,
+          avgPrice: item.avgPrice,
+          dealScore: item.dealScore,
+          rating: item.rating,
+          reviews: item.reviews,
+          marketPrices: item.marketPrices,
+          createdAt: item.lastChecked || new Date().toISOString(),
+          isSuspiciousPrice: false,
+          suspiciousReasons: [],
+          priceTrend: item.priceTrend,
+        }));
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          pagination: { limit, offset, count: items.length },
+          filters: {
+            includeSuspicious,
+            filteredSuspiciousCount: 0,
+          },
           items,
         });
       }
@@ -2379,6 +2442,169 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         return sendJson(res, 200, {
           apiVersion: MOBILE_API_VERSION,
           ...detail,
+        });
+      }
+
+      const mobilePreferencesMatch = pathname.match(/^\/api\/mobile\/v1\/trackings\/([^/]+)\/preferences$/);
+      if (method === 'POST' && mobilePreferencesMatch) {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        if (!store.updateThresholds) {
+          return sendJson(res, 501, { error: 'not_implemented', requestId });
+        }
+        const asin = decodeURIComponent(mobilePreferencesMatch[1]).trim().toUpperCase();
+        if (!asin) {
+          return sendJson(res, 400, { error: 'invalid_asin', requestId });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        const targetPrice = parseNullablePriceValue(body?.targetPrice);
+        const targetPriceUsed = parseNullablePriceValue(body?.targetPriceUsed);
+        if (Number.isNaN(targetPrice) || Number.isNaN(targetPriceUsed)) {
+          return sendJson(res, 400, { error: 'Invalid target prices', requestId });
+        }
+        let existing = store.getTracking ? await store.getTracking(asin) : null;
+        if (!existing && store.saveTracking) {
+          await store.saveTracking({ asin });
+          existing = store.getTracking ? await store.getTracking(asin) : null;
+        }
+        if (!existing) {
+          return sendJson(res, 404, { error: 'not_found', asin, requestId });
+        }
+        const thresholdDropPct =
+          body?.alertDropPct === undefined ? undefined : clampInt(body.alertDropPct, existing.thresholdDropPct ?? 10, 1, 90);
+        await store.updateThresholds(asin, {
+          thresholdDropPct,
+          targetPriceNew: targetPrice,
+          targetPriceUsed,
+        });
+        const preferenceState = {
+          enabledDomains: Array.isArray(body?.enabledDomains) ? body.enabledDomains : null,
+          scanInterval: Number.isFinite(Number(body?.scanInterval)) ? Number(body.scanInterval) : null,
+          sizeType: body?.sizeType ?? null,
+          sizeValue: body?.sizeValue ?? null,
+          sizeSystem: body?.sizeSystem ?? null,
+          updatedAt: new Date().toISOString(),
+        };
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(mobileTrackingPreferencesKey(userId, asin), preferenceState);
+        }
+        const refreshed = store.getTracking ? await store.getTracking(asin) : null;
+        const hydrated = refreshed ? await hydrateMobileTrackingItem(store, userId, refreshed) : null;
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          ok: true,
+          item: hydrated,
+        });
+      }
+
+      const mobileSnoozeMatch = pathname.match(/^\/api\/mobile\/v1\/trackings\/([^/]+)\/snooze$/);
+      if ((method === 'POST' || method === 'DELETE') && mobileSnoozeMatch) {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const asin = decodeURIComponent(mobileSnoozeMatch[1]).trim().toUpperCase();
+        if (!asin) {
+          return sendJson(res, 400, { error: 'invalid_asin', requestId });
+        }
+        const tracking = store.getTracking ? await store.getTracking(asin) : null;
+        if (!tracking) {
+          return sendJson(res, 404, { error: 'not_found', asin, requestId });
+        }
+        const snoozeKey = buildTrackingSnoozeStateKey(userId, asin);
+        if (method === 'DELETE') {
+          if (store.setRuntimeState) {
+            await store.setRuntimeState(snoozeKey, null);
+          }
+          const hydrated = await hydrateMobileTrackingItem(store, userId, tracking);
+          return sendJson(res, 200, {
+            apiVersion: MOBILE_API_VERSION,
+            ok: true,
+            item: hydrated,
+          });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        const days = clampInt(body?.days, 7, 1, 90);
+        const nowMs = Date.now();
+        const until = new Date(nowMs + days * 24 * 60 * 60 * 1000).toISOString();
+        const state = {
+          asin,
+          chatId: String(userId),
+          days,
+          from: new Date(nowMs).toISOString(),
+          until,
+          reason: 'mobile_manual',
+        };
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(snoozeKey, state);
+        }
+        const hydrated = await hydrateMobileTrackingItem(store, userId, tracking);
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          ok: true,
+          days,
+          item: hydrated,
+        });
+      }
+
+      const mobileDeleteTrackingMatch = pathname.match(/^\/api\/mobile\/v1\/trackings\/([^/]+)$/);
+      if (method === 'DELETE' && mobileDeleteTrackingMatch) {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        if (!store.deleteTracking) {
+          return sendJson(res, 501, { error: 'not_implemented', requestId });
+        }
+        const asin = decodeURIComponent(mobileDeleteTrackingMatch[1]).trim().toUpperCase();
+        if (!asin) {
+          return sendJson(res, 400, { error: 'invalid_asin', requestId });
+        }
+        const deleted = await store.deleteTracking(asin);
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(buildTrackingSnoozeStateKey(userId, asin), null);
+          await store.setRuntimeState(mobileTrackingPreferencesKey(userId, asin), null);
+        }
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          ok: true,
+          deleted: deleted?.deleted ? 1 : 0,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/mobile/v1/web-deals/history') {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const limit = clampInt(url.searchParams.get('limit'), 120, 1, 300);
+        const source = String(url.searchParams.get('source') ?? '').trim().toLowerCase();
+        const historyState = store.getRuntimeState
+          ? await store.getRuntimeState(MOBILE_WEB_DEALS_HISTORY_STATE_KEY)
+          : null;
+        const allRows = Array.isArray(historyState?.stateValue) ? historyState.stateValue : [];
+        const filtered = allRows.filter((row) =>
+          source ? String(row?.sourceId ?? '').trim().toLowerCase() === source : true,
+        );
+        const rows = filtered
+          .slice()
+          .sort((a, b) => String(b?.sentAt ?? '').localeCompare(String(a?.sentAt ?? '')))
+          .slice(0, limit);
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          rows,
+          meta: {
+            sourceId: source || 'all',
+            limit,
+            total: rows.length,
+            generatedAt: new Date().toISOString(),
+          },
         });
       }
 

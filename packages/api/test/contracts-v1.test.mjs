@@ -354,6 +354,97 @@ test('P0-C: mobile v1 data compatibility endpoints (dashboard/trackings/detail)'
         assert.ok(detail.body.thresholds);
         assert.ok(Array.isArray(detail.body.historyPoints));
 
+        const deals = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/deals?limit=2`, {
+            headers: { authorization: `Bearer ${accessToken}` },
+          }),
+        );
+        assert.equal(deals.status, 200);
+        assert.equal(deals.body.apiVersion, 'v1');
+        assert.ok(Array.isArray(deals.body.items));
+        assert.ok(deals.body.pagination);
+        assert.ok(deals.body.filters);
+
+        const preferences = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/trackings/${encodeURIComponent(first.asin)}/preferences`, {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${accessToken}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({
+              targetPrice: 1999.99,
+              targetPriceUsed: 1799.99,
+              alertDropPct: 12,
+              enabledDomains: ['de', 'nl'],
+              scanInterval: 6,
+            }),
+          }),
+        );
+        assert.equal(preferences.status, 200);
+        assert.equal(preferences.body.apiVersion, 'v1');
+        assert.equal(preferences.body.ok, true);
+        assert.equal(preferences.body.item.asin, first.asin);
+        assert.equal(preferences.body.item.targetPrice, 1999.99);
+        assert.equal(preferences.body.item.targetPriceUsed, 1799.99);
+        assert.equal(preferences.body.item.alertDropPct, 12);
+
+        const snooze = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/trackings/${encodeURIComponent(first.asin)}/snooze`, {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${accessToken}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({ days: 3 }),
+          }),
+        );
+        assert.equal(snooze.status, 200);
+        assert.equal(snooze.body.apiVersion, 'v1');
+        assert.equal(snooze.body.ok, true);
+        assert.equal(snooze.body.days, 3);
+        assert.ok(snooze.body.item.snoozedUntil);
+
+        const unsnooze = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/trackings/${encodeURIComponent(first.asin)}/snooze`, {
+            method: 'DELETE',
+            headers: { authorization: `Bearer ${accessToken}` },
+          }),
+        );
+        assert.equal(unsnooze.status, 200);
+        assert.equal(unsnooze.body.apiVersion, 'v1');
+        assert.equal(unsnooze.body.ok, true);
+        assert.equal(unsnooze.body.item.snoozedUntil, null);
+
+        const webDealsHistory = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/web-deals/history?limit=5`, {
+            headers: { authorization: `Bearer ${accessToken}` },
+          }),
+        );
+        assert.equal(webDealsHistory.status, 200);
+        assert.equal(webDealsHistory.body.apiVersion, 'v1');
+        assert.ok(Array.isArray(webDealsHistory.body.rows));
+        assert.ok(webDealsHistory.body.meta);
+
+        const mobileDelete = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/trackings/${encodeURIComponent(first.asin)}`, {
+            method: 'DELETE',
+            headers: { authorization: `Bearer ${accessToken}` },
+          }),
+        );
+        assert.equal(mobileDelete.status, 200);
+        assert.equal(mobileDelete.body.apiVersion, 'v1');
+        assert.equal(mobileDelete.body.ok, true);
+        assert.equal(mobileDelete.body.deleted, 1);
+
+        const trackingsAfterDelete = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/trackings?limit=20`, {
+            headers: { authorization: `Bearer ${accessToken}` },
+          }),
+        );
+        assert.equal(trackingsAfterDelete.status, 200);
+        assert.ok(trackingsAfterDelete.body.items.every((item) => item.asin !== first.asin));
+
         const unauthorizedTrackings = await readJson(await fetch(`${baseUrl}/api/mobile/v1/trackings`));
         assert.equal(unauthorizedTrackings.status, 401);
         assert.equal(unauthorizedTrackings.body.error, 'Unauthorized');

@@ -2658,3 +2658,19 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
     w `packages/api/test/contracts-v1.test.mjs`.
 - Zaktualizowano inwentarz endpointów:
   - `dashboard`, `trackings`, `products/:asin/detail` oznaczone jako DONE.
+
+## [2026-04-18 03:45:00Z] P0-C mobile data v1 remaining endpoints implemented
+- Dodano brakujące endpointy mobile-data:
+  - `GET /api/mobile/v1/deals`,
+  - `POST /api/mobile/v1/trackings/:asin/preferences`,
+  - `POST /api/mobile/v1/trackings/:asin/snooze`,
+  - `DELETE /api/mobile/v1/trackings/:asin/snooze`,
+  - `DELETE /api/mobile/v1/trackings/:asin`,
+  - `GET /api/mobile/v1/web-deals/history`.
+- Uspójniono mapowanie mobile trackings:
+  - listy `dashboard/trackings/deals` uwzględniają runtime `snooze` per `chatId+asin`.
+- Dodano test kontraktowy rozszerzony:
+  - `P0-C: mobile v1 data compatibility endpoints (dashboard/trackings/detail)` teraz pokrywa
+    `deals`, `preferences`, `snooze/unsnooze`, `delete tracking`, `web-deals/history`.
+- Zaktualizowano `docs/API_ENDPOINT_INVENTORY.md`:
+  - wszystkie endpointy `mobile v1 data` oznaczone jako DONE.
