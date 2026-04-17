@@ -454,6 +454,24 @@ test('P0-E: hunter run-now + slo + smart-engine + autonomy-health endpoints', as
     assert.ok(Number.isFinite(Number(highValueMetrics.body.highValueHits)));
     assert.ok(Number.isFinite(Number(highValueMetrics.body.tokensPerDeal)));
     assert.ok(Number.isFinite(Number(highValueMetrics.body.hitShare)));
+
+    const dealsFeed = await readJson(await fetch(`${baseUrl}/api/hunter/deals-feed?limit=30&source=all`));
+    assert.equal(dealsFeed.status, 200);
+    assert.ok(Array.isArray(dealsFeed.body.rows));
+    assert.ok(dealsFeed.body.meta && typeof dealsFeed.body.meta === 'object');
+    assert.equal(dealsFeed.body.meta.source, 'all');
+    assert.equal(dealsFeed.body.meta.limit, 30);
+    assert.ok(Number.isFinite(Number(dealsFeed.body.meta.total)));
+    assert.ok(Number.isFinite(Number(dealsFeed.body.meta.hotCount)));
+    assert.ok(Number.isFinite(Number(dealsFeed.body.meta.momentumCount)));
+    assert.ok(Number.isFinite(Number(dealsFeed.body.meta.fallbackCount)));
+    if (dealsFeed.body.rows.length > 0) {
+      const sample = dealsFeed.body.rows[0];
+      assert.ok(typeof sample.asin === 'string' && sample.asin.length === 10);
+      assert.ok(typeof sample.updatedAt === 'string');
+      assert.ok(sample.price && typeof sample.price === 'object');
+      assert.ok(Object.hasOwn(sample.price, 'de'));
+    }
   });
 });
 

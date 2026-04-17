@@ -295,6 +295,132 @@ function extractKeywordsFromTitle(title) {
     .filter((item) => !HUNTER_KEYWORD_STOPWORDS.has(item));
 }
 
+function normalizeHunterDealAsin(value) {
+  const asin = String(value ?? '').trim().toUpperCase();
+  return /^[A-Z0-9]{10}$/.test(asin) ? asin : null;
+}
+
+function normalizeHunterDealRow(raw = {}, fallbackSource = 'unknown') {
+  const asin = normalizeHunterDealAsin(raw?.asin ?? raw?.id ?? raw?.productAsin);
+  if (!asin) return null;
+
+  const updatedAtRaw = raw?.updatedAt ?? raw?.at ?? raw?.ts ?? raw?.timestamp ?? null;
+  const updatedAtParsed = Date.parse(String(updatedAtRaw ?? ''));
+  const updatedAt = Number.isFinite(updatedAtParsed) ? new Date(updatedAtParsed).toISOString() : new Date().toISOString();
+
+  const dropValue =
+    toFiniteNumber(raw?.dropPct) ??
+    toFiniteNumber(raw?.drop) ??
+    toFiniteNumber(raw?.discountPct) ??
+    toFiniteNumber(raw?.discount) ??
+    0;
+  const confidence = toFiniteNumber(raw?.confidence) ?? 0;
+
+  const price = {
+    de: toFiniteNumber(raw?.price_de ?? raw?.priceDe),
+    it: toFiniteNumber(raw?.price_it ?? raw?.priceIt),
+    fr: toFiniteNumber(raw?.price_fr ?? raw?.priceFr),
+    es: toFiniteNumber(raw?.price_es ?? raw?.priceEs),
+    uk: toFiniteNumber(raw?.price_uk ?? raw?.priceUk),
+    nl: toFiniteNumber(raw?.price_nl ?? raw?.priceNl),
+  };
+
+  const next = {
+    asin,
+    title: raw?.title ?? raw?.productTitle ?? null,
+    url: raw?.url ?? raw?.productUrl ?? null,
+    source: String((raw?.source ?? fallbackSource) || 'unknown'),
+    drop: Number.isFinite(dropValue) ? Number(dropValue.toFixed(4)) : 0,
+    confidence: Number.isFinite(confidence) ? Number(confidence.toFixed(4)) : 0,
+    updatedAt,
+    price,
+  };
+
+  return next;
+}
+
+function mapHunterDealsFromState(rawState, sourceLabel) {
+  if (Array.isArray(rawState)) {
+    return rawState
+      .map((item) => normalizeHunterDealRow(item, sourceLabel))
+      .filter(Boolean);
+  }
+  if (rawState && typeof rawState === 'object') {
+    const rows = Array.isArray(rawState.rows)
+      ? rawState.rows
+      : Array.isArray(rawState.items)
+        ? rawState.items
+        : [];
+    return rows
+      .map((item) => normalizeHunterDealRow(item, sourceLabel))
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function mapHunterDealsFromTrackingsFallback(trackings = [], limit = 60) {
+  const rows = (Array.isArray(trackings) ? trackings : [])
+    .map((tracking) => {
+      const asin = normalizeHunterDealAsin(tracking?.asin);
+      if (!asin) return null;
+      const pricesNew = tracking?.pricesNew && typeof tracking.pricesNew === 'object' ? tracking.pricesNew : {};
+      const priceDe = toFiniteNumber(pricesNew.de);
+      const target = toFiniteNumber(tracking?.targetPriceNew);
+      const drop =
+        Number.isFinite(priceDe) && Number.isFinite(target) && priceDe !== 0
+          ? Number((((target - priceDe) / priceDe) * 100).toFixed(4))
+          : 0;
+      return {
+        asin,
+        title: tracking?.title ?? null,
+        url: `https://www.amazon.de/dp/${asin}`,
+        source: 'tracking-fallback',
+        drop,
+        confidence: 0,
+        updatedAt: tracking?.updatedAt ?? new Date().toISOString(),
+        price: {
+          de: toFiniteNumber(pricesNew.de),
+          it: toFiniteNumber(pricesNew.it),
+          fr: toFiniteNumber(pricesNew.fr),
+          es: toFiniteNumber(pricesNew.es),
+          uk: toFiniteNumber(pricesNew.uk),
+          nl: toFiniteNumber(pricesNew.nl),
+        },
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      const ta = Date.parse(a?.updatedAt ?? '');
+      const tb = Date.parse(b?.updatedAt ?? '');
+      if (Number.isFinite(tb) && Number.isFinite(ta) && tb !== ta) return tb - ta;
+      return Math.abs(Number(b?.drop ?? 0)) - Math.abs(Number(a?.drop ?? 0));
+    });
+  return rows.slice(0, Math.max(1, Math.min(200, Number(limit) || 60)));
+}
+
+function dedupeHunterDealsByAsin(rows = []) {
+  const map = new Map();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const asin = normalizeHunterDealAsin(row?.asin);
+    if (!asin) continue;
+    const prev = map.get(asin);
+    if (!prev) {
+      map.set(asin, row);
+      continue;
+    }
+    const prevTs = Date.parse(prev?.updatedAt ?? '');
+    const nextTs = Date.parse(row?.updatedAt ?? '');
+    if (Number.isFinite(nextTs) && (!Number.isFinite(prevTs) || nextTs > prevTs)) {
+      map.set(asin, row);
+      continue;
+    }
+    const prevDrop = Math.abs(Number(prev?.drop ?? 0));
+    const nextDrop = Math.abs(Number(row?.drop ?? 0));
+    if (nextDrop > prevDrop) map.set(asin, row);
+  }
+  return [...map.values()];
+}
+
 function dayKeyFromTimestamp(ts) {
   return new Date(ts).toISOString().slice(0, 10);
 }
@@ -2633,6 +2759,59 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           });
         }
         return sendJson(res, 200, { success: true, group, unpaused: true });
+      }
+
+      if (method === 'GET' && pathname === '/api/hunter/deals-feed') {
+        const rawLimit = Number(url.searchParams.get('limit') ?? 60);
+        const limit = Math.max(1, Math.min(200, Number.isFinite(rawLimit) ? rawLimit : 60));
+        const sourceRaw = String(url.searchParams.get('source') ?? 'all').trim().toLowerCase();
+        const source = new Set(['all', 'hot', 'momentum']).has(sourceRaw) ? sourceRaw : 'all';
+
+        const [hotState, momentumState] = store.getRuntimeState
+          ? await Promise.all([
+              store.getRuntimeState('hunter:hot:deals:v1'),
+              store.getRuntimeState('hunter:momentum:v1'),
+            ])
+          : [null, null];
+        const hotRaw = hotState?.stateValue ?? null;
+        const momentumRaw = momentumState?.stateValue ?? null;
+        const hotRows = mapHunterDealsFromState(hotRaw, 'hot');
+        const momentumRows = mapHunterDealsFromState(momentumRaw, 'momentum');
+
+        let rows = [];
+        if (source === 'all' || source === 'hot') rows.push(...hotRows);
+        if (source === 'all' || source === 'momentum') rows.push(...momentumRows);
+
+        let outcomeFallbackRows = [];
+        let fallbackRows = [];
+        if (source === 'all' && rows.length === 0) {
+          const trackings = store.listTrackings ? await store.listTrackings() : [];
+          fallbackRows = mapHunterDealsFromTrackingsFallback(trackings, limit);
+          if (fallbackRows.length) rows.push(...fallbackRows);
+        }
+
+        rows = dedupeHunterDealsByAsin(rows)
+          .sort((a, b) => {
+            const ta = Date.parse(a?.updatedAt ?? '');
+            const tb = Date.parse(b?.updatedAt ?? '');
+            if (Number.isFinite(tb) && Number.isFinite(ta) && tb !== ta) return tb - ta;
+            return Math.abs(Number(b?.drop ?? 0)) - Math.abs(Number(a?.drop ?? 0));
+          })
+          .slice(0, limit);
+
+        return sendJson(res, 200, {
+          rows,
+          meta: {
+            source,
+            limit,
+            total: rows.length,
+            hotCount: hotRows.length,
+            momentumCount: momentumRows.length,
+            outcomeFallbackCount: outcomeFallbackRows.length,
+            fallbackCount: fallbackRows.length,
+            generatedAt: new Date().toISOString(),
+          },
+        });
       }
 
       if (method === 'GET' && pathname === '/api/hunter-ml-engine') {
