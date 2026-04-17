@@ -222,6 +222,7 @@ test('POST /trackings/:asin/thresholds persists values', async () => {
 test('P0-C: /api/trackings/save + /api/dashboard/:chatId + DELETE /api/trackings/:chatId/:asin', async () => {
   await withServer(async (baseUrl) => {
     const asin = 'B0P0CTRACK01';
+    const asinAlias = 'B0P0CADD001';
     const chatId = '2041';
 
     const saved = await readJson(
@@ -241,11 +242,28 @@ test('P0-C: /api/trackings/save + /api/dashboard/:chatId + DELETE /api/trackings
     assert.equal(saved.body.status, 'saved');
     assert.equal(saved.body.item.asin, asin);
 
+    const savedAlias = await readJson(
+      await fetch(`${baseUrl}/api/add-product`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          asin: asinAlias,
+          title: 'P0-C Add Product Alias',
+          pricesNew: { de: 222.22 },
+          thresholdDropPct: 12,
+        }),
+      }),
+    );
+    assert.equal(savedAlias.status, 200);
+    assert.equal(savedAlias.body.status, 'saved');
+    assert.equal(savedAlias.body.item.asin, asinAlias);
+
     const dashboard = await readJson(await fetch(`${baseUrl}/api/dashboard/${chatId}`));
     assert.equal(dashboard.status, 200);
     assert.equal(dashboard.body.chatId, chatId);
     assert.ok(Array.isArray(dashboard.body.items));
     assert.ok(dashboard.body.items.some((item) => item.asin === asin));
+    assert.ok(dashboard.body.items.some((item) => item.asin === asinAlias));
 
     const removed = await readJson(await fetch(`${baseUrl}/api/trackings/${chatId}/${asin}`, { method: 'DELETE' }));
     assert.equal(removed.status, 200);
@@ -254,6 +272,7 @@ test('P0-C: /api/trackings/save + /api/dashboard/:chatId + DELETE /api/trackings
     const dashboardAfterDelete = await readJson(await fetch(`${baseUrl}/api/dashboard/${chatId}`));
     assert.equal(dashboardAfterDelete.status, 200);
     assert.ok(!dashboardAfterDelete.body.items.some((item) => item.asin === asin));
+    assert.ok(dashboardAfterDelete.body.items.some((item) => item.asin === asinAlias));
   });
 });
 

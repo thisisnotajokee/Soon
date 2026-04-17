@@ -2103,6 +2103,22 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         });
       }
 
+      if (method === 'POST' && pathname === '/api/add-product') {
+        if (!store.saveTracking) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const body = await readJsonBody(req).catch(() => ({}));
+        const saved = await store.saveTracking(body);
+        if (!saved || saved?.error === 'asin_required') {
+          return sendJson(res, 400, { error: 'asin_required' });
+        }
+        return sendJson(res, 200, {
+          status: 'saved',
+          item: saved,
+        });
+      }
+
       const deleteTrackingMatch = pathname.match(/^\/api\/trackings\/([^/]+)\/([^/]+)$/);
       if (method === 'DELETE' && deleteTrackingMatch) {
         if (!store.deleteTracking) {
