@@ -188,6 +188,104 @@ test('P0-C: snooze + product interval settings contracts', async () => {
   });
 });
 
+test('P0-D: keepa watch-state ingest + status endpoint', async () => {
+  await withServer(async (baseUrl) => {
+    const ingest = await readJson(
+      await fetch(`${baseUrl}/api/keepa/watch-state/ingest`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          items: [
+            { asin: 'B0BYW7MMBR', market: 'de', watched: true, lastSeenPrice: 3799 },
+            { asin: 'B09JRYMSD5', market: 'nl', watched: true, lastSeenPrice: 60 },
+          ],
+        }),
+      }),
+    );
+    assert.equal(ingest.status, 200);
+    assert.equal(ingest.body.status, 'ok');
+    assert.equal(ingest.body.ingested, 2);
+    assert.equal(ingest.body.watchedAsins, 2);
+
+    const status = await readJson(await fetch(`${baseUrl}/api/keepa/status`));
+    assert.equal(status.status, 200);
+    assert.equal(status.body.status, 'ok');
+    assert.equal(status.body.provider, 'keepa');
+    assert.equal(status.body.watchedAsins, 2);
+    assert.ok(status.body.lastWatchStateIngestAt);
+  });
+});
+
+test('P0-D: keepa events ingest + deals + token-usage endpoints', async () => {
+  await withServer(async (baseUrl) => {
+    const ingest = await readJson(
+      await fetch(`${baseUrl}/api/keepa/events/ingest`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          events: [
+            {
+              asin: 'B0BYW7MMBR',
+              kind: 'deal',
+              market: 'nl',
+              price: 2042.48,
+              discountPct: 48,
+              title: 'ASUS ROG',
+              ts: '2026-04-17T10:00:00.000Z',
+            },
+            {
+              asin: 'B09JRYMSD5',
+              kind: 'price',
+              market: 'de',
+              price: 57.99,
+              ts: '2026-04-17T10:01:00.000Z',
+            },
+          ],
+          tokenUsage: {
+            limit: 5000,
+            used: 125,
+            remaining: 4875,
+            refreshedAt: '2026-04-17T10:02:00.000Z',
+          },
+        }),
+      }),
+    );
+    assert.equal(ingest.status, 200);
+    assert.equal(ingest.body.status, 'ok');
+    assert.equal(ingest.body.ingested, 2);
+    assert.equal(ingest.body.deals, 1);
+
+    const deals = await readJson(await fetch(`${baseUrl}/api/keepa/deals?limit=10`));
+    assert.equal(deals.status, 200);
+    assert.equal(deals.body.status, 'ok');
+    assert.equal(deals.body.source, 'ingest');
+    assert.ok(deals.body.count >= 1);
+    assert.equal(deals.body.items[0].asin, 'B0BYW7MMBR');
+
+    const tokenUsage = await readJson(await fetch(`${baseUrl}/api/keepa/token-usage`));
+    assert.equal(tokenUsage.status, 200);
+    assert.equal(tokenUsage.body.status, 'ok');
+    assert.equal(tokenUsage.body.limit, 5000);
+    assert.equal(tokenUsage.body.used, 125);
+    assert.equal(tokenUsage.body.remaining, 4875);
+    assert.equal(tokenUsage.body.usagePct, 2.5);
+  });
+});
+
+test('P0-D: keepa history alias returns timeline for existing ASIN', async () => {
+  await withServer(async (baseUrl) => {
+    const trackings = await readJson(await fetch(`${baseUrl}/trackings`));
+    const asin = trackings.body.items[0].asin;
+
+    const history = await readJson(await fetch(`${baseUrl}/api/keepa/history/${asin}?limit=60`));
+    assert.equal(history.status, 200);
+    assert.equal(history.body.status, 'ok');
+    assert.equal(history.body.asin, asin);
+    assert.ok(Array.isArray(history.body.items));
+    assert.ok(history.body.count >= 1);
+  });
+});
+
 test('POST /api/token-control/allocate ranks candidates and applies token budget cap', async () => {
   await withServer(async (baseUrl) => {
     const allocation = await readJson(

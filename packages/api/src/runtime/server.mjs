@@ -38,6 +38,11 @@ const TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_STATE_KEY = 'token_budget_probe_ops_ke
 const TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_AUDIT_STATE_KEY = 'token_budget_probe_ops_key_rotation_audit_last';
 const TRACKING_CHAT_SETTINGS_PREFIX = 'tracking_chat_settings:';
 const TRACKING_SNOOZE_PREFIX = 'tracking_snooze:';
+const KEEPA_STATUS_STATE_KEY = 'keepa_status';
+const KEEPA_WATCH_INDEX_STATE_KEY = 'keepa_watch_index';
+const KEEPA_EVENTS_STATE_KEY = 'keepa_events';
+const KEEPA_DEALS_STATE_KEY = 'keepa_deals';
+const KEEPA_TOKEN_USAGE_STATE_KEY = 'keepa_token_usage';
 const TOKEN_BUDGET_PROBE_DEFAULT_COOLDOWN_SEC = 24 * 60 * 60;
 const TOKEN_BUDGET_PROBE_AUTOTUNE_FALLBACK_MIN_COOLDOWN_SEC = 6 * 60 * 60;
 const TOKEN_BUDGET_PROBE_AUTOTUNE_FALLBACK_HIGH_COOLDOWN_SEC = 12 * 60 * 60;
@@ -583,6 +588,30 @@ function buildTrackingSnoozeStateKey(chatId, asin) {
 function normalizeChatId(raw) {
   const normalized = String(raw ?? '').trim();
   return normalized || 'default';
+}
+
+function buildKeepaWatchStateKey(asin) {
+  return `keepa_watch_state:${String(asin ?? '').trim().toUpperCase()}`;
+}
+
+function normalizeKeepaTokenUsage(raw = {}) {
+  const limit = toFiniteNumber(raw.limit ?? raw.tokenLimit ?? raw.capacity);
+  const used = toFiniteNumber(raw.used ?? raw.tokensUsed ?? raw.spent);
+  let remaining = toFiniteNumber(raw.remaining ?? raw.tokensRemaining);
+
+  if (remaining === null && limit !== null && used !== null) {
+    remaining = Math.max(0, limit - used);
+  }
+
+  const usagePct = limit && limit > 0 && used !== null ? Number(((used / limit) * 100).toFixed(2)) : 0;
+
+  return {
+    limit: limit === null ? null : Number(limit.toFixed(2)),
+    used: used === null ? null : Number(used.toFixed(2)),
+    remaining: remaining === null ? null : Number(remaining.toFixed(2)),
+    usagePct,
+    updatedAt: raw.updatedAt ?? raw.refreshedAt ?? new Date().toISOString(),
+  };
 }
 
 function clamp01(value, fallback = 0) {
@@ -1430,6 +1459,252 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           await store.setRuntimeState(buildChatSettingsStateKey(chatId), state);
         }
         return sendJson(res, 200, { status: 'updated', ...state });
+      }
+
+      if (method === 'GET' && pathname === '/api/keepa/status') {
+        const nowIso = new Date().toISOString();
+        const statusState = store.getRuntimeState ? await store.getRuntimeState(KEEPA_STATUS_STATE_KEY) : null;
+        const watchIndexState = store.getRuntimeState
+          ? await store.getRuntimeState(KEEPA_WATCH_INDEX_STATE_KEY)
+          : null;
+        const dealsState = store.getRuntimeState ? await store.getRuntimeState(KEEPA_DEALS_STATE_KEY) : null;
+        const tokenUsageState = store.getRuntimeState
+          ? await store.getRuntimeState(KEEPA_TOKEN_USAGE_STATE_KEY)
+          : null;
+        const watchAsins = Array.isArray(watchIndexState?.stateValue?.asins)
+          ? watchIndexState.stateValue.asins
+          : [];
+        const deals = Array.isArray(dealsState?.stateValue?.items) ? dealsState.stateValue.items : [];
+        const tokenUsage = normalizeKeepaTokenUsage(tokenUsageState?.stateValue ?? {});
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          provider: 'keepa',
+          watchedAsins: watchAsins.length,
+          dealsCount: deals.length,
+          lastWatchStateIngestAt: statusState?.stateValue?.lastWatchStateIngestAt ?? null,
+          lastEventsIngestAt: statusState?.stateValue?.lastEventsIngestAt ?? null,
+          tokenUsage,
+          checkedAt: nowIso,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/keepa/token-usage') {
+        const tokenUsageState = store.getRuntimeState
+          ? await store.getRuntimeState(KEEPA_TOKEN_USAGE_STATE_KEY)
+          : null;
+        const tokenUsage = normalizeKeepaTokenUsage(tokenUsageState?.stateValue ?? {});
+        return sendJson(res, 200, {
+          status: 'ok',
+          source: tokenUsageState ? 'ingest' : 'default',
+          ...tokenUsage,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/keepa/deals') {
+        const rawLimit = Number(url.searchParams.get('limit') ?? 20);
+        const limit = Math.max(1, Math.min(200, Number.isFinite(rawLimit) ? rawLimit : 20));
+        const dealsState = store.getRuntimeState ? await store.getRuntimeState(KEEPA_DEALS_STATE_KEY) : null;
+        let items = Array.isArray(dealsState?.stateValue?.items) ? dealsState.stateValue.items : [];
+        let source = 'ingest';
+
+        if (!items.length) {
+          source = 'derived';
+          const trackings = await store.listTrackings();
+          items = trackings
+            .map((item) => {
+              const prices = Object.values(item.pricesNew ?? {}).filter((price) => Number.isFinite(Number(price)));
+              const bestPrice = prices.length ? Number(Math.min(...prices).toFixed(2)) : null;
+              return {
+                asin: item.asin,
+                title: item.title,
+                bestPrice,
+                currency: 'EUR',
+                marketCount: prices.length,
+                updatedAt: item.updatedAt ?? null,
+              };
+            })
+            .filter((item) => item.bestPrice !== null);
+        }
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          source,
+          count: items.length,
+          items: items.slice(0, limit),
+          updatedAt: dealsState?.stateValue?.updatedAt ?? new Date().toISOString(),
+        });
+      }
+
+      const keepaHistoryMatch = pathname.match(/^\/api\/keepa\/history\/([^/]+)$/);
+      if (method === 'GET' && keepaHistoryMatch) {
+        const asin = decodeURIComponent(keepaHistoryMatch[1]).toUpperCase();
+        const detail = await store.getProductDetail(asin);
+        if (!detail) {
+          return sendJson(res, 404, { error: 'not_found', asin });
+        }
+
+        const rawLimit = Number(url.searchParams.get('limit') ?? 180);
+        const limit = Math.max(1, Math.min(1000, Number.isFinite(rawLimit) ? rawLimit : 180));
+        let items = [];
+        if (store.getPriceHistory) {
+          const rows = await store.getPriceHistory(asin, limit);
+          if (Array.isArray(rows)) {
+            items = rows;
+          }
+        }
+        if (!items.length) {
+          items = (Array.isArray(detail.historyPoints) ? detail.historyPoints : []).slice(-limit).map((row) => ({
+            ts: row.ts,
+            price: row.value,
+            market: 'de',
+            condition: 'new',
+            currency: 'EUR',
+          }));
+        }
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          asin,
+          count: items.length,
+          items,
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/keepa/watch-state/ingest') {
+        if (!store.setRuntimeState || !store.getRuntimeState) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const body = await readJsonBody(req).catch(() => ({}));
+        const rawItems = Array.isArray(body) ? body : Array.isArray(body.items) ? body.items : [];
+        const normalizedItems = rawItems
+          .map((item) => {
+            const asin = String(item?.asin ?? '').trim().toUpperCase();
+            if (!asin) return null;
+            return {
+              asin,
+              market: String(item.market ?? '').trim().toLowerCase() || null,
+              watched: item.watched ?? true,
+              lastSeenPrice: toFiniteNumber(item.lastSeenPrice ?? item.price),
+              currency: String(item.currency ?? 'EUR').trim().toUpperCase() || 'EUR',
+              updatedAt: item.updatedAt ?? new Date().toISOString(),
+            };
+          })
+          .filter(Boolean);
+
+        if (!normalizedItems.length) {
+          return sendJson(res, 400, { error: 'items_required' });
+        }
+
+        for (const item of normalizedItems) {
+          await store.setRuntimeState(buildKeepaWatchStateKey(item.asin), item);
+        }
+
+        const previousIndex = await store.getRuntimeState(KEEPA_WATCH_INDEX_STATE_KEY);
+        const knownAsins = new Set(
+          Array.isArray(previousIndex?.stateValue?.asins) ? previousIndex.stateValue.asins : [],
+        );
+        for (const item of normalizedItems) {
+          knownAsins.add(item.asin);
+        }
+
+        const nowIso = new Date().toISOString();
+        await store.setRuntimeState(KEEPA_WATCH_INDEX_STATE_KEY, {
+          asins: [...knownAsins].sort(),
+          updatedAt: nowIso,
+        });
+
+        const statusState = (await store.getRuntimeState(KEEPA_STATUS_STATE_KEY))?.stateValue ?? {};
+        await store.setRuntimeState(KEEPA_STATUS_STATE_KEY, {
+          ...statusState,
+          lastWatchStateIngestAt: nowIso,
+          updatedAt: nowIso,
+        });
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          ingested: normalizedItems.length,
+          watchedAsins: knownAsins.size,
+          updatedAt: nowIso,
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/keepa/events/ingest') {
+        if (!store.setRuntimeState || !store.getRuntimeState) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const body = await readJsonBody(req).catch(() => ({}));
+        const rawEvents = Array.isArray(body) ? body : Array.isArray(body.events) ? body.events : [];
+        const normalizedEvents = rawEvents
+          .map((item) => {
+            const asin = String(item?.asin ?? '').trim().toUpperCase();
+            if (!asin) return null;
+            return {
+              asin,
+              kind: String(item.kind ?? item.type ?? 'unknown').trim().toLowerCase() || 'unknown',
+              market: String(item.market ?? '').trim().toLowerCase() || null,
+              price: toFiniteNumber(item.price ?? item.currentPrice),
+              currency: String(item.currency ?? 'EUR').trim().toUpperCase() || 'EUR',
+              discountPct: toFiniteNumber(item.discountPct ?? item.dropPct ?? item.deltaPct),
+              isDeal: Boolean(item.isDeal) || String(item.kind ?? '').toLowerCase() === 'deal',
+              title: String(item.title ?? '').trim() || null,
+              ts: item.ts ?? item.timestamp ?? new Date().toISOString(),
+            };
+          })
+          .filter(Boolean);
+
+        if (!normalizedEvents.length) {
+          return sendJson(res, 400, { error: 'events_required' });
+        }
+
+        const previousEventsState = await store.getRuntimeState(KEEPA_EVENTS_STATE_KEY);
+        const previousEvents = Array.isArray(previousEventsState?.stateValue?.items)
+          ? previousEventsState.stateValue.items
+          : [];
+        const mergedEvents = [...normalizedEvents, ...previousEvents].slice(0, 1000);
+
+        const nowIso = new Date().toISOString();
+        await store.setRuntimeState(KEEPA_EVENTS_STATE_KEY, {
+          items: mergedEvents,
+          updatedAt: nowIso,
+        });
+
+        const deals = mergedEvents
+          .filter((item) => item.isDeal || item.kind === 'deal' || item.kind === 'drop')
+          .map((item) => ({
+            asin: item.asin,
+            title: item.title,
+            market: item.market,
+            price: item.price,
+            currency: item.currency,
+            discountPct: item.discountPct,
+            ts: item.ts,
+          }));
+
+        await store.setRuntimeState(KEEPA_DEALS_STATE_KEY, {
+          items: deals,
+          updatedAt: nowIso,
+        });
+
+        if (body?.tokenUsage && typeof body.tokenUsage === 'object') {
+          await store.setRuntimeState(KEEPA_TOKEN_USAGE_STATE_KEY, normalizeKeepaTokenUsage(body.tokenUsage));
+        }
+
+        const statusState = (await store.getRuntimeState(KEEPA_STATUS_STATE_KEY))?.stateValue ?? {};
+        await store.setRuntimeState(KEEPA_STATUS_STATE_KEY, {
+          ...statusState,
+          lastEventsIngestAt: nowIso,
+          updatedAt: nowIso,
+        });
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          ingested: normalizedEvents.length,
+          deals: deals.length,
+          updatedAt: nowIso,
+        });
       }
 
       if (
