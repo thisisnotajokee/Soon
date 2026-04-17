@@ -10,6 +10,29 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ---
 
+## [2026-04-17 21:15:00Z] Hunter deals-feed compatibility endpoint implemented
+
+### Scope
+
+- Added `GET /api/hunter/deals-feed` in Soon runtime API with legacy-compatible response:
+  - `rows`,
+  - `meta` (`source`, `limit`, `total`, `hotCount`, `momentumCount`, `outcomeFallbackCount`, `fallbackCount`, `generatedAt`).
+- Runtime feed sources:
+  - reads hot/momentum rows from runtime state keys (`hunter:hot:deals:v1`, `hunter:momentum:v1`),
+  - falls back to generated rows from `trackings` when source is `all` and no state deals are available.
+- Added contract coverage for `/api/hunter/deals-feed`.
+- Updated endpoint migration inventory to mark `/api/hunter/deals-feed` as implemented.
+
+### Validation
+
+- `npm run -s test:contracts` -> PASS
+
+### Next
+
+- Continue hunter migration with remaining health/ops endpoints requiring deeper runtime-state mapping.
+
+---
+
 ## [2026-04-17 20:55:00Z] Hunter category pauses compatibility endpoints implemented
 
 ### Scope
