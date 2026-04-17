@@ -340,6 +340,32 @@ test('P0-C: /api/history/:asin + /api/refresh/:asin + /api/refresh-all/:chatId',
   }
 });
 
+test('P0-C: /api/trackings/:chatId/:asin/drop-pct updates per-item threshold', async () => {
+  await withServer(async (baseUrl) => {
+    const trackings = await readJson(await fetch(`${baseUrl}/trackings`));
+    const asin = trackings.body.items[0].asin;
+    const chatId = '2041';
+
+    const updated = await readJson(
+      await fetch(`${baseUrl}/api/trackings/${chatId}/${asin}/drop-pct`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dropPct: 17 }),
+      }),
+    );
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.status, 'updated');
+    assert.equal(updated.body.chatId, chatId);
+    assert.equal(updated.body.asin, asin);
+    assert.equal(updated.body.dropPct, 17);
+    assert.equal(updated.body.thresholdDropPct, 17);
+
+    const detail = await readJson(await fetch(`${baseUrl}/products/${asin}/detail`));
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.thresholds.thresholdDropPct, 17);
+  });
+});
+
 test('P0-C: snooze + product interval settings contracts', async () => {
   await withServer(async (baseUrl) => {
     const trackings = await readJson(await fetch(`${baseUrl}/trackings`));

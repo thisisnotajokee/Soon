@@ -2453,3 +2453,13 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - `docs/API_ENDPOINT_INVENTORY.md`:
     - `GET /api/settings/:chatId` -> DONE,
     - `POST /api/settings/:chatId/product-interval` -> DONE.
+
+## [2026-04-17 23:50:00Z] P0-C tracking drop-pct compatibility endpoint implemented
+- Dodano kompatybilny endpoint:
+  - `POST /api/trackings/:chatId/:asin/drop-pct` w `packages/api/src/runtime/server.mjs`.
+- Endpoint aktualizuje per-ASIN `thresholdDropPct` i zwraca kompatybilny payload:
+  - `status`, `chatId`, `asin`, `dropPct`, `thresholdDropPct`.
+- Dodano test kontraktowy:
+  - `P0-C: /api/trackings/:chatId/:asin/drop-pct updates per-item threshold` w `packages/api/test/contracts-v1.test.mjs`.
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`POST /api/trackings/:chatId/:asin/drop-pct` -> DONE).

@@ -154,7 +154,7 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `GET /api/token-efficiency` — `src/routes/api/analytics/system-routes.js`
 - [x] `GET /api/trackings/:chatId` — `packages/api/src/runtime/server.mjs`
 - [ ] `DELETE /api/trackings/:chatId/:asin` — `src/routes/api/trackings/routes/mutate.js`
-- [ ] `POST /api/trackings/:chatId/:asin/drop-pct` — `src/routes/api/settings/routes/core.js`
+- [x] `POST /api/trackings/:chatId/:asin/drop-pct` — `packages/api/src/runtime/server.mjs`
 - [ ] `DELETE /api/trackings/:chatId/:asin/snooze` — `src/routes/api/trackings/routes/mutate.js`
 - [ ] `POST /api/trackings/:chatId/:asin/snooze` — `src/routes/api/trackings/routes/mutate.js`
 - [ ] `DELETE /api/trackings/:chatId/all` — `src/routes/api/trackings/routes/mutate.js`
