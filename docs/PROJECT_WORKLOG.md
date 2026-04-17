@@ -2463,3 +2463,17 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - `P0-C: /api/trackings/:chatId/:asin/drop-pct updates per-item threshold` w `packages/api/test/contracts-v1.test.mjs`.
 - Zaktualizowano inwentarz endpointów:
   - `docs/API_ENDPOINT_INVENTORY.md` (`POST /api/trackings/:chatId/:asin/drop-pct` -> DONE).
+
+## [2026-04-18 00:05:00Z] P0-C scan-interval settings compatibility endpoint implemented
+- Dodano kompatybilny endpoint:
+  - `POST /api/settings/:chatId/scan-interval` w `packages/api/src/runtime/server.mjs`.
+- Uspójniono model ustawień czatu:
+  - zapisy `product-interval` i `scan-interval` są merge'owane do wspólnego `tracking_chat_settings:{chatId}` (bez nadpisywania wcześniej zapisanych pól).
+- Rozszerzono `GET /api/settings/:chatId`:
+  - endpoint zwraca teraz również `scanIntervalMin` (jeśli zapisany).
+- Rozszerzono test kontraktowy:
+  - `P0-C: snooze + product interval settings contracts`:
+    - zapis `POST /api/settings/:chatId/scan-interval`,
+    - walidacja `scanIntervalMin` w `GET /api/settings/:chatId`.
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`POST /api/settings/:chatId/scan-interval` -> DONE).
