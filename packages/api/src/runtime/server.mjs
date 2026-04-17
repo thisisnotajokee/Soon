@@ -2152,6 +2152,158 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         });
       }
 
+      if (method === 'POST' && pathname === '/api/mobile/v1/auth/telegram') {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const issued = await createMobileSessionTokens(store, userId, req);
+        if (!issued) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const adminId = resolveCompatAdminId();
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          tokenType: 'Bearer',
+          accessToken: issued.accessToken,
+          refreshToken: issued.refreshToken,
+          expiresIn: issued.accessTtlSeconds,
+          refreshExpiresIn: issued.refreshTtlSeconds,
+          userId,
+          isAdmin: Boolean(adminId && String(adminId) === String(userId)),
+          maxSessionsPerUser: issued.maxSessions,
+          revokedSessionIds: issued.revokedSessionIds,
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/mobile/v1/auth/refresh') {
+        const requestId = resolveCompatRequestId(req);
+        const body = await readJsonBody(req).catch(() => ({}));
+        const supplied = String(body?.refreshToken || extractBearerToken(req) || '').trim();
+        const parsed = parseMobileRefreshToken(supplied);
+        if (!parsed) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const sessionState = store.getRuntimeState ? await store.getRuntimeState(mobileSessionKey(parsed.sessionId)) : null;
+        const session = sessionState?.stateValue ?? null;
+        if (!session || Number(session.userId) !== Number(parsed.userId) || session.revokedAt) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        if (!secretsEqual(String(session.refreshTokenHash || ''), hashSecret(supplied))) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const { accessTtlSeconds, refreshTtlSeconds } = getMobileTokenTtls();
+        const accessToken = createMobileAccessToken(parsed.userId, parsed.sessionId);
+        const refreshToken = createMobileRefreshToken(parsed.userId, parsed.sessionId);
+        if (!accessToken || !refreshToken) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(mobileSessionKey(parsed.sessionId), {
+            ...session,
+            refreshTokenHash: hashSecret(refreshToken),
+            updatedAt: new Date().toISOString(),
+            refreshExpiresAt: new Date(Date.now() + refreshTtlSeconds * 1000).toISOString(),
+          });
+        }
+        await upsertMobileSessionIndex(store, parsed.userId, parsed.sessionId, {
+          lastSeenAt: new Date().toISOString(),
+        });
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          tokenType: 'Bearer',
+          accessToken,
+          refreshToken,
+          expiresIn: accessTtlSeconds,
+          refreshExpiresIn: refreshTtlSeconds,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/mobile/v1/session') {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const adminId = resolveCompatAdminId();
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          userId,
+          isAdmin: Boolean(adminId && String(adminId) === String(userId)),
+          serverTime: new Date().toISOString(),
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/mobile/v1/auth/logout') {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const sessionId = resolveMobileSessionIdFromRequest(req);
+        if (sessionId) {
+          await revokeMobileSessionById(store, userId, sessionId);
+        }
+        return sendJson(res, 200, { apiVersion: MOBILE_API_VERSION, ok: true });
+      }
+
+      if (method === 'POST' && pathname === '/api/mobile/v1/auth/logout-all') {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        const includeCurrent = parseBooleanInput(body?.includeCurrent, false);
+        const currentSessionId = resolveMobileSessionIdFromRequest(req);
+        const index = await loadMobileSessionIndex(store, userId);
+        let revokedCount = 0;
+        for (const entry of index) {
+          if (entry.revokedAt) continue;
+          if (!includeCurrent && entry.sessionId === currentSessionId) continue;
+          const revoked = await revokeMobileSessionById(store, userId, entry.sessionId);
+          if (revoked) revokedCount += 1;
+        }
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          ok: true,
+          revokedCount,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/mobile/v1/auth/sessions') {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const items = await createMobileSessionSnapshot(store, userId, req);
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          maxSessionsPerUser: getMobileMaxSessionsPerUser(),
+          items,
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/mobile/v1/auth/sessions/revoke') {
+        const requestId = resolveCompatRequestId(req);
+        const userId = await resolveMobileAuthenticatedUserId(req, url, store);
+        if (!userId) {
+          return sendJson(res, 401, { error: 'Unauthorized', requestId });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        const sessionId = String(body?.sessionId || '').trim().toLowerCase();
+        if (!sessionId) {
+          return sendJson(res, 400, { error: 'sessionId required', requestId });
+        }
+        const revoked = await revokeMobileSessionById(store, userId, sessionId);
+        return sendJson(res, 200, {
+          apiVersion: MOBILE_API_VERSION,
+          ok: revoked,
+        });
+      }
+
       if (method === 'GET' && pathname === '/api/sessions/now') {
         const userId = resolveCompatAuthUserId(req, url);
         const adminId = resolveCompatAdminId();

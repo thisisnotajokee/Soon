@@ -91,16 +91,16 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `GET /api/keepa/watch-state/summary` — `src/routes/api/keepa/routes/read.js`
 - [ ] `GET /api/launch-readiness` — `src/routes/api/analytics/system-routes.js`
 - [x] `GET /api/logs` — `packages/api/src/runtime/server.mjs`
-- [ ] `POST /api/mobile/v1/auth/logout` — `src/routes/api/mobile-auth-routes.js`
-- [ ] `POST /api/mobile/v1/auth/logout-all` — `src/routes/api/mobile-auth-routes.js`
-- [ ] `POST /api/mobile/v1/auth/refresh` — `src/routes/api/mobile-auth-routes.js`
-- [ ] `GET /api/mobile/v1/auth/sessions` — `src/routes/api/mobile-auth-routes.js`
-- [ ] `POST /api/mobile/v1/auth/sessions/revoke` — `src/routes/api/mobile-auth-routes.js`
-- [ ] `POST /api/mobile/v1/auth/telegram` — `src/routes/api/mobile-auth-routes.js`
+- [x] `POST /api/mobile/v1/auth/logout` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /api/mobile/v1/auth/logout-all` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /api/mobile/v1/auth/refresh` — `packages/api/src/runtime/server.mjs`
+- [x] `GET /api/mobile/v1/auth/sessions` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /api/mobile/v1/auth/sessions/revoke` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /api/mobile/v1/auth/telegram` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/mobile/v1/dashboard` — `src/routes/api/mobile-data-routes.js`
 - [ ] `GET /api/mobile/v1/deals` — `src/routes/api/mobile-data-routes.js`
 - [ ] `GET /api/mobile/v1/products/:asin/detail` — `src/routes/api/mobile-data-routes.js`
-- [ ] `GET /api/mobile/v1/session` — `src/routes/api/mobile-auth-routes.js`
+- [x] `GET /api/mobile/v1/session` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/mobile/v1/trackings` — `src/routes/api/mobile-data-routes.js`
 - [ ] `DELETE /api/mobile/v1/trackings/:asin` — `src/routes/api/mobile-data-routes.js`
 - [ ] `POST /api/mobile/v1/trackings/:asin/preferences` — `src/routes/api/mobile-data-routes.js`

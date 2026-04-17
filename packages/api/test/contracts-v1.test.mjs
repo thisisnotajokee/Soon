@@ -129,6 +129,175 @@ test('P0-C: core auth/session compatibility endpoints', async () => {
   }
 });
 
+test('P0-C: mobile v1 auth/session compatibility endpoints', async () => {
+  const store = createInMemoryStore();
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(
+      async (baseUrl) => {
+        const unauthorizedSession = await readJson(await fetch(`${baseUrl}/api/mobile/v1/session`));
+        assert.equal(unauthorizedSession.status, 401);
+        assert.equal(unauthorizedSession.body.error, 'Unauthorized');
+
+        const login1 = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/auth/telegram`, {
+            method: 'POST',
+            headers: { 'x-telegram-user-id': '2041', 'x-request-id': 'req-mobile-login-1' },
+          }),
+        );
+        assert.equal(login1.status, 200);
+        assert.equal(login1.body.apiVersion, 'v1');
+        assert.equal(login1.body.tokenType, 'Bearer');
+        assert.equal(login1.body.userId, 2041);
+        assert.equal(login1.body.isAdmin, true);
+        assert.ok(typeof login1.body.accessToken === 'string' && login1.body.accessToken.length > 24);
+        assert.ok(typeof login1.body.refreshToken === 'string' && login1.body.refreshToken.length > 24);
+        assert.ok(Number.isInteger(login1.body.expiresIn));
+        assert.ok(Number.isInteger(login1.body.refreshExpiresIn));
+        assert.ok(Number.isInteger(login1.body.maxSessionsPerUser));
+        assert.ok(Array.isArray(login1.body.revokedSessionIds));
+
+        const refreshBad = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/auth/refresh`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-request-id': 'req-mobile-refresh-bad' },
+            body: JSON.stringify({ refreshToken: 'bad-token' }),
+          }),
+        );
+        assert.equal(refreshBad.status, 401);
+        assert.equal(refreshBad.body.error, 'Unauthorized');
+        assert.equal(refreshBad.body.requestId, 'req-mobile-refresh-bad');
+
+        const refreshOk = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/auth/refresh`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-request-id': 'req-mobile-refresh-ok' },
+            body: JSON.stringify({ refreshToken: login1.body.refreshToken }),
+          }),
+        );
+        assert.equal(refreshOk.status, 200);
+        assert.equal(refreshOk.body.apiVersion, 'v1');
+        assert.equal(refreshOk.body.tokenType, 'Bearer');
+        assert.ok(typeof refreshOk.body.accessToken === 'string' && refreshOk.body.accessToken.length > 24);
+        assert.ok(typeof refreshOk.body.refreshToken === 'string' && refreshOk.body.refreshToken.length > 24);
+
+        const sessionOk = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/session`, {
+            headers: { authorization: `Bearer ${refreshOk.body.accessToken}` },
+          }),
+        );
+        assert.equal(sessionOk.status, 200);
+        assert.equal(sessionOk.body.apiVersion, 'v1');
+        assert.equal(sessionOk.body.userId, 2041);
+        assert.equal(sessionOk.body.isAdmin, true);
+        assert.ok(typeof sessionOk.body.serverTime === 'string');
+
+        const sessions1 = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/auth/sessions`, {
+            headers: { authorization: `Bearer ${refreshOk.body.accessToken}` },
+          }),
+        );
+        assert.equal(sessions1.status, 200);
+        assert.equal(sessions1.body.apiVersion, 'v1');
+        assert.ok(Number.isInteger(sessions1.body.maxSessionsPerUser));
+        assert.ok(Array.isArray(sessions1.body.items));
+        assert.ok(sessions1.body.items.length >= 1);
+        const current1 = sessions1.body.items.find((item) => item.isCurrent);
+        assert.ok(current1);
+        assert.ok(current1.sessionId);
+
+        const login2 = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/auth/telegram`, {
+            method: 'POST',
+            headers: { 'x-telegram-user-id': '2041', 'x-request-id': 'req-mobile-login-2' },
+          }),
+        );
+        assert.equal(login2.status, 200);
+        assert.ok(typeof login2.body.accessToken === 'string' && login2.body.accessToken.length > 24);
+
+        const sessions2 = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/auth/sessions`, {
+            headers: { authorization: `Bearer ${login2.body.accessToken}` },
+          }),
+        );
+        assert.equal(sessions2.status, 200);
+        const current2 = sessions2.body.items.find((item) => item.isCurrent);
+        assert.ok(current2 && current2.sessionId);
+        const previousSession = sessions2.body.items.find((item) => item.sessionId !== current2.sessionId && item.isActive);
+        assert.ok(previousSession && previousSession.sessionId);
+
+        const revokeMissing = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/auth/sessions/revoke`, {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${login2.body.accessToken}`,
+              'content-type': 'application/json',
+              'x-request-id': 'req-mobile-revoke-missing',
+            },
+            body: JSON.stringify({}),
+          }),
+        );
+        assert.equal(revokeMissing.status, 400);
+        assert.equal(revokeMissing.body.error, 'sessionId required');
+        assert.equal(revokeMissing.body.requestId, 'req-mobile-revoke-missing');
+
+        const revokeOk = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/auth/sessions/revoke`, {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${login2.body.accessToken}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({ sessionId: previousSession.sessionId }),
+          }),
+        );
+        assert.equal(revokeOk.status, 200);
+        assert.equal(revokeOk.body.apiVersion, 'v1');
+        assert.equal(revokeOk.body.ok, true);
+
+        const logoutAll = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/auth/logout-all`, {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${login2.body.accessToken}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({ includeCurrent: false }),
+          }),
+        );
+        assert.equal(logoutAll.status, 200);
+        assert.equal(logoutAll.body.apiVersion, 'v1');
+        assert.equal(logoutAll.body.ok, true);
+        assert.ok(Number.isInteger(logoutAll.body.revokedCount));
+
+        const logout = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/auth/logout`, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${login2.body.accessToken}` },
+          }),
+        );
+        assert.equal(logout.status, 200);
+        assert.equal(logout.body.apiVersion, 'v1');
+        assert.equal(logout.body.ok, true);
+
+        const sessionAfterLogout = await readJson(
+          await fetch(`${baseUrl}/api/mobile/v1/session`, {
+            headers: { authorization: `Bearer ${login2.body.accessToken}` },
+          }),
+        );
+        assert.equal(sessionAfterLogout.status, 401);
+        assert.equal(sessionAfterLogout.body.error, 'Unauthorized');
+      },
+      { store },
+    );
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
 test('P0-C: core live logs compatibility endpoint', async () => {
   const store = createInMemoryStore();
   const previousAdminId = process.env.SOON_ADMIN_ID;
