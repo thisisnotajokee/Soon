@@ -2554,3 +2554,17 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
     w `packages/api/test/contracts-v1.test.mjs`.
 - Zaktualizowano inwentarz endpointów:
   - `docs/API_ENDPOINT_INVENTORY.md` (`POST /api/settings/:chatId/notifications` -> DONE).
+
+## [2026-04-18 01:40:00Z] P0-C notification-channels settings compatibility endpoint implemented
+- Dodano kompatybilny endpoint:
+  - `POST /api/settings/:chatId/notification-channels` w `packages/api/src/runtime/server.mjs`.
+- Zgodność kontraktu legacy:
+  - endpoint waliduje payload i dla niepoprawnego body zwraca
+    `400 { error: 'notification_channels invalid' }`,
+  - dla poprawnego payloadu zapisuje kanały i zwraca
+    `{ success: true, notification_channels }`.
+- Dodano test kontraktowy:
+  - `P0-C: /api/settings/:chatId/notification-channels validates payload and persists`
+    w `packages/api/test/contracts-v1.test.mjs`.
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`POST /api/settings/:chatId/notification-channels` -> DONE).
