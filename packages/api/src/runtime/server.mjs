@@ -2573,6 +2573,175 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         });
       }
 
+      if (method === 'GET' && pathname === '/api/hunter-ml-engine') {
+        if (!store.listLatestAutomationRuns) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const rawHours = Number(url.searchParams.get('hours') ?? 24 * 7);
+        const hours = Math.max(24, Math.min(24 * 180, Number.isFinite(rawHours) ? rawHours : 24 * 7));
+        const nowMs = Date.now();
+        const minTs = nowMs - hours * 60 * 60 * 1000;
+        const recentRuns = (await store.listLatestAutomationRuns(500)).filter((run) => {
+          const ts = Date.parse(run?.startedAt ?? run?.finishedAt ?? '');
+          return Number.isFinite(ts) && ts >= minTs;
+        });
+
+        const decisions = recentRuns.flatMap((run) => (Array.isArray(run?.decisions) ? run.decisions : []));
+        const alerts = recentRuns.flatMap((run) => (Array.isArray(run?.alerts) ? run.alerts : []));
+        const avgDecisionScore =
+          decisions.length > 0
+            ? Number(
+                (
+                  decisions.reduce((acc, item) => acc + Number(item?.score ?? 0), 0) /
+                  decisions.length
+                ).toFixed(4),
+              )
+            : 0;
+        const avgConfidence =
+          decisions.length > 0
+            ? Number(
+                (
+                  decisions.reduce((acc, item) => acc + Number(item?.confidence ?? 0), 0) /
+                  decisions.length
+                ).toFixed(4),
+              )
+            : 0;
+        const shortlistedDeals = decisions.filter((item) => Boolean(item?.shouldAlert)).length;
+        const uniqueAsins = new Set(
+          decisions
+            .map((item) => String(item?.asin ?? '').trim().toUpperCase())
+            .filter((asin) => /^[A-Z0-9]{10}$/.test(asin)),
+        );
+        const sourceRows = [
+          {
+            source: 'runtime',
+            runs: recentRuns.length,
+            decisions: decisions.length,
+            shortlistedDeals,
+            alerts: alerts.length,
+            avgDecisionScore,
+            avgConfidence,
+            activeAsins: uniqueAsins.size,
+          },
+        ];
+
+        const modelConfigState = store.getRuntimeState
+          ? await store.getRuntimeState(HUNTER_CUSTOM_CONFIG_STATE_KEY)
+          : null;
+        const customConfig =
+          modelConfigState?.stateValue && typeof modelConfigState.stateValue === 'object'
+            ? modelConfigState.stateValue.config ?? {}
+            : {};
+        const rolloutState = store.getRuntimeState
+          ? await store.getRuntimeState(HUNTER_STRATEGY_STATUS_STATE_KEY)
+          : null;
+        const smartEngineState = store.getRuntimeState
+          ? await store.getRuntimeState(HUNTER_STRATEGY_LAST_STATE_KEY)
+          : null;
+
+        return sendJson(res, 200, {
+          windowHours: hours,
+          model: {
+            family: 'heuristic_bandit_v1',
+            version: 'v1',
+            rolloutMode: customConfig?.ai?.rolloutMode ?? 'shadow',
+            canaryPct: Number(customConfig?.ai?.canaryPct ?? 20),
+            enabled: customConfig?.ai?.enabled !== false,
+          },
+          summary: {
+            hours,
+            totals: {
+              runs: recentRuns.length,
+              decisions: decisions.length,
+              shortlistedDeals,
+              alerts: alerts.length,
+            },
+            decisions: sourceRows,
+            banditArmsTop: [],
+          },
+          rollout: {
+            state: rolloutState?.stateValue ?? null,
+            metrics: {
+              runs: recentRuns.length,
+              avgDecisionScore,
+              avgConfidence,
+            },
+          },
+          smartEngine: smartEngineState?.stateValue ?? null,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/hunter-high-value-metrics') {
+        if (!store.listLatestAutomationRuns || !store.listTrackings) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const rawHours = Number(url.searchParams.get('hours') ?? 24 * 14);
+        const hours = Math.max(1, Math.min(24 * 180, Number.isFinite(rawHours) ? rawHours : 24 * 14));
+        const nowMs = Date.now();
+        const minTs = nowMs - hours * 60 * 60 * 1000;
+        const recentRuns = (await store.listLatestAutomationRuns(500)).filter((run) => {
+          const ts = Date.parse(run?.startedAt ?? run?.finishedAt ?? '');
+          return Number.isFinite(ts) && ts >= minTs;
+        });
+        const trackings = await store.listTrackings();
+
+        const decisions = recentRuns.flatMap((run) => (Array.isArray(run?.decisions) ? run.decisions : []));
+        const shortlisted = decisions.filter((item) => Boolean(item?.shouldAlert));
+        const tokens = recentRuns.reduce((sum, run) => {
+          const direct = Number(run?.tokensSpent ?? run?.tokenCost);
+          if (Number.isFinite(direct)) return sum + direct;
+          const snapshotTotal = Number(run?.tokenSnapshot?.summary?.totalTokenCostSelected);
+          return Number.isFinite(snapshotTotal) ? sum + snapshotTotal : sum;
+        }, 0);
+
+        const prices = trackings
+          .flatMap((tracking) => Object.values(tracking?.pricesNew ?? {}))
+          .map(Number)
+          .filter((value) => Number.isFinite(value) && value > 0);
+        const avgPrice =
+          prices.length > 0
+            ? Number((prices.reduce((sum, value) => sum + value, 0) / prices.length).toFixed(2))
+            : 0;
+
+        const discounts = trackings
+          .flatMap((tracking) =>
+            Object.values(tracking?.pricesNew ?? {})
+              .map((current) => {
+                const currentValue = Number(current);
+                const target = Number(tracking?.targetPriceNew ?? 0);
+                if (!Number.isFinite(currentValue) || currentValue <= 0 || !Number.isFinite(target) || target <= 0) {
+                  return null;
+                }
+                return ((target - currentValue) / currentValue) * 100;
+              })
+              .filter((value) => Number.isFinite(value)),
+          )
+          .filter((value) => Number.isFinite(value));
+        const avgDiscount =
+          discounts.length > 0
+            ? Number((discounts.reduce((sum, value) => sum + value, 0) / discounts.length).toFixed(2))
+            : 0;
+
+        const highValueHits = shortlisted.filter((item) => Number(item?.score ?? 0) >= 0.8).length;
+        const deals = shortlisted.length;
+        const runs = recentRuns.length;
+        const tokensPerDeal = deals > 0 ? Number((tokens / deals).toFixed(2)) : 0;
+
+        return sendJson(res, 200, {
+          windowHours: hours,
+          runs,
+          deals,
+          tokens: Number(tokens.toFixed(2)),
+          avgPrice,
+          avgDiscount,
+          highValueHits,
+          tokensPerDeal,
+          hitShare: deals > 0 ? Number((highValueHits / deals).toFixed(4)) : 0,
+        });
+      }
+
       if (method === 'GET' && pathname === '/api/hunter-bandit-context') {
         const [lastState, strategyStatusState, replayState] = store.getRuntimeState
           ? await Promise.all([
