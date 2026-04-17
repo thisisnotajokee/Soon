@@ -2374,6 +2374,7 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
       const productIntervalMatch = pathname.match(/^\/api\/settings\/([^/]+)\/product-interval$/);
       const scanIntervalMatch = pathname.match(/^\/api\/settings\/([^/]+)\/scan-interval$/);
       const trackingsCacheRuntimeMatch = pathname.match(/^\/api\/settings\/([^/]+)\/trackings-cache-runtime$/);
+      const trackingsCacheTtlMatch = pathname.match(/^\/api\/settings\/([^/]+)\/trackings-cache-ttl$/);
       const settingsMatch = pathname.match(/^\/api\/settings\/([^/]+)$/);
       if (method === 'GET' && settingsMatch) {
         const chatId = normalizeChatId(settingsMatch[1]);
@@ -2437,6 +2438,37 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           autotune: autotuneState?.stateValue ?? null,
           history: nextHistory,
         });
+      }
+
+      if (method === 'POST' && trackingsCacheTtlMatch) {
+        const chatId = normalizeChatId(trackingsCacheTtlMatch[1]);
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!userId || !adminId || userId !== adminId) {
+          return sendJson(res, 403, { error: 'forbidden', requestId });
+        }
+
+        const body = await readJsonBody(req).catch(() => ({}));
+        const ttlMs = clampInt(body.ttl_ms ?? body.ttlMs ?? body.value ?? 30000, 30000, 0, 300000);
+        const runtimeState = store.getRuntimeState ? await store.getRuntimeState(TRACKINGS_CACHE_RUNTIME_STATE_KEY) : null;
+        const currentRuntime = runtimeState?.stateValue ?? {};
+        const runtime = {
+          ttlMs,
+          maxEntries: clampInt(
+            currentRuntime.maxEntries ?? process.env.SOON_TRACKINGS_CACHE_MAX_ENTRIES,
+            1000,
+            1,
+            100000,
+          ),
+          currentEntries: clampInt(currentRuntime.currentEntries, 0, 0, 1000000),
+          evictionCount: clampInt(currentRuntime.evictionCount, 0, 0, 100000000),
+          updatedAt: new Date().toISOString(),
+        };
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(TRACKINGS_CACHE_RUNTIME_STATE_KEY, runtime);
+        }
+        return sendJson(res, 200, { success: true, chatId, runtime });
       }
 
       if (method === 'POST' && productIntervalMatch) {
