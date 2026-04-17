@@ -1992,3 +1992,13 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - pokryte w Soon: `2`
   - brakujące: `159`
 - Raport: `docs/CUTOVER_PARITY_AUDIT_2026-04-17.md`.
+
+## [2026-04-17 14:50:00Z] Cutover P0 contract set defined
+- Dodano `docs/CUTOVER_P0_CONTRACT_SET_V1.md` jako twardą checklistę minimalnego zakresu do finalnego cutover.
+- Status bieżący:
+  - P0-A (runtime/ops/self-heal): DONE
+  - P0-B (token control): DONE
+  - P0-C (tracking core): MISSING
+  - P0-D (keepa core): MISSING
+  - P0-E (hunter core backend): MISSING
+- Decyzja: kolejny etap implementacyjny zaczynamy od `P0-C` (Tracking Core).
