@@ -43,6 +43,8 @@ const KEEPA_WATCH_INDEX_STATE_KEY = 'keepa_watch_index';
 const KEEPA_EVENTS_STATE_KEY = 'keepa_events';
 const KEEPA_DEALS_STATE_KEY = 'keepa_deals';
 const KEEPA_TOKEN_USAGE_STATE_KEY = 'keepa_token_usage';
+const HUNTER_CUSTOM_CONFIG_STATE_KEY = 'hunter_custom_config';
+const HUNTER_LAST_RUN_STATE_KEY = 'hunter_last_run';
 const TOKEN_BUDGET_PROBE_DEFAULT_COOLDOWN_SEC = 24 * 60 * 60;
 const TOKEN_BUDGET_PROBE_AUTOTUNE_FALLBACK_MIN_COOLDOWN_SEC = 6 * 60 * 60;
 const TOKEN_BUDGET_PROBE_AUTOTUNE_FALLBACK_HIGH_COOLDOWN_SEC = 12 * 60 * 60;
@@ -611,6 +613,67 @@ function normalizeKeepaTokenUsage(raw = {}) {
     remaining: remaining === null ? null : Number(remaining.toFixed(2)),
     usagePct,
     updatedAt: raw.updatedAt ?? raw.refreshedAt ?? new Date().toISOString(),
+  };
+}
+
+function buildDefaultHunterConfig() {
+  return {
+    enabled: parseBooleanInput(process.env.SOON_HUNTER_ENABLED, true),
+    mode: String(process.env.SOON_HUNTER_MODE ?? 'autonomy').trim().toLowerCase() || 'autonomy',
+    cadenceMin: clampInt(process.env.SOON_HUNTER_CADENCE_MIN, 30, 1, 24 * 60),
+    confidenceThreshold: Number(clamp01(process.env.SOON_HUNTER_CONFIDENCE_THRESHOLD, 0.75).toFixed(4)),
+    minDealScore: Number(clamp01(process.env.SOON_HUNTER_MIN_DEAL_SCORE, 0.65).toFixed(4)),
+    tokenPolicy: resolveAutomationTokenPolicyConfig(),
+    ai: {
+      enabled: parseBooleanInput(process.env.SOON_HUNTER_AI_ENABLED, true),
+      model: String(process.env.SOON_HUNTER_AI_MODEL ?? '').trim() || null,
+    },
+  };
+}
+
+function normalizeHunterCustomConfig(rawConfig = {}) {
+  const source = rawConfig && typeof rawConfig === 'object' ? rawConfig : {};
+  const normalized = {};
+
+  if (source.enabled !== undefined) {
+    normalized.enabled = parseBooleanInput(source.enabled, true);
+  }
+  if (source.mode !== undefined) {
+    normalized.mode = String(source.mode).trim().toLowerCase() || 'autonomy';
+  }
+  if (source.cadenceMin !== undefined) {
+    normalized.cadenceMin = clampInt(source.cadenceMin, 30, 1, 24 * 60);
+  }
+  if (source.confidenceThreshold !== undefined) {
+    normalized.confidenceThreshold = Number(clamp01(source.confidenceThreshold, 0.75).toFixed(4));
+  }
+  if (source.minDealScore !== undefined) {
+    normalized.minDealScore = Number(clamp01(source.minDealScore, 0.65).toFixed(4));
+  }
+  if (source.tokenPolicy !== undefined && source.tokenPolicy !== null) {
+    normalized.tokenPolicy = resolveAutomationTokenPolicyConfig(source.tokenPolicy);
+  }
+  if (source.ai !== undefined && source.ai !== null && typeof source.ai === 'object') {
+    normalized.ai = {
+      enabled: parseBooleanInput(source.ai.enabled, true),
+      model: String(source.ai.model ?? '').trim() || null,
+    };
+  }
+
+  return normalized;
+}
+
+function mergeHunterConfig(baseConfig, overrideConfig) {
+  const base = baseConfig && typeof baseConfig === 'object' ? baseConfig : {};
+  const override = overrideConfig && typeof overrideConfig === 'object' ? overrideConfig : {};
+  return {
+    ...base,
+    ...override,
+    tokenPolicy: override.tokenPolicy ?? base.tokenPolicy ?? resolveAutomationTokenPolicyConfig(),
+    ai: {
+      ...(base.ai ?? {}),
+      ...(override.ai ?? {}),
+    },
   };
 }
 
@@ -1704,6 +1767,336 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           ingested: normalizedEvents.length,
           deals: deals.length,
           updatedAt: nowIso,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/hunter-config') {
+        const defaultConfig = buildDefaultHunterConfig();
+        const customState = store.getRuntimeState ? await store.getRuntimeState(HUNTER_CUSTOM_CONFIG_STATE_KEY) : null;
+        const customConfig =
+          customState?.stateValue && typeof customState.stateValue === 'object'
+            ? customState.stateValue.config ?? {}
+            : {};
+        const effectiveConfig = mergeHunterConfig(defaultConfig, customConfig);
+        const lastRunState = store.getRuntimeState ? await store.getRuntimeState(HUNTER_LAST_RUN_STATE_KEY) : null;
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          config: effectiveConfig,
+          source: customState ? 'custom+default' : 'default',
+          updatedAt: customState?.stateValue?.updatedAt ?? null,
+          lastRun: lastRunState?.stateValue ?? null,
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/hunter-config/custom') {
+        if (!store.setRuntimeState) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const body = await readJsonBody(req).catch(() => ({}));
+        const payload = body?.config && typeof body.config === 'object' ? body.config : body;
+        const normalizedConfig = normalizeHunterCustomConfig(payload);
+        if (!Object.keys(normalizedConfig).length) {
+          return sendJson(res, 400, { error: 'config_payload_required' });
+        }
+
+        const nowIso = new Date().toISOString();
+        const actor = String(body?.actor ?? 'manual').trim().slice(0, 80) || 'manual';
+        const state = await store.setRuntimeState(HUNTER_CUSTOM_CONFIG_STATE_KEY, {
+          config: normalizedConfig,
+          actor,
+          updatedAt: nowIso,
+        });
+
+        const effectiveConfig = mergeHunterConfig(buildDefaultHunterConfig(), normalizedConfig);
+        return sendJson(res, 200, {
+          status: 'ok',
+          updated: true,
+          actor,
+          config: effectiveConfig,
+          state,
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/hunter-config/run-now') {
+        const body = await readJsonBody(req).catch(() => ({}));
+        const nowTs = parseTimestampInput(body?.now, Date.now());
+        if (nowTs === null) {
+          return sendJson(res, 400, { error: 'invalid_now' });
+        }
+        const startedAt = new Date(nowTs).toISOString();
+
+        const defaultConfig = buildDefaultHunterConfig();
+        const customState = store.getRuntimeState ? await store.getRuntimeState(HUNTER_CUSTOM_CONFIG_STATE_KEY) : null;
+        const customConfig =
+          customState?.stateValue && typeof customState.stateValue === 'object'
+            ? customState.stateValue.config ?? {}
+            : {};
+        const effectiveConfig = mergeHunterConfig(defaultConfig, customConfig);
+
+        const tokenPolicyConfig = resolveAutomationTokenPolicyConfig(
+          body?.tokenPolicy ?? effectiveConfig.tokenPolicy ?? null,
+        );
+        const trackings = await store.listTrackings();
+        const cycle = runAutomationCycle(trackings, {
+          tokenPolicyMode: tokenPolicyConfig.mode,
+          budgetTokens: tokenPolicyConfig.budgetTokens,
+          degradationMode: 'manual_run_now',
+          deferredUntil: null,
+        });
+        const finishedAt = new Date().toISOString();
+
+        const persisted = store.recordAutomationCycle
+          ? await store.recordAutomationCycle({
+              cycle,
+              trackingCount: Number(cycle?.tokenPolicy?.selectedCount ?? trackings.length),
+              startedAt,
+              finishedAt,
+            })
+          : null;
+        const tokenSnapshotInput = buildTokenSnapshotFromPlan(cycle.tokenPlan, {
+          budgetMode: cycle?.tokenPolicy?.mode ?? tokenPolicyConfig.mode,
+          budgetTokens: cycle?.tokenPolicy?.budgetTokens ?? tokenPolicyConfig.budgetTokens,
+        });
+        const tokenSnapshot = store.recordTokenAllocationSnapshot
+          ? await store.recordTokenAllocationSnapshot({
+              runId: persisted?.runId ?? null,
+              ...tokenSnapshotInput,
+            })
+          : null;
+
+        const runNowState =
+          store.setRuntimeState &&
+          (await store.setRuntimeState(HUNTER_LAST_RUN_STATE_KEY, {
+            runId: persisted?.runId ?? null,
+            startedAt,
+            finishedAt,
+            trackingCount: Number(cycle?.tokenPolicy?.selectedCount ?? trackings.length),
+            decisionCount: Number(cycle?.decisions?.length ?? 0),
+            alertCount: Number(cycle?.alerts?.length ?? 0),
+            tokenPolicy: tokenPolicyConfig,
+            tokenSnapshotId: tokenSnapshot?.snapshotId ?? null,
+            triggeredBy: String(body?.triggeredBy ?? 'manual').trim().slice(0, 80) || 'manual',
+          }));
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          triggered: true,
+          runId: persisted?.runId ?? null,
+          tokenSnapshotId: tokenSnapshot?.snapshotId ?? null,
+          tokenPolicyConfig,
+          runNow: runNowState?.stateValue ?? null,
+          ...cycle,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/hunter-slo') {
+        if (!store.listLatestAutomationRuns) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const defaultConfig = buildDefaultHunterConfig();
+        const customState = store.getRuntimeState ? await store.getRuntimeState(HUNTER_CUSTOM_CONFIG_STATE_KEY) : null;
+        const customConfig =
+          customState?.stateValue && typeof customState.stateValue === 'object'
+            ? customState.stateValue.config ?? {}
+            : {};
+        const effectiveConfig = mergeHunterConfig(defaultConfig, customConfig);
+
+        const rawLimit = Number(url.searchParams.get('limit') ?? 30);
+        const limit = Math.max(1, Math.min(100, Number.isFinite(rawLimit) ? rawLimit : 30));
+        const items = await store.listLatestAutomationRuns(limit);
+        const summary = summarizeAutomationRuns(items, limit);
+        const routing = summarizeAlertRouting(items, limit);
+        const latest = items[0] ?? null;
+        const latestFinishedMs = Number.isFinite(Date.parse(latest?.finishedAt ?? ''))
+          ? Date.parse(latest.finishedAt)
+          : null;
+        const nowMs = Date.now();
+        const freshnessSec = latestFinishedMs === null ? null : Math.max(0, Math.floor((nowMs - latestFinishedMs) / 1000));
+        const freshnessTargetSec = Math.max(60, Number(effectiveConfig.cadenceMin ?? 30) * 2 * 60);
+        const freshnessPass = freshnessSec !== null && freshnessSec <= freshnessTargetSec;
+        const decisionPass = Number(summary?.kpi?.avgDecisionCount ?? 0) >= 1;
+        const routingPass = Number(routing?.violations?.total ?? 0) === 0;
+        const critStale = freshnessSec !== null && freshnessSec > freshnessTargetSec * 3;
+        const overall = critStale ? 'CRIT' : freshnessPass && decisionPass && routingPass ? 'PASS' : 'WARN';
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          overall,
+          window: { limit, runs: items.length },
+          targets: {
+            freshnessTargetSec,
+            decisionMinAvgPerRun: 1,
+            alertRoutingViolations: 0,
+          },
+          checks: {
+            freshnessPass,
+            decisionPass,
+            routingPass,
+          },
+          metrics: {
+            freshnessSec,
+            avgDecisionCount: summary.kpi.avgDecisionCount,
+            avgAlertCount: summary.kpi.avgAlertCount,
+            purchaseAlertRatePct: summary.kpi.purchaseAlertRatePct,
+            technicalAlertRatePct: summary.kpi.technicalAlertRatePct,
+            routingViolations: routing.violations.total,
+          },
+          latestRun: latest
+            ? {
+                runId: latest.runId,
+                startedAt: latest.startedAt,
+                finishedAt: latest.finishedAt,
+                decisionCount: latest.decisionCount,
+                alertCount: latest.alertCount,
+              }
+            : null,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/hunter-smart-engine') {
+        if (!store.listLatestAutomationRuns) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const defaultConfig = buildDefaultHunterConfig();
+        const customState = store.getRuntimeState ? await store.getRuntimeState(HUNTER_CUSTOM_CONFIG_STATE_KEY) : null;
+        const customConfig =
+          customState?.stateValue && typeof customState.stateValue === 'object'
+            ? customState.stateValue.config ?? {}
+            : {};
+        const effectiveConfig = mergeHunterConfig(defaultConfig, customConfig);
+        const runs = await store.listLatestAutomationRuns(1);
+        const latestRun = runs[0] ?? null;
+
+        let decisions = Array.isArray(latestRun?.decisions) ? latestRun.decisions : [];
+        let source = latestRun ? 'latest_run' : 'preview';
+        if (!decisions.length) {
+          const previewCycle = runAutomationCycle(await store.listTrackings(), {
+            tokenPolicyMode: effectiveConfig?.tokenPolicy?.mode ?? 'unbounded',
+            budgetTokens: effectiveConfig?.tokenPolicy?.budgetTokens ?? null,
+            degradationMode: 'preview',
+            deferredUntil: null,
+          });
+          decisions = previewCycle.decisions;
+          source = 'preview';
+        }
+
+        const topCandidates = [...decisions]
+          .sort((a, b) => Number(b.score ?? 0) - Number(a.score ?? 0))
+          .slice(0, 10)
+          .map((item) => ({
+            asin: item.asin,
+            score: Number(item.score ?? 0),
+            confidence: Number(item.confidence ?? 0),
+            shouldAlert: Boolean(item.shouldAlert),
+            reason: item.reason ?? null,
+          }));
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          source,
+          engine: {
+            name: 'hunter-core-v1',
+            mode: 'rule-ai-hybrid',
+            autonomy: true,
+          },
+          policy: {
+            confidenceThreshold: effectiveConfig.confidenceThreshold,
+            minDealScore: effectiveConfig.minDealScore,
+            tokenPolicy: effectiveConfig.tokenPolicy,
+          },
+          latestRun: latestRun
+            ? {
+                runId: latestRun.runId,
+                startedAt: latestRun.startedAt,
+                finishedAt: latestRun.finishedAt,
+                decisionCount: latestRun.decisionCount,
+                alertCount: latestRun.alertCount,
+              }
+            : null,
+          topCandidates,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/hunter-autonomy-decision-health') {
+        if (!store.listLatestAutomationRuns) {
+          return sendJson(res, 501, { error: 'not_implemented' });
+        }
+
+        const defaultConfig = buildDefaultHunterConfig();
+        const customState = store.getRuntimeState ? await store.getRuntimeState(HUNTER_CUSTOM_CONFIG_STATE_KEY) : null;
+        const customConfig =
+          customState?.stateValue && typeof customState.stateValue === 'object'
+            ? customState.stateValue.config ?? {}
+            : {};
+        const effectiveConfig = mergeHunterConfig(defaultConfig, customConfig);
+
+        const runs = await store.listLatestAutomationRuns(30);
+        const allDecisions = runs.flatMap((run) => (Array.isArray(run.decisions) ? run.decisions : []));
+        const latest = runs[0] ?? null;
+        const latestFinishedMs = Number.isFinite(Date.parse(latest?.finishedAt ?? ''))
+          ? Date.parse(latest.finishedAt)
+          : null;
+        const nowMs = Date.now();
+        const cadenceSec = Math.max(60, Number(effectiveConfig.cadenceMin ?? 30) * 60);
+        const staleSec = latestFinishedMs === null ? null : Math.max(0, Math.floor((nowMs - latestFinishedMs) / 1000));
+
+        const avgConfidence =
+          allDecisions.length > 0
+            ? Number(
+                (
+                  allDecisions.reduce((acc, item) => acc + Number(item.confidence ?? 0), 0) / allDecisions.length
+                ).toFixed(4),
+              )
+            : 0;
+        const alertSharePct =
+          allDecisions.length > 0
+            ? Number(
+                (
+                  (allDecisions.filter((item) => item.shouldAlert).length / Math.max(1, allDecisions.length)) *
+                  100
+                ).toFixed(2),
+              )
+            : 0;
+        const confidenceTarget = Number(effectiveConfig.confidenceThreshold ?? 0.75);
+        const lowConfidence = allDecisions.length > 0 && avgConfidence < confidenceTarget * 0.85;
+        const staleWarn = staleSec !== null && staleSec > cadenceSec * 3;
+        const staleCrit = staleSec !== null && staleSec > cadenceSec * 6;
+        const insufficientData = runs.length < 3;
+
+        const signals = [];
+        if (insufficientData) signals.push({ level: 'warn', code: 'insufficient_run_history', value: runs.length });
+        if (lowConfidence) signals.push({ level: 'warn', code: 'low_average_confidence', value: avgConfidence });
+        if (staleWarn) signals.push({ level: staleCrit ? 'crit' : 'warn', code: 'stale_hunter_runs', value: staleSec });
+
+        const hasCrit = signals.some((item) => item.level === 'crit');
+        const hasWarn = signals.some((item) => item.level === 'warn');
+        const overall = hasCrit ? 'CRIT' : hasWarn ? 'WARN' : 'PASS';
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          overall,
+          metrics: {
+            runs: runs.length,
+            decisions: allDecisions.length,
+            avgConfidence,
+            confidenceTarget,
+            alertSharePct,
+            staleSec,
+            cadenceSec,
+          },
+          signals,
+          latestRun: latest
+            ? {
+                runId: latest.runId,
+                finishedAt: latest.finishedAt,
+                decisionCount: latest.decisionCount,
+                alertCount: latest.alertCount,
+              }
+            : null,
         });
       }
 

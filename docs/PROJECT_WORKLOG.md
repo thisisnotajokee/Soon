@@ -2040,3 +2040,22 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - ingest watch-state + status
   - ingest events + deals + token-usage
   - keepa history alias
+
+## [2026-04-17 18:05:00Z] P0-E Hunter Core backend compatibility endpoints implemented
+- Wdrożono endpointy Hunter Core backend w `packages/api/src/runtime/server.mjs`:
+  - `GET /api/hunter-config`
+  - `POST /api/hunter-config/custom`
+  - `POST /api/hunter-config/run-now`
+  - `GET /api/hunter-slo`
+  - `GET /api/hunter-smart-engine`
+  - `GET /api/hunter-autonomy-decision-health`
+- Dodano runtime config merge:
+  - domyślna konfiguracja huntera z ENV,
+  - nadpisanie custom przez `runtime_state`,
+  - `run-now` zapisuje ostatni snapshot uruchomienia huntera.
+- Zaktualizowano checklistę cutover:
+  - `docs/CUTOVER_P0_CONTRACT_SET_V1.md`: cały `P0-E` oznaczony jako `DONE`.
+- Dodano testy kontraktowe P0-E:
+  - roundtrip `hunter-config` + custom override,
+  - manual trigger `run-now`,
+  - endpointy `hunter-slo`, `hunter-smart-engine`, `hunter-autonomy-decision-health`.

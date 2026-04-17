@@ -286,6 +286,91 @@ test('P0-D: keepa history alias returns timeline for existing ASIN', async () =>
   });
 });
 
+test('P0-E: hunter config endpoint supports custom override', async () => {
+  await withServer(async (baseUrl) => {
+    const initial = await readJson(await fetch(`${baseUrl}/api/hunter-config`));
+    assert.equal(initial.status, 200);
+    assert.equal(initial.body.status, 'ok');
+    assert.ok(initial.body.config);
+    assert.ok(initial.body.config.tokenPolicy);
+
+    const updated = await readJson(
+      await fetch(`${baseUrl}/api/hunter-config/custom`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          actor: 'contracts-test',
+          config: {
+            cadenceMin: 15,
+            confidenceThreshold: 0.82,
+            minDealScore: 0.71,
+            tokenPolicy: { mode: 'capped', budgetTokens: 42 },
+            ai: { enabled: true, model: 'gpt-test' },
+          },
+        }),
+      }),
+    );
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.status, 'ok');
+    assert.equal(updated.body.config.cadenceMin, 15);
+    assert.equal(updated.body.config.confidenceThreshold, 0.82);
+    assert.equal(updated.body.config.minDealScore, 0.71);
+    assert.equal(updated.body.config.tokenPolicy.mode, 'capped');
+    assert.equal(updated.body.config.tokenPolicy.budgetTokens, 42);
+    assert.equal(updated.body.config.ai.model, 'gpt-test');
+
+    const after = await readJson(await fetch(`${baseUrl}/api/hunter-config`));
+    assert.equal(after.status, 200);
+    assert.equal(after.body.config.cadenceMin, 15);
+    assert.equal(after.body.config.confidenceThreshold, 0.82);
+    assert.equal(after.body.config.tokenPolicy.mode, 'capped');
+    assert.equal(after.body.config.tokenPolicy.budgetTokens, 42);
+  });
+});
+
+test('P0-E: hunter run-now + slo + smart-engine + autonomy-health endpoints', async () => {
+  await withServer(async (baseUrl) => {
+    const runNow = await readJson(
+      await fetch(`${baseUrl}/api/hunter-config/run-now`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          tokenPolicy: { mode: 'capped', budgetTokens: 20 },
+          triggeredBy: 'contracts-test',
+        }),
+      }),
+    );
+    assert.equal(runNow.status, 200);
+    assert.equal(runNow.body.status, 'ok');
+    assert.equal(runNow.body.triggered, true);
+    assert.ok(runNow.body.runId);
+    assert.ok(Array.isArray(runNow.body.decisions));
+    assert.ok(Array.isArray(runNow.body.alerts));
+    assert.ok(runNow.body.tokenPolicyConfig);
+
+    const slo = await readJson(await fetch(`${baseUrl}/api/hunter-slo`));
+    assert.equal(slo.status, 200);
+    assert.equal(slo.body.status, 'ok');
+    assert.ok(['PASS', 'WARN', 'CRIT'].includes(slo.body.overall));
+    assert.ok(slo.body.window);
+    assert.ok(slo.body.metrics);
+    assert.ok(slo.body.checks);
+
+    const smartEngine = await readJson(await fetch(`${baseUrl}/api/hunter-smart-engine`));
+    assert.equal(smartEngine.status, 200);
+    assert.equal(smartEngine.body.status, 'ok');
+    assert.ok(smartEngine.body.engine);
+    assert.ok(Array.isArray(smartEngine.body.topCandidates));
+
+    const autonomyHealth = await readJson(await fetch(`${baseUrl}/api/hunter-autonomy-decision-health`));
+    assert.equal(autonomyHealth.status, 200);
+    assert.equal(autonomyHealth.body.status, 'ok');
+    assert.ok(['PASS', 'WARN', 'CRIT'].includes(autonomyHealth.body.overall));
+    assert.ok(autonomyHealth.body.metrics);
+    assert.ok(Array.isArray(autonomyHealth.body.signals));
+  });
+});
+
 test('POST /api/token-control/allocate ranks candidates and applies token budget cap', async () => {
   await withServer(async (baseUrl) => {
     const allocation = await readJson(

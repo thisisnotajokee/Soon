@@ -54,12 +54,12 @@ Statusy:
 
 ## P0-E. Hunter Core (backend only)
 
-1. `GET /api/hunter-config` — `MISSING`
-2. `POST /api/hunter-config/run-now` — `MISSING`
-3. `POST /api/hunter-config/custom` — `MISSING`
-4. `GET /api/hunter-slo` — `MISSING`
-5. `GET /api/hunter-smart-engine` — `MISSING`
-6. `GET /api/hunter-autonomy-decision-health` — `MISSING`
+1. `GET /api/hunter-config` — `DONE`
+2. `POST /api/hunter-config/run-now` — `DONE`
+3. `POST /api/hunter-config/custom` — `DONE`
+4. `GET /api/hunter-slo` — `DONE`
+5. `GET /api/hunter-smart-engine` — `DONE`
+6. `GET /api/hunter-autonomy-decision-health` — `DONE`
 
 ## P0-F. Alert Routing Policy
 
