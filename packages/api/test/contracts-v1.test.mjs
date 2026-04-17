@@ -311,6 +311,16 @@ test('P0-C: /api/history/:asin + /api/refresh/:asin + /api/refresh-all/:chatId',
       assert.equal(refreshAll.body.chatId, '2041');
       assert.ok(refreshAll.body.jobId);
 
+      const refreshAllStatus = await readJson(
+        await fetch(`${baseUrl}/api/refresh-all/2041/status/${encodeURIComponent(refreshAll.body.jobId)}`),
+      );
+      assert.equal(refreshAllStatus.status, 200);
+      assert.equal(refreshAllStatus.body.status, 'completed');
+      assert.equal(refreshAllStatus.body.chatId, '2041');
+      assert.equal(refreshAllStatus.body.jobId, refreshAll.body.jobId);
+      assert.equal(refreshAllStatus.body.total, refreshAll.body.total);
+      assert.equal(refreshAllStatus.body.pending, 0);
+
       const refreshBudgetRestricted = await readJson(await fetch(`${baseUrl}/api/refresh-budget/9999`));
       assert.equal(refreshBudgetRestricted.status, 200);
       assert.equal(refreshBudgetRestricted.body.restricted, true);
