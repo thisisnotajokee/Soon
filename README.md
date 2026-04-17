@@ -14,6 +14,7 @@ Status: scaffold architektury v1 + działający runtime API MVP.
 6. `docs/CONTRACT_TEST_MATRIX.md` — parity i testy kontraktowe.
 7. `docs/ENV_MINIMUM_POLICY.md` — polityka przenoszenia tylko niezbędnych zmiennych ENV.
 8. `docs/PROJECT_WORKLOG.md` — bieżący worklog i kluczowe decyzje.
+9. `docs/POST_DEPLOY_BACKUP_ROLLBACK_RUNBOOK_V1.md` — pakiet post-deploy (backup + rollback + GO/NO-GO).
 
 ## Architektura
 

@@ -1972,3 +1972,11 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 - Public endpoint: `https://api.ambot.nl` przez Cloudflare Tunnel (`soon-wsl`) jako usługa systemowa `cloudflared.service` na VM210.
 - GitHub: ustawione `SOON_RUNTIME_BASE_URL=https://api.ambot.nl`, `SOON_TOKEN_PROBE_RESET_OPS_KEY`, `SOON_RUNTIME_WATCHDOG_ENABLED=1`.
 - Weryfikacja: `runtime-state-watchdog` run `24546857384` zakończony PASS.
+
+## [2026-04-17 04:35:00Z] Post-deploy package (backup + rollback + checklist)
+- Dodano skrypt snapshotu runtime: `scripts/ops/post-deploy-snapshot.sh`.
+- Dodano skrypt rollbacku VM210: `scripts/ops/rollback-vm210.sh`.
+- Dodano komendy npm:
+  - `npm run ops:deploy:snapshot`
+  - `npm run ops:deploy:rollback -- <git-ref> --yes`
+- Dodano runbook: `docs/POST_DEPLOY_BACKUP_ROLLBACK_RUNBOOK_V1.md` (procedura + checklista GO/NO-GO).
