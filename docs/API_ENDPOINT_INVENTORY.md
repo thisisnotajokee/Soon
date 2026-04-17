@@ -37,7 +37,7 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `GET /api/buybox/:asin` — `src/routes/api/analytics/misc-routes.js`
 - [ ] `GET /api/categories/:chatId` — `src/routes/api/analytics/misc-routes.js`
 - [x] `GET /api/check-alert-status` — `packages/api/src/runtime/server.mjs`
-- [ ] `GET /api/config` — `src/routes/api/analytics/system-routes.js`
+- [x] `GET /api/config` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/dashboard/:chatId` — `src/routes/api/trackings/routes/read.js`
 - [ ] `GET /api/deals/comments` — `src/routes/api/deals-feedback.js`
 - [ ] `POST /api/deals/comments` — `src/routes/api/deals-feedback.js`
@@ -89,7 +89,7 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `GET /api/keepa/token-usage` — `src/routes/api/keepa/routes/read.js`
 - [ ] `POST /api/keepa/watch-state/ingest` — `src/routes/api/keepa/routes/ingest.js`
 - [x] `GET /api/keepa/watch-state/summary` — `packages/api/src/runtime/server.mjs`
-- [ ] `GET /api/launch-readiness` — `src/routes/api/analytics/system-routes.js`
+- [x] `GET /api/launch-readiness` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/logs` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/mobile/v1/auth/logout` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/mobile/v1/auth/logout-all` — `packages/api/src/runtime/server.mjs`
@@ -145,10 +145,10 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `GET /api/stats/:chatId` — `src/routes/api/analytics/misc-routes.js`
 - [x] `GET /api/status` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/stock/:asin` — `src/routes/api/analytics/misc-routes.js`
-- [ ] `GET /api/system-health` — `src/routes/api/core/routes/health.js`
-- [ ] `GET /api/system-health/history` — `src/routes/api/core/routes/health.js`
-- [ ] `GET /api/system-stats` — `src/routes/api/analytics/system-routes.js`
-- [ ] `GET /api/system-stats/history` — `src/routes/api/analytics/system-routes.js`
+- [x] `GET /api/system-health` — `packages/api/src/runtime/server.mjs`
+- [x] `GET /api/system-health/history` — `packages/api/src/runtime/server.mjs`
+- [x] `GET /api/system-stats` — `packages/api/src/runtime/server.mjs`
+- [x] `GET /api/system-stats/history` — `packages/api/src/runtime/server.mjs`
 - [ ] `POST /api/system/restart` — `src/routes/api/analytics/system-routes.js`
 - [ ] `GET /api/tags/:chatId` — `src/routes/api/analytics/misc-routes.js`
 - [ ] `GET /api/token-efficiency` — `src/routes/api/analytics/system-routes.js`
@@ -159,7 +159,7 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `POST /api/trackings/:chatId/:asin/snooze` — `src/routes/api/trackings/routes/mutate.js`
 - [ ] `DELETE /api/trackings/:chatId/all` — `src/routes/api/trackings/routes/mutate.js`
 - [ ] `POST /api/trackings/save` — `src/routes/api/trackings/routes/mutate.js`
-- [ ] `GET /api/version` — `src/routes/api/core/routes/basic.js`
+- [x] `GET /api/version` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/web-deals/amazon` — `src/routes/api/web-deals.js`
 - [ ] `GET /api/web-deals/history` — `src/routes/api/web-deals.js`
 - [ ] `POST /api/web-deals/resolve-asin` — `src/routes/api/web-deals.js`

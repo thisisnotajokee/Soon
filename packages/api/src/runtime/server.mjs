@@ -1,5 +1,6 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
+import os from 'node:os';
 import { URL } from 'node:url';
 
 import { createInMemoryStore } from './in-memory-store.mjs';
@@ -43,6 +44,7 @@ const TRACKINGS_CACHE_AUTOTUNE_LAST_STATE_KEY = 'trackings_cache_autotune_last';
 const TRACKINGS_CACHE_RUNTIME_HISTORY_STATE_KEY = 'trackings_cache_runtime_history';
 const GLOBAL_SCAN_INTERVAL_STATE_KEY = 'global_scan_interval_hours';
 const SETTINGS_SCAN_POLICY_STATE_KEY = 'settings_scan_policy_v1';
+const SYSTEM_STATS_HISTORY_STATE_KEY = 'system_stats_history_v1';
 const MOBILE_TRACKING_PREFERENCES_PREFIX = 'mobile_tracking_preferences_v1:';
 const MOBILE_WEB_DEALS_HISTORY_STATE_KEY = 'mobile_web_deals_history_v1';
 const MOBILE_SESSION_PREFIX = 'mobile_auth_session_v1:';
@@ -927,11 +929,74 @@ function resolveCompatRequestId(req) {
   return raw || null;
 }
 
+function isCompatAdminUser(userId, adminId) {
+  return Boolean(userId && adminId && String(userId) === String(adminId));
+}
+
 function createCompatWebToken(userId) {
   const normalizedUserId = String(userId ?? '').trim();
   if (!normalizedUserId) return null;
   const nonce = crypto.randomBytes(32).toString('hex');
   return `${normalizedUserId}.${Date.now().toString(36)}.${nonce}`;
+}
+
+function createSystemStatsSample(startedAtMs) {
+  const memory = process.memoryUsage();
+  const cpus = os.cpus();
+  const cpuCount = Array.isArray(cpus) ? cpus.length : 1;
+  const loadAvg = os.loadavg();
+  return {
+    capturedAt: new Date().toISOString(),
+    uptimeSec: Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000)),
+    cpu: {
+      load1m: Number((Number(loadAvg?.[0] ?? 0)).toFixed(2)),
+      load5m: Number((Number(loadAvg?.[1] ?? 0)).toFixed(2)),
+      load15m: Number((Number(loadAvg?.[2] ?? 0)).toFixed(2)),
+      cores: Math.max(1, Number(cpuCount || 1)),
+    },
+    memory: {
+      rssMb: Number((memory.rss / (1024 * 1024)).toFixed(2)),
+      heapUsedMb: Number((memory.heapUsed / (1024 * 1024)).toFixed(2)),
+      heapTotalMb: Number((memory.heapTotal / (1024 * 1024)).toFixed(2)),
+      externalMb: Number((memory.external / (1024 * 1024)).toFixed(2)),
+    },
+    platform: process.platform,
+    node: process.version,
+  };
+}
+
+function normalizeSystemStatsRange(rawRange) {
+  const token = String(rawRange ?? '1h').trim().toLowerCase();
+  return ['1h', '6h', '12h', '24h'].includes(token) ? token : '1h';
+}
+
+function systemStatsRangeHours(range) {
+  if (range === '6h') return 6;
+  if (range === '12h') return 12;
+  if (range === '24h') return 24;
+  return 1;
+}
+
+function sanitizeSystemStatsHistory(raw) {
+  if (!Array.isArray(raw)) return [];
+  const now = Date.now();
+  const maxAgeMs = 24 * 60 * 60 * 1000;
+  return raw
+    .filter((entry) => {
+      const ts = Date.parse(String(entry?.capturedAt ?? ''));
+      return Number.isFinite(ts) && ts <= now + 5 * 60 * 1000 && ts >= now - maxAgeMs;
+    })
+    .sort((a, b) => Date.parse(String(a.capturedAt)) - Date.parse(String(b.capturedAt)))
+    .slice(-1500);
+}
+
+async function appendSystemStatsHistory(store, sample) {
+  if (!store.getRuntimeState || !store.setRuntimeState) return [sample];
+  const state = await store.getRuntimeState(SYSTEM_STATS_HISTORY_STATE_KEY);
+  const previous = sanitizeSystemStatsHistory(state?.stateValue);
+  const next = sanitizeSystemStatsHistory([...previous, sample]);
+  await store.setRuntimeState(SYSTEM_STATS_HISTORY_STATE_KEY, next);
+  return next;
 }
 
 function normalizeMobilePagination(url) {
@@ -2193,6 +2258,7 @@ function renderTokenBudgetPrometheusMetrics(
 
 export function createSoonApiServer({ store = resolveStore() } = {}) {
   let lastAlertRoutingRemediationAtMs = 0;
+  const startedAtMs = Date.now();
 
   return http.createServer(async (req, res) => {
     try {
@@ -2234,6 +2300,198 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           products: trackings.length,
           trackings: trackings.length,
           uptime: Math.floor(process.uptime()),
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/version') {
+        const requestId = resolveCompatRequestId(req);
+        return sendJson(res, 200, {
+          version: String(process.env.npm_package_version || '0.1.0'),
+          build: {
+            sha: String(process.env.BUILD_SHA || process.env.GITHUB_SHA || '').trim() || null,
+            at: String(process.env.BUILD_AT || '').trim() || null,
+          },
+          node: process.version,
+          serverTime: new Date().toISOString(),
+          uptime: Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000)),
+          requestId,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/config') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const isAdmin = isCompatAdminUser(userId, adminId);
+        const requestId = resolveCompatRequestId(req);
+        return sendJson(res, 200, {
+          associateTag: isAdmin ? String(process.env.AMAZON_ASSOCIATE_TAG || '').trim() : '',
+          webAppUrl: String(process.env.PUBLIC_WEB_URL || '/index.html').trim() || '/index.html',
+          webAppVersion: String(process.env.WEBAPP_VERSION || process.env.npm_package_version || 'dev'),
+          telegramUserId: userId ? Number(userId) : null,
+          webToken: createCompatWebToken(userId),
+          adminPermissions: {
+            isAdmin,
+            actor: userId ? Number(userId) : null,
+            adminId: adminId ? Number(adminId) : null,
+            reason: null,
+            at: null,
+          },
+          hostScope: {
+            currentHost: String(req.headers.host || '').trim() || null,
+            userAppHost: null,
+            adminAppHost: null,
+            isUserHost: false,
+            isAdminHost: false,
+          },
+          webUiEdition: 'user',
+          restart: {
+            configured: false,
+            allowed: false,
+            adminChatId: null,
+            audit: {
+              status: 'disabled',
+              actor: null,
+              adminId: null,
+              reason: null,
+              at: null,
+            },
+          },
+          requestId,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/launch-readiness') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const trackings = await store.listTrackings();
+        const schedulerState = store.getRuntimeState ? await store.getRuntimeState('scheduler_status') : null;
+        const metrics = schedulerState?.stateValue?.metrics ?? {};
+        const blockers = [];
+        if (trackings.length <= 0) blockers.push('no_trackings');
+        if (Number(metrics?.lastErrors || 0) > 0) blockers.push('scan_last_errors_positive');
+        const ready = blockers.length === 0;
+        return sendJson(res, 200, {
+          generatedAt: new Date().toISOString(),
+          windowSec: clampInt(url.searchParams.get('windowSec'), 900, 60, 24 * 3600),
+          ready,
+          blockers,
+          notes: ready ? ['launch_window_looks_stable'] : [],
+          api: {
+            samples: 0,
+            p95Ms: 0,
+            p99Ms: 0,
+          },
+          keepa: {
+            capPerHour: clampInt(process.env.KEEPA_TOKEN_CAP_PER_HOUR, 0, 0, 1000000),
+            spentLastHour: 0,
+            spentLast24h: 0,
+            guardrail: metrics?.lastTokenGuardrail ?? null,
+          },
+          scan: {
+            lastRunAt: metrics?.lastRunAt ?? null,
+            lastPlanned: Number(metrics?.lastPlanned || 0),
+            lastScanned: Number(metrics?.lastScanned || 0),
+            lastAlerts: Number(metrics?.lastAlerts || 0),
+            lastErrors: Number(metrics?.lastErrors || 0),
+            lastPriorityTier: metrics?.lastPriorityTier ?? null,
+          },
+          alerts: {
+            sent24h: 0,
+          },
+          ai: {
+            http429_24h: 0,
+            http5xx_24h: 0,
+          },
+          requestId,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/system-health') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        const isAdmin = isCompatAdminUser(userId, adminId);
+        const base = {
+          status: 'ok',
+          generatedAt: new Date().toISOString(),
+          requestId,
+        };
+        if (!isAdmin) {
+          return sendJson(res, 200, base);
+        }
+        const schedulerState = store.getRuntimeState ? await store.getRuntimeState('scheduler_status') : null;
+        const trackings = await store.listTrackings();
+        return sendJson(res, 200, {
+          ...base,
+          modules: modulesList(),
+          uptimeSec: Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000)),
+          storage: store.mode,
+          trackings: trackings.length,
+          scheduler: schedulerState?.stateValue ?? null,
+          operationalReadiness: {
+            ready: true,
+            reasons: [],
+          },
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/system-health/history') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const historyState = store.getRuntimeState ? await store.getRuntimeState(SYSTEM_STATS_HISTORY_STATE_KEY) : null;
+        const rows = sanitizeSystemStatsHistory(historyState?.stateValue ?? []).map((entry) => ({
+          ts: entry.capturedAt,
+          cpu: Number(entry?.cpu?.load1m || 0),
+          memory: Number(entry?.memory?.rssMb || 0),
+          temperature: null,
+          power: null,
+        }));
+        return sendJson(res, 200, {
+          rows,
+          count: rows.length,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/system-stats') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const payload = createSystemStatsSample(startedAtMs);
+        await appendSystemStatsHistory(store, payload);
+        return sendJson(res, 200, payload);
+      }
+
+      if (method === 'GET' && pathname === '/api/system-stats/history') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const range = normalizeSystemStatsRange(url.searchParams.get('range'));
+        const historyState = store.getRuntimeState ? await store.getRuntimeState(SYSTEM_STATS_HISTORY_STATE_KEY) : null;
+        const history = sanitizeSystemStatsHistory(historyState?.stateValue ?? []);
+        const hours = systemStatsRangeHours(range);
+        const cutoffMs = Date.now() - hours * 60 * 60 * 1000;
+        const points = history.filter((entry) => Date.parse(String(entry.capturedAt)) >= cutoffMs);
+        return sendJson(res, 200, {
+          range,
+          hours,
+          count: points.length,
+          totalCount: history.length,
+          lastSampleAt: points[points.length - 1]?.capturedAt ?? history[history.length - 1]?.capturedAt ?? null,
+          points,
         });
       }
 

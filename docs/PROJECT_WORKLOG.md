@@ -2688,3 +2688,24 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 - Zaktualizowano `docs/API_ENDPOINT_INVENTORY.md`:
   - `GET /api/keepa/watch-state/summary` -> DONE,
   - `GET /api/keepa/nl-reliability` -> DONE.
+
+## [2026-04-18 04:30:00Z] P0-C core system/version/config compatibility endpoints implemented
+- Dodano kompatybilne endpointy operacyjne:
+  - `GET /api/version`,
+  - `GET /api/config`,
+  - `GET /api/launch-readiness`,
+  - `GET /api/system-health`,
+  - `GET /api/system-health/history`,
+  - `GET /api/system-stats`,
+  - `GET /api/system-stats/history`.
+- Zachowanie zgodne z legacy:
+  - endpointy admin-only (`launch-readiness`, `system-stats*`, `system-health/history`) zwracają `403 Forbidden` bez uprawnień,
+  - `system-health` dla nie-admin zwraca tylko bezpieczny skrót statusu.
+- Dodano runtime historię próbek systemowych:
+  - key: `system_stats_history_v1`,
+  - retencja próbek 24h i filtrowanie zakresu `1h/6h/12h/24h`.
+- Dodano test kontraktowy:
+  - `P0-C: core system/version/config compatibility endpoints`
+    w `packages/api/test/contracts-v1.test.mjs`.
+- Zaktualizowano `docs/API_ENDPOINT_INVENTORY.md`:
+  - wszystkie powyższe endpointy oznaczone jako DONE.

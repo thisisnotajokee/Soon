@@ -129,6 +129,89 @@ test('P0-C: core auth/session compatibility endpoints', async () => {
   }
 });
 
+test('P0-C: core system/version/config compatibility endpoints', async () => {
+  const store = createInMemoryStore();
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(
+      async (baseUrl) => {
+        const version = await readJson(await fetch(`${baseUrl}/api/version`, { headers: { 'x-request-id': 'req-version' } }));
+        assert.equal(version.status, 200);
+        assert.ok(typeof version.body.version === 'string');
+        assert.ok(typeof version.body.serverTime === 'string');
+        assert.ok(Number.isFinite(Number(version.body.uptime)));
+        assert.equal(version.body.requestId, 'req-version');
+
+        const configAdmin = await readJson(
+          await fetch(`${baseUrl}/api/config`, { headers: { 'x-telegram-user-id': '2041' } }),
+        );
+        assert.equal(configAdmin.status, 200);
+        assert.ok(configAdmin.body.adminPermissions);
+        assert.equal(configAdmin.body.adminPermissions.isAdmin, true);
+        assert.ok(typeof configAdmin.body.webToken === 'string' && configAdmin.body.webToken.length > 16);
+
+        const launchForbidden = await readJson(
+          await fetch(`${baseUrl}/api/launch-readiness`, { headers: { 'x-telegram-user-id': '9999' } }),
+        );
+        assert.equal(launchForbidden.status, 403);
+        assert.equal(launchForbidden.body.error, 'Forbidden');
+
+        const launchReady = await readJson(
+          await fetch(`${baseUrl}/api/launch-readiness?windowSec=600`, { headers: { 'x-telegram-user-id': '2041' } }),
+        );
+        assert.equal(launchReady.status, 200);
+        assert.ok(Array.isArray(launchReady.body.blockers));
+        assert.ok(typeof launchReady.body.ready === 'boolean');
+
+        const systemHealthPublic = await readJson(await fetch(`${baseUrl}/api/system-health`));
+        assert.equal(systemHealthPublic.status, 200);
+        assert.equal(systemHealthPublic.body.status, 'ok');
+        assert.ok(!('modules' in systemHealthPublic.body));
+
+        const systemHealthAdmin = await readJson(
+          await fetch(`${baseUrl}/api/system-health`, { headers: { 'x-telegram-user-id': '2041' } }),
+        );
+        assert.equal(systemHealthAdmin.status, 200);
+        assert.ok(Array.isArray(systemHealthAdmin.body.modules));
+        assert.ok(systemHealthAdmin.body.operationalReadiness);
+
+        const systemStatsForbidden = await readJson(await fetch(`${baseUrl}/api/system-stats`));
+        assert.equal(systemStatsForbidden.status, 403);
+        assert.equal(systemStatsForbidden.body.error, 'Forbidden');
+
+        const systemStats = await readJson(
+          await fetch(`${baseUrl}/api/system-stats`, { headers: { 'x-telegram-user-id': '2041' } }),
+        );
+        assert.equal(systemStats.status, 200);
+        assert.ok(systemStats.body.cpu);
+        assert.ok(systemStats.body.memory);
+        assert.ok(typeof systemStats.body.capturedAt === 'string');
+
+        const systemStatsHistory = await readJson(
+          await fetch(`${baseUrl}/api/system-stats/history?range=1h`, { headers: { 'x-telegram-user-id': '2041' } }),
+        );
+        assert.equal(systemStatsHistory.status, 200);
+        assert.equal(systemStatsHistory.body.range, '1h');
+        assert.ok(Array.isArray(systemStatsHistory.body.points));
+        assert.ok(Number.isFinite(Number(systemStatsHistory.body.totalCount)));
+
+        const systemHealthHistory = await readJson(
+          await fetch(`${baseUrl}/api/system-health/history`, { headers: { 'x-telegram-user-id': '2041' } }),
+        );
+        assert.equal(systemHealthHistory.status, 200);
+        assert.ok(Array.isArray(systemHealthHistory.body.rows));
+        assert.ok(Number.isFinite(Number(systemHealthHistory.body.count)));
+      },
+      { store },
+    );
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
 test('P0-C: mobile v1 auth/session compatibility endpoints', async () => {
   const store = createInMemoryStore();
   const previousAdminId = process.env.SOON_ADMIN_ID;
