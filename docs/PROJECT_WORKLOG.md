@@ -2091,3 +2091,19 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ### Weryfikacja
 - `make smoke` -> PASS (contracts/workers/scripts/web smoke).
+
+## [2026-04-17 18:20:00Z] Hunter efficiency compatibility endpoint implemented
+- Dodano endpoint `GET /api/hunter-efficiency` w `packages/api/src/runtime/server.mjs`.
+- Endpoint wspiera filtr `hours` i zwraca kompatybilną strukturę:
+  - `windowHours`,
+  - `runs`,
+  - `presets`,
+  - `triggers`,
+  - `schedulerHunter`.
+- Dane są budowane z ostatnich runów automatyki (`listLatestAutomationRuns`) w zadanym oknie czasu.
+- Dodano test kontraktowy endpointu do `packages/api/test/contracts-v1.test.mjs`.
+- Zaktualizowano inwentarz endpointów:
+  - `docs/API_ENDPOINT_INVENTORY.md`: `GET /api/hunter-efficiency` -> `DONE` (runtime path).
+
+### Weryfikacja
+- `npm run -s test:contracts` -> PASS.
