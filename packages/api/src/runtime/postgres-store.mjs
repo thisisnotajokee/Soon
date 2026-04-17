@@ -959,6 +959,88 @@ export function createPostgresStore({
     };
   }
 
+  async function deleteAllCatalogDataGlobal(options = {}) {
+    await ensureInit();
+    const purgeAlertHistory = options?.purgeAlertHistory === true;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const trackingCountRes = await client.query('SELECT COUNT(*)::int AS total FROM soon_tracking');
+      const trackingCount = Number(trackingCountRes.rows?.[0]?.total ?? 0);
+
+      let deletedAlertAudit = 0;
+      if (purgeAlertHistory) {
+        const alertDeleteRes = await client.query('DELETE FROM soon_alert_dispatch_audit');
+        deletedAlertAudit = Number(alertDeleteRes.rowCount ?? 0);
+      }
+
+      await client.query('DELETE FROM soon_tracking');
+      await client.query(
+        'DELETE FROM soon_runtime_state WHERE state_key IN ($1, $2)',
+        [TRACKING_GLOBAL_STATE_KEY, 'compat_tracking_chat_state'],
+      );
+
+      await client.query('COMMIT');
+
+      return {
+        products: trackingCount,
+        trackings: trackingCount,
+        soon_alert_dispatch_audit: deletedAlertAudit,
+        alert_log_preserved: !purgeAlertHistory,
+      };
+    } catch (error) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {}
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async function deleteCatalogProductGlobal(asin, options = {}) {
+    await ensureInit();
+    const safeAsin = String(asin ?? '').trim().toUpperCase();
+    const purgeAlertHistory = options?.purgeAlertHistory === true;
+    if (!safeAsin) return { products: 0, trackings: 0, alert_log_preserved: !purgeAlertHistory, chat_ids: [] };
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      let deletedAlertAudit = 0;
+      if (purgeAlertHistory) {
+        const alertDeleteRes = await client.query('DELETE FROM soon_alert_dispatch_audit WHERE asin = $1', [safeAsin]);
+        deletedAlertAudit = Number(alertDeleteRes.rowCount ?? 0);
+      }
+
+      const deleteTrackingRes = await client.query('DELETE FROM soon_tracking WHERE asin = $1', [safeAsin]);
+      const deletedTrackings = Number(deleteTrackingRes.rowCount ?? 0);
+
+      await client.query('COMMIT');
+      try {
+        const state = await getCompatTrackingGlobalState();
+        state.inactiveAsins.delete(safeAsin);
+        state.domainDisabledByAsin.delete(safeAsin);
+        await setCompatTrackingGlobalState(state);
+      } catch {}
+      return {
+        products: deletedTrackings,
+        trackings: deletedTrackings,
+        soon_alert_dispatch_audit: deletedAlertAudit,
+        alert_log_preserved: !purgeAlertHistory,
+        chat_ids: [],
+      };
+    } catch (error) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {}
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async function getPriceHistory(asin, limit = 180) {
     await ensureInit();
     const key = String(asin ?? '').trim();
@@ -2304,6 +2386,8 @@ export function createPostgresStore({
     activateAllTrackingsGlobal,
     deactivateTrackingsDomainsGlobal,
     activateTrackingsDomainsGlobal,
+    deleteAllCatalogDataGlobal,
+    deleteCatalogProductGlobal,
     getPriceHistory,
     recordAutomationCycle,
     listLatestAutomationRuns,

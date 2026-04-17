@@ -420,6 +420,69 @@ test('P0-C: admin bulk tracking compatibility endpoints', async () => {
   }
 });
 
+test('P0-C: admin catalog delete compatibility endpoints', async () => {
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(async (baseUrl) => {
+      const all = await readJson(await fetch(`${baseUrl}/trackings`));
+      assert.equal(all.status, 200);
+      assert.ok(all.body.count >= 1);
+      const asin = all.body.items[0].asin;
+
+      const badConfirm = await readJson(
+        await fetch(`${baseUrl}/admin-api/data/products-global`, {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json', 'x-telegram-user-id': '2041' },
+          body: JSON.stringify({ confirmText: 'WRONG' }),
+        }),
+      );
+      assert.equal(badConfirm.status, 400);
+      assert.equal(badConfirm.body.error, 'confirmText must be DELETE_ALL_PRODUCTS');
+
+      const deleteSingle = await readJson(
+        await fetch(`${baseUrl}/admin-api/data/products/${asin}`, {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json', 'x-telegram-user-id': '2041' },
+          body: JSON.stringify({ purgeAlertHistory: true }),
+        }),
+      );
+      assert.equal(deleteSingle.status, 200);
+      assert.equal(deleteSingle.body.success, true);
+      assert.equal(deleteSingle.body.action, 'global_catalog_delete_single');
+      assert.equal(deleteSingle.body.asin, asin);
+      assert.equal(deleteSingle.body.mode, 'product_with_alert_history');
+      assert.ok(Number.isFinite(Number(deleteSingle.body.deleted.products)));
+      assert.ok(Number.isFinite(Number(deleteSingle.body.deleted.trackings)));
+
+      const afterSingle = await readJson(await fetch(`${baseUrl}/trackings`));
+      assert.equal(afterSingle.status, 200);
+      assert.ok(!afterSingle.body.items.some((item) => item.asin === asin));
+
+      const deleteGlobal = await readJson(
+        await fetch(`${baseUrl}/admin-api/data/products-global`, {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json', 'x-telegram-user-id': '2041' },
+          body: JSON.stringify({ confirmText: 'DELETE_ALL_PRODUCTS', mode: 'catalog_keep_alert_history' }),
+        }),
+      );
+      assert.equal(deleteGlobal.status, 200);
+      assert.equal(deleteGlobal.body.success, true);
+      assert.equal(deleteGlobal.body.action, 'global_catalog_delete');
+      assert.equal(deleteGlobal.body.mode, 'catalog_keep_alert_history');
+      assert.ok(deleteGlobal.body.deleted);
+
+      const afterGlobal = await readJson(await fetch(`${baseUrl}/trackings`));
+      assert.equal(afterGlobal.status, 200);
+      assert.equal(afterGlobal.body.count, 0);
+    });
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
 test('P0-D: keepa watch-state ingest + status endpoint', async () => {
   await withServer(async (baseUrl) => {
     const ingest = await readJson(

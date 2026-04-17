@@ -2,8 +2,8 @@
 
 Generated from `src/routes/api/**/*.js` on 2026-04-15.
 
-- [ ] `DELETE /admin-api/data/products-global` — `src/routes/api/trackings/routes/admin.js`
-- [ ] `DELETE /admin-api/data/products/:asin` — `src/routes/api/trackings/routes/admin.js`
+- [x] `DELETE /admin-api/data/products-global` — `packages/api/src/runtime/server.mjs`
+- [x] `DELETE /admin-api/data/products/:asin` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /admin-api/trackings/activate-all` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /admin-api/trackings/activate-domains` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /admin-api/trackings/deactivate-all` — `packages/api/src/runtime/server.mjs`
