@@ -221,7 +221,7 @@ Uwaga:
 - [x] O004. `/api/check-alert-status`.
 - [x] O005. `/api/ops/metrics`.
 - [x] O006. `/api/ops/keepa-history-bootstrap`.
-- [ ] O007. scan stop / scan run-now.
+- [x] O007. scan stop / scan run-now.
 - [ ] O008. runtime watchdog jobs.
 - [ ] O009. offender detection (`runtime:offenders`).
 - [ ] O010. resilience/circuit-breakers.

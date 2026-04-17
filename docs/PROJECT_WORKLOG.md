@@ -2726,3 +2726,21 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - `docs/FULL_MECHANICS_INVENTORY.md` (`O001`, `O002`, `O005`, `O006` -> DONE).
 - Walidacja:
   - `npm run test:contracts` -> PASS (`66/66`).
+
+## [2026-04-18 05:30:00Z] P0-C scan control compatibility endpoints completed
+- Dodano brakujące endpointy kompatybilności skanera:
+  - `POST /api/scan/run-now`,
+  - `POST /api/scan/stop`.
+- Zachowanie zgodne z legacy:
+  - oba endpointy są admin-only (`403 Forbidden` bez uprawnień),
+  - `run-now` zwraca konflikt `409` gdy skan trwa (`Skan już trwa`),
+  - `run-now` zwraca konflikt `409` gdy `scanEnabled=false` (`Skanowanie jest wyłączone`),
+  - `stop` zapisuje żądanie zatrzymania i kończy aktywny stan skanowania.
+- Runtime state:
+  - `scan_runtime_state_v1` (stan skanowania i ostatnie akcje),
+  - aktualizacja `scheduler_status` przy `run-now` i `stop`.
+- Rozszerzono kontrakty:
+  - nowy test `P0-C: /api/scan/run-now + /api/scan/stop compatibility with admin guard`.
+- Aktualizacja dokumentacji:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`scan/run-now`, `scan/stop` -> DONE),
+  - `docs/FULL_MECHANICS_INVENTORY.md` (`O007` -> DONE).

@@ -1189,6 +1189,85 @@ test('P0-C: /api/settings/:chatId/scan-policy read/write compatibility with admi
   }
 });
 
+test('P0-C: /api/scan/run-now + /api/scan/stop compatibility with admin guard', async () => {
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(async (baseUrl) => {
+      const runForbidden = await readJson(await fetch(`${baseUrl}/api/scan/run-now`, { method: 'POST' }));
+      assert.equal(runForbidden.status, 403);
+      assert.equal(runForbidden.body.error, 'Forbidden');
+
+      const stopForbidden = await readJson(await fetch(`${baseUrl}/api/scan/stop`, { method: 'POST' }));
+      assert.equal(stopForbidden.status, 403);
+      assert.equal(stopForbidden.body.error, 'Forbidden');
+
+      const runNow = await readJson(
+        await fetch(`${baseUrl}/api/scan/run-now`, {
+          method: 'POST',
+          headers: { 'x-telegram-user-id': '2041' },
+        }),
+      );
+      assert.equal(runNow.status, 200);
+      assert.equal(runNow.body.success, true);
+      assert.equal(runNow.body.started, true);
+      assert.ok(typeof runNow.body.requestedAt === 'string' && runNow.body.requestedAt.length > 10);
+
+      const runConflict = await readJson(
+        await fetch(`${baseUrl}/api/scan/run-now`, {
+          method: 'POST',
+          headers: { 'x-telegram-user-id': '2041' },
+        }),
+      );
+      assert.equal(runConflict.status, 409);
+      assert.equal(runConflict.body.success, false);
+      assert.equal(runConflict.body.error, 'Skan już trwa');
+
+      const stopNow = await readJson(
+        await fetch(`${baseUrl}/api/scan/stop`, {
+          method: 'POST',
+          headers: { 'x-telegram-user-id': '2041' },
+        }),
+      );
+      assert.equal(stopNow.status, 200);
+      assert.equal(stopNow.body.success, true);
+      assert.equal(stopNow.body.stopped, true);
+
+      const disableScanPolicy = await readJson(
+        await fetch(`${baseUrl}/api/settings/2041/scan-policy`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-telegram-user-id': '2041',
+          },
+          body: JSON.stringify({
+            scanEnabled: false,
+            forceFullEachCycle: false,
+            postScanTokenRechargeMin: 15,
+            idleScavengerMinWindowMin: 20,
+          }),
+        }),
+      );
+      assert.equal(disableScanPolicy.status, 200);
+      assert.equal(disableScanPolicy.body.scanPolicy.scanEnabled, false);
+
+      const runDisabled = await readJson(
+        await fetch(`${baseUrl}/api/scan/run-now`, {
+          method: 'POST',
+          headers: { 'x-telegram-user-id': '2041' },
+        }),
+      );
+      assert.equal(runDisabled.status, 409);
+      assert.equal(runDisabled.body.success, false);
+      assert.equal(runDisabled.body.error, 'Skanowanie jest wyłączone');
+    });
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
 test('P0-C: /api/settings/:chatId/preferences validates payload and persists', async () => {
   await withServer(async (baseUrl) => {
     const invalid = await readJson(

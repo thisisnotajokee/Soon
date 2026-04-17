@@ -44,6 +44,7 @@ const TRACKINGS_CACHE_AUTOTUNE_LAST_STATE_KEY = 'trackings_cache_autotune_last';
 const TRACKINGS_CACHE_RUNTIME_HISTORY_STATE_KEY = 'trackings_cache_runtime_history';
 const GLOBAL_SCAN_INTERVAL_STATE_KEY = 'global_scan_interval_hours';
 const SETTINGS_SCAN_POLICY_STATE_KEY = 'settings_scan_policy_v1';
+const SCAN_RUNTIME_STATE_KEY = 'scan_runtime_state_v1';
 const SYSTEM_STATS_HISTORY_STATE_KEY = 'system_stats_history_v1';
 const MOBILE_TRACKING_PREFERENCES_PREFIX = 'mobile_tracking_preferences_v1:';
 const MOBILE_WEB_DEALS_HISTORY_STATE_KEY = 'mobile_web_deals_history_v1';
@@ -3539,6 +3540,91 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           remaining,
           retryInSec: secondsUntilNextUtcHour(nowTs),
           bucket: currentManualRefreshBucketUtc(nowTs),
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/scan/run-now') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+
+        const scanPolicyState = store.getRuntimeState ? await store.getRuntimeState(SETTINGS_SCAN_POLICY_STATE_KEY) : null;
+        const scanEnabled = scanPolicyState?.stateValue?.scanEnabled ?? true;
+        if (scanEnabled === false) {
+          return sendJson(res, 409, { success: false, error: 'Skanowanie jest wyłączone', requestId });
+        }
+
+        const scanRuntimeState = store.getRuntimeState ? await store.getRuntimeState(SCAN_RUNTIME_STATE_KEY) : null;
+        const scanRuntime = scanRuntimeState?.stateValue ?? {};
+        if (scanRuntime?.isScanning === true) {
+          return sendJson(res, 409, { success: false, error: 'Skan już trwa', requestId });
+        }
+
+        const requestedAt = new Date().toISOString();
+        const nextRuntime = {
+          ...scanRuntime,
+          isScanning: true,
+          lastRunNowRequestedAt: requestedAt,
+          lastAction: 'run-now',
+          actor: userId ?? null,
+        };
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(SCAN_RUNTIME_STATE_KEY, nextRuntime);
+          const schedulerState = await store.getRuntimeState('scheduler_status');
+          await store.setRuntimeState('scheduler_status', {
+            ...(schedulerState?.stateValue ?? {}),
+            isScanning: true,
+            lastRunAt: requestedAt,
+            lastAction: 'run-now',
+          });
+        }
+
+        return sendJson(res, 200, {
+          success: true,
+          started: true,
+          requestedAt,
+          requestId,
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/scan/stop') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+
+        const requestedAt = new Date().toISOString();
+        const scanRuntimeState = store.getRuntimeState ? await store.getRuntimeState(SCAN_RUNTIME_STATE_KEY) : null;
+        const scanRuntime = scanRuntimeState?.stateValue ?? {};
+        const nextRuntime = {
+          ...scanRuntime,
+          isScanning: false,
+          stopRequestedAt: requestedAt,
+          lastAction: 'stop',
+          actor: userId ?? null,
+        };
+
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(SCAN_RUNTIME_STATE_KEY, nextRuntime);
+          const schedulerState = await store.getRuntimeState('scheduler_status');
+          await store.setRuntimeState('scheduler_status', {
+            ...(schedulerState?.stateValue ?? {}),
+            isScanning: false,
+            stopRequestedAt: requestedAt,
+            lastAction: 'stop',
+          });
+        }
+
+        return sendJson(res, 200, {
+          success: true,
+          stopped: true,
+          requestedAt,
+          requestId,
         });
       }
 

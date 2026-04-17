@@ -123,8 +123,8 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [x] `GET /api/runtime-self-heal-status` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/scan-kpi` — `src/routes/api/analytics/system-routes.js`
 - [ ] `GET /api/scan-plan/:chatId` — `src/routes/api/analytics/misc-routes.js`
-- [ ] `POST /api/scan/run-now` — `src/routes/api/core/routes/scan.js`
-- [ ] `POST /api/scan/stop` — `src/routes/api/core/routes/scan.js`
+- [x] `POST /api/scan/run-now` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /api/scan/stop` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/session/refresh` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/sessions/logout-others` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/sessions/now` — `packages/api/src/runtime/server.mjs`
