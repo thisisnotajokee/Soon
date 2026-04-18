@@ -29,10 +29,10 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [x] `DELETE /api/alerts/:chatId/:alertId` — `packages/api/src/runtime/server.mjs`
 - [x] `PATCH /api/alerts/:chatId/:alertId/feedback` — `packages/api/src/runtime/server.mjs`
 - [x] `DELETE /api/alerts/:chatId/clear` — `packages/api/src/runtime/server.mjs`
-- [ ] `GET /api/alerts/:chatId/delivery-metrics` — `src/routes/api/analytics/alerts-policy-routes.js`
-- [ ] `GET /api/alerts/:chatId/precision` — `src/routes/api/analytics/alerts-policy-routes.js`
-- [ ] `GET /api/alerts/:chatId/price-error-policy` — `src/routes/api/analytics/alerts-policy-routes.js`
-- [ ] `GET /api/alerts/:chatId/threshold-recommendation` — `src/routes/api/analytics/alerts-policy-routes.js`
+- [x] `GET /api/alerts/:chatId/delivery-metrics` — `packages/api/src/runtime/server.mjs`
+- [x] `GET /api/alerts/:chatId/precision` — `packages/api/src/runtime/server.mjs`
+- [x] `GET /api/alerts/:chatId/price-error-policy` — `packages/api/src/runtime/server.mjs`
+- [x] `GET /api/alerts/:chatId/threshold-recommendation` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/auth/whoami` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/buybox/:asin` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/categories/:chatId` — `packages/api/src/runtime/server.mjs`

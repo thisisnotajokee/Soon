@@ -2856,3 +2856,19 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - nowy test `P0-C: /api/alerts/:chatId compatibility read/write endpoints`.
 - Aktualizacja dokumentacji:
   - `docs/API_ENDPOINT_INVENTORY.md` (`alerts/:chatId`, `feedback`, `delete`, `clear` -> DONE).
+
+## [2026-04-18 08:00:00Z] P0-C alerts policy compatibility endpoints completed
+- Dodano brakujące endpointy kompatybilności `alerts-policy`:
+  - `GET /api/alerts/:chatId/precision`,
+  - `GET /api/alerts/:chatId/delivery-metrics`,
+  - `GET /api/alerts/:chatId/price-error-policy`,
+  - `GET /api/alerts/:chatId/threshold-recommendation`.
+- Implementacja runtime:
+  - metryki precision budowane z `compat_alert_history_v1` z oknem `days`,
+  - metryki delivery kanałów budowane z historii alertów z oknem `hours`,
+  - `price-error-policy` zwraca agregację kategorii + runtime snapshot scheduler/self-heal/canary,
+  - `threshold-recommendation` zwraca rekomendacje progów (best-effort compat) na podstawie precision 7/30d.
+- Rozszerzono testy kontraktowe:
+  - nowy test `P0-C: /api/alerts/:chatId policy compatibility endpoints`.
+- Aktualizacja dokumentacji:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`alerts policy endpoints` -> DONE).

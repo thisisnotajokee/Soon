@@ -1160,6 +1160,88 @@ function buildCompatPriceErrorRows(trackings, limit = 50) {
   return rows;
 }
 
+function buildCompatAlertPrecisionPayload(rows, days = 30) {
+  const nowMs = Date.now();
+  const sinceMs = nowMs - days * 24 * 60 * 60 * 1000;
+  const filtered = (Array.isArray(rows) ? rows : []).filter((row) => {
+    const ts = Date.parse(String(row?.created_at ?? ''));
+    return Number.isFinite(ts) && ts >= sinceMs;
+  });
+
+  const byTypeMap = new Map();
+  for (const row of filtered) {
+    const type = String(row?.alert_type ?? 'unknown').trim() || 'unknown';
+    if (!byTypeMap.has(type)) {
+      byTypeMap.set(type, { alert_type: type, sent: 0, accepted: 0, rejected: 0, unknown: 0, precision_pct: 0 });
+    }
+    const bucket = byTypeMap.get(type);
+    bucket.sent += 1;
+    const feedback = String(row?.feedback_status ?? '').trim().toLowerCase();
+    if (feedback === 'good' || feedback === 'ok' || feedback === 'accepted') bucket.accepted += 1;
+    else if (feedback === 'bad' || feedback === 'rejected' || feedback === 'false_positive') bucket.rejected += 1;
+    else bucket.unknown += 1;
+  }
+
+  const byType = [...byTypeMap.values()].map((item) => {
+    const denom = item.accepted + item.rejected;
+    return {
+      ...item,
+      precision_pct: denom > 0 ? Number(((item.accepted / denom) * 100).toFixed(2)) : 0,
+    };
+  });
+
+  const totalSent = byType.reduce((sum, item) => sum + item.sent, 0);
+  const totalAccepted = byType.reduce((sum, item) => sum + item.accepted, 0);
+  const totalRejected = byType.reduce((sum, item) => sum + item.rejected, 0);
+  const totalUnknown = byType.reduce((sum, item) => sum + item.unknown, 0);
+  const denom = totalAccepted + totalRejected;
+
+  return {
+    windowDays: days,
+    totals: {
+      sent: totalSent,
+      accepted: totalAccepted,
+      rejected: totalRejected,
+      unknown: totalUnknown,
+      precision_pct: denom > 0 ? Number(((totalAccepted / denom) * 100).toFixed(2)) : 0,
+    },
+    byType,
+  };
+}
+
+function buildCompatAlertDeliveryMetricsPayload(rows, hours = 24) {
+  const nowMs = Date.now();
+  const sinceMs = nowMs - hours * 60 * 60 * 1000;
+  const filtered = (Array.isArray(rows) ? rows : []).filter((row) => {
+    const ts = Date.parse(String(row?.created_at ?? ''));
+    return Number.isFinite(ts) && ts >= sinceMs;
+  });
+
+  const totals = { telegram: 0, discord: 0, unknown: 0 };
+  for (const row of filtered) {
+    const message = String(row?.message ?? '').toLowerCase();
+    if (message.includes('channel=telegram')) totals.telegram += 1;
+    else if (message.includes('channel=discord')) totals.discord += 1;
+    else totals.unknown += 1;
+  }
+
+  const total = totals.telegram + totals.discord + totals.unknown;
+  return {
+    windowHours: hours,
+    total,
+    channels: {
+      telegram: totals.telegram,
+      discord: totals.discord,
+      unknown: totals.unknown,
+    },
+    rates: {
+      telegramPct: total > 0 ? Number(((totals.telegram / total) * 100).toFixed(2)) : 0,
+      discordPct: total > 0 ? Number(((totals.discord / total) * 100).toFixed(2)) : 0,
+      unknownPct: total > 0 ? Number(((totals.unknown / total) * 100).toFixed(2)) : 0,
+    },
+  };
+}
+
 function normalizeCompatAlertHistoryRows(raw) {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -4171,6 +4253,138 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           .filter((row) => isAdmin || USER_VISIBLE_ALERT_TYPES.has(String(row?.alert_type ?? '')))
           .slice(0, limit);
         return sendJson(res, 200, scoped);
+      }
+
+      const alertsPrecisionMatch = pathname.match(/^\/api\/alerts\/([^/]+)\/precision$/);
+      if (method === 'GET' && alertsPrecisionMatch) {
+        const chatId = normalizeChatId(alertsPrecisionMatch[1]);
+        const days = clampInt(url.searchParams.get('days'), 30, 1, 180);
+        const historyRows = await loadCompatAlertHistory(store);
+        const scoped = historyRows.filter((row) => String(row?.chat_id ?? '') === chatId);
+        return sendJson(res, 200, buildCompatAlertPrecisionPayload(scoped, days));
+      }
+
+      const alertsDeliveryMatch = pathname.match(/^\/api\/alerts\/([^/]+)\/delivery-metrics$/);
+      if (method === 'GET' && alertsDeliveryMatch) {
+        const chatId = normalizeChatId(alertsDeliveryMatch[1]);
+        const hours = clampInt(url.searchParams.get('hours'), 24, 1, 24 * 7);
+        const historyRows = await loadCompatAlertHistory(store);
+        const scoped = historyRows.filter((row) => String(row?.chat_id ?? '') === chatId);
+        return sendJson(res, 200, buildCompatAlertDeliveryMetricsPayload(scoped, hours));
+      }
+
+      const alertsPriceErrorPolicyMatch = pathname.match(/^\/api\/alerts\/([^/]+)\/price-error-policy$/);
+      if (method === 'GET' && alertsPriceErrorPolicyMatch) {
+        const chatId = normalizeChatId(alertsPriceErrorPolicyMatch[1]);
+        const days = clampInt(url.searchParams.get('days'), 30, 1, 180);
+        const minSamples = clampInt(url.searchParams.get('minSamples'), 2, 1, 100);
+        const trackings = await store.listTrackings();
+        const rows = buildCompatPriceErrorRows(trackings, 1000);
+        const byCategoryMap = new Map();
+        for (const row of rows) {
+          const tracking = trackings.find((item) => String(item?.asin ?? '').trim().toUpperCase() === row.asin);
+          const category = String(tracking?.category ?? 'unknown').trim() || 'unknown';
+          if (!byCategoryMap.has(category)) {
+            byCategoryMap.set(category, { category, samples: 0, markets: new Set(), avgPrice: 0 });
+          }
+          const bucket = byCategoryMap.get(category);
+          bucket.samples += 1;
+          bucket.markets.add(row.domain);
+          bucket.avgPrice += Number(row.price || 0);
+        }
+        const byCategory = [...byCategoryMap.values()]
+          .map((item) => ({
+            category: item.category,
+            samples: item.samples,
+            markets: item.markets.size,
+            avgPrice: item.samples > 0 ? Number((item.avgPrice / item.samples).toFixed(2)) : 0,
+          }))
+          .filter((item) => item.samples >= minSamples)
+          .sort((a, b) => b.samples - a.samples);
+
+        const schedulerState = store.getRuntimeState ? await store.getRuntimeState('scheduler_status') : null;
+        const scan = schedulerState?.stateValue?.metrics ?? {};
+        return sendJson(res, 200, {
+          windowDays: days,
+          minSamples,
+          byCategory,
+          calibration: [],
+          runtime: {
+            selfHealMode: String(scan.lastAnomalySelfHealMode || 'normal'),
+            selfHealReason: String(scan.lastAnomalySelfHealReason || 'stable'),
+            sloGuardrailBreached: Boolean(scan.lastAnomalySloGuardrailBreached),
+            sloGuardrailReasons: Array.isArray(scan.lastAnomalySloGuardrailReasons) ? scan.lastAnomalySloGuardrailReasons : [],
+            canaryEnabled: Boolean(scan.lastAnomalyCanaryEnabled),
+            canaryRolloutPct: Number(scan.lastAnomalyCanaryRolloutPct || 0),
+            canaryAutopilotEnabled: Boolean(scan.lastAnomalyCanaryAutopilotEnabled),
+            canaryAutopilotReason: String(scan.lastAnomalyCanaryAutopilotReason || ''),
+            canaryAutopilotPromoted: Boolean(scan.lastAnomalyCanaryAutopilotPromoted),
+            canaryAutopilotEvaluatedAt: String(scan.lastAnomalyCanaryAutopilotEvaluatedAt || ''),
+            canaryAutopilotMetrics: scan.lastAnomalyCanaryAutopilotMetrics || null,
+            blockedByScore: Number(scan.lastAlertsBlockedByScore || 0),
+            blockedByConfidence: Number(scan.lastAlertsBlockedByConfidence || 0),
+            rejectCooldownHits: Number(scan.lastRejectCooldownHits || 0),
+            scoreDistribution: Array.isArray(scan.lastScoreDistribution) ? scan.lastScoreDistribution : [],
+            decisionByCategory: Array.isArray(scan.lastAnomalyDecisionByCategory) ? scan.lastAnomalyDecisionByCategory : [],
+            decisionByVariant: Array.isArray(scan.lastAnomalyDecisionByVariant) ? scan.lastAnomalyDecisionByVariant : [],
+          },
+        });
+      }
+
+      const alertsThresholdRecommendationMatch = pathname.match(/^\/api\/alerts\/([^/]+)\/threshold-recommendation$/);
+      if (method === 'GET' && alertsThresholdRecommendationMatch) {
+        const chatId = normalizeChatId(alertsThresholdRecommendationMatch[1]);
+        const historyRows = await loadCompatAlertHistory(store);
+        const scoped = historyRows.filter((row) => String(row?.chat_id ?? '') === chatId);
+        const metrics7 = buildCompatAlertPrecisionPayload(scoped, 7);
+        const metrics30 = buildCompatAlertPrecisionPayload(scoped, 30);
+
+        const chatSettingsState = store.getRuntimeState
+          ? await store.getRuntimeState(buildChatSettingsStateKey(chatId))
+          : null;
+        const chatSettings = chatSettingsState?.stateValue ?? {};
+        const defaultDropPct = clampInt(chatSettings?.default_drop_pct, 10, 1, 90);
+        const customHunterState = store.getRuntimeState ? await store.getRuntimeState(HUNTER_CUSTOM_CONFIG_STATE_KEY) : null;
+        const hunterConfig = customHunterState?.stateValue?.config ?? {};
+        const currentHunterMinConfidence = clampInt(hunterConfig?.minConfidencePct, 45, 1, 99);
+
+        const precision30 = Number(metrics30?.totals?.precision_pct || 0);
+        const recommendedDefaultDropPct = precision30 < 35
+          ? clampInt(defaultDropPct + 2, defaultDropPct, 1, 90)
+          : precision30 > 80
+            ? clampInt(defaultDropPct - 1, defaultDropPct, 1, 90)
+            : defaultDropPct;
+        const recommendedHunterMinConfidence = precision30 < 35
+          ? clampInt(currentHunterMinConfidence + 5, currentHunterMinConfidence, 1, 99)
+          : precision30 > 80
+            ? clampInt(currentHunterMinConfidence - 2, currentHunterMinConfidence, 1, 99)
+            : currentHunterMinConfidence;
+        const hasChange =
+          recommendedDefaultDropPct !== defaultDropPct
+          || recommendedHunterMinConfidence !== currentHunterMinConfidence;
+
+        return sendJson(res, 200, {
+          hasChange,
+          reason: hasChange ? 'precision_tuning' : 'no_change',
+          current: {
+            defaultDropPct,
+            hunterMinConfidence: currentHunterMinConfidence,
+          },
+          recommended: {
+            defaultDropPct: recommendedDefaultDropPct,
+            hunterMinConfidence: recommendedHunterMinConfidence,
+          },
+          metrics7,
+          metrics30,
+          autoApply: true,
+          applied: {
+            enabled: false,
+            executed: false,
+            reason: 'compat_readonly',
+            at: null,
+            updated: {},
+          },
+        });
       }
 
       const alertsFeedbackMatch = pathname.match(/^\/api\/alerts\/([^/]+)\/(\d+)\/feedback$/);

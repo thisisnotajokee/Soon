@@ -1613,6 +1613,63 @@ test('P0-C: /api/alerts/:chatId compatibility read/write endpoints', async () =>
   }
 });
 
+test('P0-C: /api/alerts/:chatId policy compatibility endpoints', async () => {
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(async (baseUrl) => {
+      const warmup = await readJson(
+        await fetch(`${baseUrl}/automation/cycle`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            budgetMode: 'capped',
+            budgetTokens: 5,
+            candidates: [
+              { asin: 'B0BYW7MMBR', expectedValue: 0.9, confidence: 0.9, tokenCost: 1, priority: 1 },
+            ],
+          }),
+        }),
+      );
+      assert.equal(warmup.status, 200);
+
+      const precision = await readJson(await fetch(`${baseUrl}/api/alerts/2041/precision?days=30`));
+      assert.equal(precision.status, 200);
+      assert.equal(precision.body.windowDays, 30);
+      assert.ok(precision.body.totals && typeof precision.body.totals === 'object');
+      assert.ok(Array.isArray(precision.body.byType));
+
+      const delivery = await readJson(await fetch(`${baseUrl}/api/alerts/2041/delivery-metrics?hours=24`));
+      assert.equal(delivery.status, 200);
+      assert.equal(delivery.body.windowHours, 24);
+      assert.ok(delivery.body.channels && typeof delivery.body.channels === 'object');
+      assert.ok(delivery.body.rates && typeof delivery.body.rates === 'object');
+
+      const policy = await readJson(
+        await fetch(`${baseUrl}/api/alerts/2041/price-error-policy?days=30&minSamples=1`),
+      );
+      assert.equal(policy.status, 200);
+      assert.equal(policy.body.windowDays, 30);
+      assert.equal(policy.body.minSamples, 1);
+      assert.ok(Array.isArray(policy.body.byCategory));
+      assert.ok(policy.body.runtime && typeof policy.body.runtime === 'object');
+
+      const recommendation = await readJson(await fetch(`${baseUrl}/api/alerts/2041/threshold-recommendation`));
+      assert.equal(recommendation.status, 200);
+      assert.equal(typeof recommendation.body.hasChange, 'boolean');
+      assert.ok(recommendation.body.current && typeof recommendation.body.current === 'object');
+      assert.ok(recommendation.body.recommended && typeof recommendation.body.recommended === 'object');
+      assert.ok(recommendation.body.metrics7 && typeof recommendation.body.metrics7 === 'object');
+      assert.ok(recommendation.body.metrics30 && typeof recommendation.body.metrics30 === 'object');
+      assert.ok(recommendation.body.applied && typeof recommendation.body.applied === 'object');
+    });
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
 test('P0-C: /api/settings/:chatId/preferences validates payload and persists', async () => {
   await withServer(async (baseUrl) => {
     const invalid = await readJson(
