@@ -1091,6 +1091,30 @@ function buildTagRows(trackings, chatId) {
     }));
 }
 
+function buildUserStatsPayload(trackings, chatId, schedulerMetrics = {}) {
+  const rows = Array.isArray(trackings) ? trackings : [];
+  const totalProducts = rows.length;
+  const totalAlerts = Number(schedulerMetrics?.totalAlerts || 0);
+  const alerts7d = Number(schedulerMetrics?.alerts7d || schedulerMetrics?.lastAlerts || 0);
+  const alerts30d = Number(schedulerMetrics?.alerts30d || schedulerMetrics?.totalAlerts || 0);
+  const productsAlerted = Math.min(totalProducts, Math.max(0, Number(schedulerMetrics?.productsAlerted || totalAlerts)));
+  const pctDropAlerts = Number(schedulerMetrics?.pctDropAlerts || 0);
+  const milestones = Number(schedulerMetrics?.milestones || 0);
+  const targetsHit = Number(schedulerMetrics?.targetsHit || 0);
+  return {
+    chat_id: chatId,
+    total_products: totalProducts,
+    total_alerts: totalAlerts,
+    tracking_since: rows[0]?.updatedAt ?? null,
+    targets_hit: targetsHit,
+    alerts_7d: alerts7d,
+    alerts_30d: alerts30d,
+    products_alerted: productsAlerted,
+    pct_drop_alerts: pctDropAlerts,
+    milestones,
+  };
+}
+
 function sanitizeSystemStatsHistory(raw) {
   if (!Array.isArray(raw)) return [];
   const now = Date.now();
@@ -3723,6 +3747,38 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         const trackings = await store.listTrackings();
         const rows = buildCategoryRows(trackings, chatId);
         return sendJson(res, 200, rows);
+      }
+
+      const stockMatch = pathname.match(/^\/api\/stock\/([^/]+)$/);
+      if (method === 'GET' && stockMatch) {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const asin = decodeURIComponent(stockMatch[1]).toUpperCase();
+        if (!asin) return sendJson(res, 400, { error: 'asin_required', requestId });
+
+        const detail = await store.getProductDetail(asin);
+        if (!detail) {
+          return sendJson(res, 200, { out_of_stock: false, last_in_stock_at: null, asin });
+        }
+        return sendJson(res, 200, {
+          asin,
+          out_of_stock: false,
+          last_in_stock_at: detail?.updatedAt ?? null,
+        });
+      }
+
+      const statsMatch = pathname.match(/^\/api\/stats\/([^/]+)$/);
+      if (method === 'GET' && statsMatch) {
+        const chatId = normalizeChatId(statsMatch[1]);
+        const trackings = await store.listTrackings();
+        const schedulerState = store.getRuntimeState ? await store.getRuntimeState('scheduler_status') : null;
+        const metrics = schedulerState?.stateValue?.metrics ?? {};
+        const stats = buildUserStatsPayload(trackings, chatId, metrics);
+        return sendJson(res, 200, stats);
       }
 
       if (method === 'GET' && pathname === '/api/perf/routes') {

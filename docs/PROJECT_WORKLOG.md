@@ -2799,3 +2799,16 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 - Aktualizacja dokumentacji:
   - `docs/API_ENDPOINT_INVENTORY.md` (`categories`, `tags` -> DONE),
   - `docs/FULL_MECHANICS_INVENTORY.md` (`N007` -> DONE).
+
+## [2026-04-18 06:55:00Z] P0-C stats + stock compatibility endpoints completed
+- Dodano brakujące endpointy kompatybilności analytics/misc:
+  - `GET /api/stats/:chatId`,
+  - `GET /api/stock/:asin` (admin-only).
+- Kontrakt endpointów:
+  - `stats/:chatId` zwraca kompatybilny payload liczników (`total_products`, `total_alerts`, `alerts_7d`, `alerts_30d`, itp.),
+  - `stock/:asin` zwraca `out_of_stock` + `last_in_stock_at` i jest chroniony guardem admina.
+- Rozszerzono testy kontraktowe:
+  - nowy test `P0-C: /api/stats/:chatId + /api/stock/:asin compatibility endpoints`.
+- Aktualizacja dokumentacji:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`stats`, `stock` -> DONE),
+  - `docs/FULL_MECHANICS_INVENTORY.md` (`N008` -> DONE).

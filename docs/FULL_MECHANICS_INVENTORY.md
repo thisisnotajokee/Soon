@@ -209,7 +209,7 @@ Uwaga:
 - [ ] N005. Launch readiness endpoint.
 - [ ] N006. Config introspection endpoint.
 - [x] N007. Popular/popularity/category/tag stats.
-- [ ] N008. Buybox/stock/heatmap analytics.
+- [x] N008. Buybox/stock/heatmap analytics.
 - [ ] N009. AI health dashboard.
 - [ ] N010. Keepa usage chart.
 

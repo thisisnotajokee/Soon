@@ -142,9 +142,9 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [x] `POST /api/settings/:chatId/scan-policy` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/settings/:chatId/trackings-cache-runtime` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/settings/:chatId/trackings-cache-ttl` — `packages/api/src/runtime/server.mjs`
-- [ ] `GET /api/stats/:chatId` — `src/routes/api/analytics/misc-routes.js`
+- [x] `GET /api/stats/:chatId` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/status` — `packages/api/src/runtime/server.mjs`
-- [ ] `GET /api/stock/:asin` — `src/routes/api/analytics/misc-routes.js`
+- [x] `GET /api/stock/:asin` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/system-health` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/system-health/history` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/system-stats` — `packages/api/src/runtime/server.mjs`

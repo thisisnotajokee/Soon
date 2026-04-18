@@ -1377,6 +1377,40 @@ test('P0-C: /api/categories/:chatId + /api/tags/:chatId compatibility endpoints'
   });
 });
 
+test('P0-C: /api/stats/:chatId + /api/stock/:asin compatibility endpoints', async () => {
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(async (baseUrl) => {
+      const stats = await readJson(await fetch(`${baseUrl}/api/stats/2041`));
+      assert.equal(stats.status, 200);
+      assert.equal(stats.body.chat_id, '2041');
+      assert.ok(Number.isFinite(Number(stats.body.total_products)));
+      assert.ok(Number.isFinite(Number(stats.body.total_alerts)));
+      assert.ok(Number.isFinite(Number(stats.body.alerts_7d)));
+      assert.ok(Number.isFinite(Number(stats.body.alerts_30d)));
+
+      const stockForbidden = await readJson(await fetch(`${baseUrl}/api/stock/B0BYW7MMBR`));
+      assert.equal(stockForbidden.status, 403);
+      assert.equal(stockForbidden.body.error, 'Forbidden');
+
+      const stockAdmin = await readJson(
+        await fetch(`${baseUrl}/api/stock/B0BYW7MMBR`, {
+          headers: { 'x-telegram-user-id': '2041' },
+        }),
+      );
+      assert.equal(stockAdmin.status, 200);
+      assert.equal(stockAdmin.body.asin, 'B0BYW7MMBR');
+      assert.equal(typeof stockAdmin.body.out_of_stock, 'boolean');
+      assert.ok(stockAdmin.body.last_in_stock_at === null || typeof stockAdmin.body.last_in_stock_at === 'string');
+    });
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
 test('P0-C: /api/settings/:chatId/preferences validates payload and persists', async () => {
   await withServer(async (baseUrl) => {
     const invalid = await readJson(
