@@ -35,7 +35,7 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `GET /api/alerts/:chatId/threshold-recommendation` — `src/routes/api/analytics/alerts-policy-routes.js`
 - [x] `GET /api/auth/whoami` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/buybox/:asin` — `src/routes/api/analytics/misc-routes.js`
-- [ ] `GET /api/categories/:chatId` — `src/routes/api/analytics/misc-routes.js`
+- [x] `GET /api/categories/:chatId` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/check-alert-status` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/config` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/dashboard/:chatId` — `packages/api/src/runtime/server.mjs`
@@ -150,7 +150,7 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [x] `GET /api/system-stats` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/system-stats/history` — `packages/api/src/runtime/server.mjs`
 - [ ] `POST /api/system/restart` — `src/routes/api/analytics/system-routes.js`
-- [ ] `GET /api/tags/:chatId` — `src/routes/api/analytics/misc-routes.js`
+- [x] `GET /api/tags/:chatId` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/token-efficiency` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/trackings/:chatId` — `packages/api/src/runtime/server.mjs`
 - [x] `DELETE /api/trackings/:chatId/:asin` — `packages/api/src/runtime/server.mjs`

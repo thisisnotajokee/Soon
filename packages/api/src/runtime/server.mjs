@@ -1045,6 +1045,52 @@ function buildPopularityRows(trackings, limit = 20) {
   return rows.slice(0, Math.max(1, limit));
 }
 
+function inferCategoryFromTracking(item) {
+  const title = String(item?.title || '').toLowerCase();
+  if (title.includes('laptop') || title.includes('rog') || title.includes('notebook')) return 'Computers';
+  if (title.includes('tablet') || title.includes('fire hd') || title.includes('ipad')) return 'Tablets';
+  if (title.includes('audio') || title.includes('headphones') || title.includes('speaker')) return 'Audio';
+  return 'General';
+}
+
+function buildCategoryRows(trackings, chatId) {
+  const counts = new Map();
+  for (const item of (Array.isArray(trackings) ? trackings : [])) {
+    const category = inferCategoryFromTracking(item);
+    counts.set(category, (counts.get(category) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([category, count], index) => ({
+      id: `${String(chatId || 'default')}:${index + 1}`,
+      category,
+      count,
+    }));
+}
+
+function buildTagRows(trackings, chatId) {
+  const tagCounts = new Map();
+  for (const item of (Array.isArray(trackings) ? trackings : [])) {
+    const titleTokens = String(item?.title || '')
+      .split(/[^A-Za-z0-9]+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 3)
+      .slice(0, 5);
+    for (const token of titleTokens) {
+      const normalized = token.toLowerCase();
+      tagCounts.set(normalized, (tagCounts.get(normalized) ?? 0) + 1);
+    }
+  }
+  return [...tagCounts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 30)
+    .map(([tag, count], index) => ({
+      id: `${String(chatId || 'default')}:tag:${index + 1}`,
+      tag,
+      count,
+    }));
+}
+
 function sanitizeSystemStatsHistory(raw) {
   if (!Array.isArray(raw)) return [];
   const now = Date.now();
@@ -3661,6 +3707,22 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           chatId,
           ...payload,
         });
+      }
+
+      const tagsMatch = pathname.match(/^\/api\/tags\/([^/]+)$/);
+      if (method === 'GET' && tagsMatch) {
+        const chatId = normalizeChatId(tagsMatch[1]);
+        const trackings = await store.listTrackings();
+        const rows = buildTagRows(trackings, chatId);
+        return sendJson(res, 200, rows);
+      }
+
+      const categoriesMatch = pathname.match(/^\/api\/categories\/([^/]+)$/);
+      if (method === 'GET' && categoriesMatch) {
+        const chatId = normalizeChatId(categoriesMatch[1]);
+        const trackings = await store.listTrackings();
+        const rows = buildCategoryRows(trackings, chatId);
+        return sendJson(res, 200, rows);
       }
 
       if (method === 'GET' && pathname === '/api/perf/routes') {

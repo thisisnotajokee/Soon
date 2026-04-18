@@ -1359,6 +1359,24 @@ test('P0-C: /api/popular + /api/popularity/:asin compatibility endpoints', async
   });
 });
 
+test('P0-C: /api/categories/:chatId + /api/tags/:chatId compatibility endpoints', async () => {
+  await withServer(async (baseUrl) => {
+    const categories = await readJson(await fetch(`${baseUrl}/api/categories/2041`));
+    assert.equal(categories.status, 200);
+    assert.ok(Array.isArray(categories.body));
+    assert.ok(categories.body.length >= 1);
+    assert.ok(typeof categories.body[0].category === 'string' && categories.body[0].category.length >= 1);
+    assert.ok(Number.isFinite(Number(categories.body[0].count)));
+
+    const tags = await readJson(await fetch(`${baseUrl}/api/tags/2041`));
+    assert.equal(tags.status, 200);
+    assert.ok(Array.isArray(tags.body));
+    assert.ok(tags.body.length >= 1);
+    assert.ok(typeof tags.body[0].tag === 'string' && tags.body[0].tag.length >= 1);
+    assert.ok(Number.isFinite(Number(tags.body[0].count)));
+  });
+});
+
 test('P0-C: /api/settings/:chatId/preferences validates payload and persists', async () => {
   await withServer(async (baseUrl) => {
     const invalid = await readJson(

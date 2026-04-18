@@ -2784,3 +2784,18 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - nowy test `P0-C: /api/popular + /api/popularity/:asin compatibility endpoints`.
 - Aktualizacja dokumentacji:
   - `docs/API_ENDPOINT_INVENTORY.md` (`popular`, `popularity/:asin` -> DONE).
+
+## [2026-04-18 06:40:00Z] P0-C categories + tags compatibility endpoints completed
+- Dodano brakujące endpointy kompatybilności analytics/misc:
+  - `GET /api/categories/:chatId`,
+  - `GET /api/tags/:chatId`.
+- Kontrakt endpointów:
+  - `categories/:chatId` zwraca listę kategorii (`id`, `category`, `count`),
+  - `tags/:chatId` zwraca listę tagów (`id`, `tag`, `count`).
+- Implementacja:
+  - kategorie i tagi budowane na podstawie aktualnych trackingów runtime (best-effort compatibility).
+- Rozszerzono testy kontraktowe:
+  - nowy test `P0-C: /api/categories/:chatId + /api/tags/:chatId compatibility endpoints`.
+- Aktualizacja dokumentacji:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`categories`, `tags` -> DONE),
+  - `docs/FULL_MECHANICS_INVENTORY.md` (`N007` -> DONE).
