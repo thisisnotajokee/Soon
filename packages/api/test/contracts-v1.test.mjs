@@ -1195,6 +1195,24 @@ test('P0-C: /api/scan/run-now + /api/scan/stop compatibility with admin guard', 
 
   try {
     await withServer(async (baseUrl) => {
+      const enableScanPolicy = await readJson(
+        await fetch(`${baseUrl}/api/settings/2041/scan-policy`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-telegram-user-id': '2041',
+          },
+          body: JSON.stringify({
+            scanEnabled: true,
+            forceFullEachCycle: false,
+            postScanTokenRechargeMin: 15,
+            idleScavengerMinWindowMin: 20,
+          }),
+        }),
+      );
+      assert.equal(enableScanPolicy.status, 200);
+      assert.equal(enableScanPolicy.body.scanPolicy.scanEnabled, true);
+
       const runForbidden = await readJson(await fetch(`${baseUrl}/api/scan/run-now`, { method: 'POST' }));
       assert.equal(runForbidden.status, 403);
       assert.equal(runForbidden.body.error, 'Forbidden');
