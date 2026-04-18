@@ -1,0 +1,41 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: soon-db
+    environment:
+      POSTGRES_DB: soon
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - soon_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d soon"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: soon-app
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3100
+      SOON_DB_MODE: postgres
+      SOON_DATABASE_URL: postgres://postgres:postgres@db:5432/soon
+      SOON_DATABASE_SSL: "0"
+      SOON_READ_MODEL_REFRESH_MODE: async
+    ports:
+      - "3100:3100"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  soon_pg_data:
