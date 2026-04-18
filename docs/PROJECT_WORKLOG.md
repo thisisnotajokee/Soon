@@ -3050,3 +3050,15 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - `npm run -s smoke:e2e` -> PASS.
 - Następny krok:
   - Dodać minimalny settings read-model pod preferencje kanałów (`notification_channels`) i profile alertów (`alert_profiles`) jako etap opcjonalny `LATER`, bez rozszerzania scope UI v1 ponad tracking core.
+
+## [2026-04-18 05:02:00Z] Simplified git workflow helper added (Makefile + docs)
+- Zakres:
+  - Dodano `docs/WORKFLOW.md` z uproszczonym, stałym flow pracy (`start -> check -> push -> PR -> merge`).
+  - Rozszerzono `Makefile` o cele:
+    - `make wf-start BRANCH=feat/<name>` (sync `main` + utworzenie gałęzi taskowej),
+    - `make wf-finish` (uruchomienie `make check` + podpowiedź kolejnych kroków push/PR).
+  - Zaktualizowano `make help` o nowe komendy workflow.
+- Weryfikacja:
+  - `make help` -> PASS (nowe cele widoczne).
+- Następny krok:
+  - W codziennej pracy używać `wf-start`/`wf-finish` jako domyślnego flow i utrzymać zasadę „1 task = 1 branch = 1 PR”.

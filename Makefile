@@ -6,7 +6,7 @@ LOG_FILE ?= /tmp/soon-api.log
 BASE_URL ?= http://127.0.0.1:3100
 START_WAIT_SEC ?= 30
 
-.PHONY: help migrate up status check doctor doctor-json smoke down restart logs
+.PHONY: help migrate up status check doctor doctor-json smoke down restart logs wf-start wf-finish
 
 help:
 	@echo "Soon local ops"
@@ -19,6 +19,8 @@ help:
 	@echo "  make down    - stop background API"
 	@echo "  make restart - down + up"
 	@echo "  make logs    - tail API log"
+	@echo "  make wf-start BRANCH=feat/<name> - sync main and create a task branch"
+	@echo "  make wf-finish - run checks and print push/PR next steps"
 
 migrate:
 	@npm run -s db:migrate
@@ -78,3 +80,25 @@ down:
 	rm -f "$(PID_FILE)"
 
 restart: down up
+
+wf-start:
+	@if [ -z "$(BRANCH)" ]; then \
+	  echo "[Soon/workflow] missing BRANCH, e.g. make wf-start BRANCH=feat/ui-settings-v1"; \
+	  exit 1; \
+	fi
+	@echo "[Soon/workflow] syncing main..."
+	@git checkout main
+	@git pull --ff-only
+	@echo "[Soon/workflow] creating branch $(BRANCH)..."
+	@git checkout -b "$(BRANCH)"
+	@echo "[Soon/workflow] ready on branch: $$(git branch --show-current)"
+
+wf-finish:
+	@echo "[Soon/workflow] running checks..."
+	@$(MAKE) check
+	@echo "[Soon/workflow] done."
+	@echo "Next:"
+	@echo "  git add -A"
+	@echo "  git commit -m \"<type>: <scope>\""
+	@echo "  git push -u origin $$(git branch --show-current)"
+	@echo "  gh pr create --base main --head $$(git branch --show-current)"
