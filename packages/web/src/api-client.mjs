@@ -29,6 +29,27 @@ export function createApiClient(baseUrl) {
       return body;
     },
 
+    async getDashboard(chatId) {
+      const response = await fetch(`${apiBase}/api/dashboard/${encodeURIComponent(String(chatId))}`);
+      const body = await response.json();
+      assertOk(response, body, 'getDashboard');
+      return body;
+    },
+
+    async getTrackings(chatId) {
+      const response = await fetch(`${apiBase}/api/trackings/${encodeURIComponent(String(chatId))}`);
+      const body = await response.json();
+      assertOk(response, body, 'getTrackings');
+      return body;
+    },
+
+    async getSettings(chatId) {
+      const response = await fetch(`${apiBase}/api/settings/${encodeURIComponent(String(chatId))}`);
+      const body = await response.json();
+      assertOk(response, body, 'getSettings');
+      return body;
+    },
+
     async updateThresholds(asin, payload) {
       const response = await fetch(`${apiBase}/trackings/${encodeURIComponent(asin)}/thresholds`, {
         method: 'POST',
@@ -37,6 +58,90 @@ export function createApiClient(baseUrl) {
       });
       const body = await response.json();
       assertOk(response, body, 'updateThresholds');
+      return body;
+    },
+
+    async setDropPct(chatId, asin, dropPct) {
+      const response = await fetch(
+        `${apiBase}/api/trackings/${encodeURIComponent(String(chatId))}/${encodeURIComponent(asin)}/drop-pct`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ dropPct }),
+        },
+      );
+      const body = await response.json();
+      assertOk(response, body, 'setDropPct');
+      return body;
+    },
+
+    async refreshTracking(asin) {
+      const response = await fetch(`${apiBase}/api/refresh/${encodeURIComponent(asin)}`, {
+        method: 'POST',
+      });
+      const body = await response.json();
+      assertOk(response, body, 'refreshTracking');
+      return body;
+    },
+
+    async snoozeTracking(chatId, asin, minutes = 60) {
+      const response = await fetch(
+        `${apiBase}/api/trackings/${encodeURIComponent(String(chatId))}/${encodeURIComponent(asin)}/snooze`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ minutes }),
+        },
+      );
+      const body = await response.json();
+      assertOk(response, body, 'snoozeTracking');
+      return body;
+    },
+
+    async unsnoozeTracking(chatId, asin) {
+      const response = await fetch(
+        `${apiBase}/api/trackings/${encodeURIComponent(String(chatId))}/${encodeURIComponent(asin)}/snooze`,
+        {
+          method: 'DELETE',
+        },
+      );
+      const body = await response.json();
+      assertOk(response, body, 'unsnoozeTracking');
+      return body;
+    },
+
+    async setProductInterval(chatId, productIntervalMin) {
+      const response = await fetch(`${apiBase}/api/settings/${encodeURIComponent(String(chatId))}/product-interval`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ productIntervalMin }),
+      });
+      const body = await response.json();
+      assertOk(response, body, 'setProductInterval');
+      return body;
+    },
+
+    async setScanInterval(chatId, scanIntervalMin) {
+      const response = await fetch(`${apiBase}/api/settings/${encodeURIComponent(String(chatId))}/scan-interval`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ scanIntervalMin }),
+      });
+      const body = await response.json();
+      assertOk(response, body, 'setScanInterval');
+      return body;
+    },
+
+    async setNotifications(chatId, enabled) {
+      const response = await fetch(`${apiBase}/api/settings/${encodeURIComponent(String(chatId))}/notifications`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          notifications: { enabled: Boolean(enabled) },
+        }),
+      });
+      const body = await response.json();
+      assertOk(response, body, 'setNotifications');
       return body;
     },
 

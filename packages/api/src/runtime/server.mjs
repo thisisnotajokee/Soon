@@ -1,6 +1,7 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import os from 'node:os';
+import { readFile } from 'node:fs/promises';
 import { URL } from 'node:url';
 
 import { createInMemoryStore } from './in-memory-store.mjs';
@@ -119,6 +120,13 @@ const USER_VISIBLE_ALERT_TYPES = new Set([
   'price_error',
 ]);
 const refreshAllJobs = new Map();
+const WEB_ASSET_PATHS = new Map([
+  ['/', { file: '../../../web/src/index.html', contentType: 'text/html; charset=utf-8' }],
+  ['/index.html', { file: '../../../web/src/index.html', contentType: 'text/html; charset=utf-8' }],
+  ['/main.mjs', { file: '../../../web/src/main.mjs', contentType: 'text/javascript; charset=utf-8' }],
+  ['/api-client.mjs', { file: '../../../web/src/api-client.mjs', contentType: 'text/javascript; charset=utf-8' }],
+  ['/styles.css', { file: '../../../web/src/styles.css', contentType: 'text/css; charset=utf-8' }],
+]);
 
 let apiLogNextId = 1;
 const apiLogEntries = [];
@@ -185,6 +193,24 @@ function aggregateRunMetrics(items) {
     alertsByChannel,
     topAlertedAsins,
   };
+}
+
+async function tryServeWebAsset(method, pathname, res) {
+  if (method !== 'GET') return false;
+  const asset = WEB_ASSET_PATHS.get(pathname);
+  if (!asset) return false;
+
+  try {
+    const payload = await readFile(new URL(asset.file, import.meta.url));
+    res.writeHead(200, {
+      'content-type': asset.contentType,
+      'cache-control': pathname === '/index.html' || pathname === '/' ? 'no-store' : 'public, max-age=300',
+    });
+    res.end(payload);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function summarizeAutomationRuns(items, limit) {
@@ -2591,6 +2617,10 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
       const method = req.method ?? 'GET';
       const url = new URL(req.url ?? '/', 'http://localhost');
       const pathname = url.pathname;
+
+      if (await tryServeWebAsset(method, pathname, res)) {
+        return;
+      }
 
       if (method === 'GET' && pathname === '/health') {
         return sendJson(res, 200, {

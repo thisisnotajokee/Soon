@@ -3015,3 +3015,38 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - stabilizacja utrzymana; brak sygnałów regresji.
 - Plan D+3:
   - docelowy checkpoint D+3 wykonujemy `2026-04-21` (watchdog + VM210 `make check` + public health).
+
+## [2026-04-18 04:45:10Z] UI v1 tracking/detail step expanded (filters, quick actions, drop-pct write)
+- Zakres (`packages/web` + runtime static serve):
+  - Rozszerzono web UI o sterowanie listą trackingów: wyszukiwanie, filtr `all/active/snoozed`, sortowanie (`updated/new min/used min/title`).
+  - Dodano szybkie akcje w widoku szczegółów: `refresh ASIN`, `snooze 60 min`, `unsnooze`.
+  - Dodano zapis progu `drop %` w detail przez endpoint kompatybilny `POST /api/trackings/:chatId/:asin/drop-pct`.
+  - Dodano prosty wykres historii ceny (SVG) oraz widoczny badge aktywnego snooze.
+  - UI pobiera listę trackingów z `GET /api/dashboard/:chatId` (z runtime `snooze`) i respektuje założenie v1: brak AI user-facing.
+- Zmiany klienta API (`packages/web/src/api-client.mjs`):
+  - `getDashboard`, `getTrackings`, `setDropPct`, `refreshTracking`, `snoozeTracking`, `unsnoozeTracking`.
+- Weryfikacja:
+  - `make check` -> PASS.
+  - `npm run -s smoke:e2e` -> PASS.
+- Następny krok:
+  - Etap UI kolejny: dodać kontrolowany zapis podstawowych preferencji tracking (`scan/product interval`, notifications minimum) w panelu settings v1 bez wychodzenia poza scope KEEP/LATER.
+
+## [2026-04-18 04:48:49Z] UI v1 settings panel integrated (product/scan interval + notifications)
+- Zakres (`packages/web`):
+  - Dodano panel `Ustawienia v1` z formularzem:
+    - `product interval (min)`,
+    - `scan interval (min)`,
+    - `notifications enabled`.
+  - Podłączono odczyt ustawień z `GET /api/settings/:chatId` przy starcie UI.
+  - Podłączono zapis ustawień przez endpointy kompatybilne:
+    - `POST /api/settings/:chatId/product-interval`,
+    - `POST /api/settings/:chatId/scan-interval`,
+    - `POST /api/settings/:chatId/notifications`.
+  - UI pokazuje znacznik ostatniej aktualizacji ustawień (`updatedAt`) lub fallback `Ustawienia domyślne`.
+- Zmiany klienta API (`packages/web/src/api-client.mjs`):
+  - `getSettings`, `setProductInterval`, `setScanInterval`, `setNotifications`.
+- Weryfikacja:
+  - `make check` -> PASS.
+  - `npm run -s smoke:e2e` -> PASS.
+- Następny krok:
+  - Dodać minimalny settings read-model pod preferencje kanałów (`notification_channels`) i profile alertów (`alert_profiles`) jako etap opcjonalny `LATER`, bez rozszerzania scope UI v1 ponad tracking core.
