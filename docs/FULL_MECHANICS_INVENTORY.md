@@ -203,25 +203,25 @@ Uwaga:
 ## N. Analytics / Command Center
 
 - [ ] N001. System stats i history.
-- [ ] N002. Token efficiency metrics.
-- [ ] N003. Scan KPI.
-- [ ] N004. Route perf metrics.
+- [x] N002. Token efficiency metrics.
+- [x] N003. Scan KPI.
+- [x] N004. Route perf metrics.
 - [ ] N005. Launch readiness endpoint.
 - [ ] N006. Config introspection endpoint.
-- [ ] N007. Popular/popularity/category/tag stats.
-- [ ] N008. Buybox/stock/heatmap analytics.
+- [x] N007. Popular/popularity/category/tag stats.
+- [x] N008. Buybox/stock/heatmap analytics.
 - [ ] N009. AI health dashboard.
 - [ ] N010. Keepa usage chart.
 
 ## O. Runtime health i self-heal
 
-- [ ] O001. `/api/system-health`.
-- [ ] O002. `/api/system-health/history`.
+- [x] O001. `/api/system-health`.
+- [x] O002. `/api/system-health/history`.
 - [x] O003. `/api/runtime-self-heal-status`.
 - [x] O004. `/api/check-alert-status`.
-- [ ] O005. `/api/ops/metrics`.
-- [ ] O006. `/api/ops/keepa-history-bootstrap`.
-- [ ] O007. scan stop / scan run-now.
+- [x] O005. `/api/ops/metrics`.
+- [x] O006. `/api/ops/keepa-history-bootstrap`.
+- [x] O007. scan stop / scan run-now.
 - [ ] O008. runtime watchdog jobs.
 - [ ] O009. offender detection (`runtime:offenders`).
 - [ ] O010. resilience/circuit-breakers.

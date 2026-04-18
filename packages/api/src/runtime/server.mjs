@@ -1,5 +1,6 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
+import os from 'node:os';
 import { URL } from 'node:url';
 
 import { createInMemoryStore } from './in-memory-store.mjs';
@@ -38,11 +39,15 @@ const TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_STATE_KEY = 'token_budget_probe_ops_ke
 const TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_AUDIT_STATE_KEY = 'token_budget_probe_ops_key_rotation_audit_last';
 const TRACKING_CHAT_SETTINGS_PREFIX = 'tracking_chat_settings:';
 const TRACKING_SNOOZE_PREFIX = 'tracking_snooze:';
+const PRICE_ERROR_REALERT_RULES_STATE_KEY = 'price_error_realert_rules_v1';
+const ALERT_HISTORY_STATE_KEY = 'compat_alert_history_v1';
 const TRACKINGS_CACHE_RUNTIME_STATE_KEY = 'trackings_cache_runtime';
 const TRACKINGS_CACHE_AUTOTUNE_LAST_STATE_KEY = 'trackings_cache_autotune_last';
 const TRACKINGS_CACHE_RUNTIME_HISTORY_STATE_KEY = 'trackings_cache_runtime_history';
 const GLOBAL_SCAN_INTERVAL_STATE_KEY = 'global_scan_interval_hours';
 const SETTINGS_SCAN_POLICY_STATE_KEY = 'settings_scan_policy_v1';
+const SCAN_RUNTIME_STATE_KEY = 'scan_runtime_state_v1';
+const SYSTEM_STATS_HISTORY_STATE_KEY = 'system_stats_history_v1';
 const MOBILE_TRACKING_PREFERENCES_PREFIX = 'mobile_tracking_preferences_v1:';
 const MOBILE_WEB_DEALS_HISTORY_STATE_KEY = 'mobile_web_deals_history_v1';
 const MOBILE_SESSION_PREFIX = 'mobile_auth_session_v1:';
@@ -102,6 +107,17 @@ const RUNTIME_STATE_ALLOWLIST = new Set([
   TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_AUDIT_STATE_KEY,
 ]);
 const API_LOG_BUFFER_MAX_ENTRIES = 1200;
+const COMPAT_PRICE_ERROR_DOMAINS = new Set(['de', 'it', 'fr', 'es', 'uk', 'nl']);
+const USER_VISIBLE_ALERT_TYPES = new Set([
+  'drop_detected',
+  'target_hit',
+  'buybox',
+  'buybox_change',
+  'buybox_amazon',
+  'stock_back',
+  'stock_out',
+  'price_error',
+]);
 const refreshAllJobs = new Map();
 
 let apiLogNextId = 1;
@@ -905,6 +921,13 @@ function buildTrackingSnoozeStateKey(chatId, asin) {
     .toUpperCase()}`;
 }
 
+function buildPriceErrorRealertRuleKey(chatId, asin, domain) {
+  const normalizedChatId = String(chatId ?? '').trim().toLowerCase() || 'default';
+  const normalizedAsin = String(asin ?? '').trim().toUpperCase();
+  const normalizedDomain = String(domain ?? '').trim().toLowerCase();
+  return `${normalizedChatId}:${normalizedAsin}:${normalizedDomain}`;
+}
+
 function normalizeChatId(raw) {
   const normalized = String(raw ?? '').trim();
   return normalized || 'default';
@@ -927,11 +950,379 @@ function resolveCompatRequestId(req) {
   return raw || null;
 }
 
+function isCompatAdminUser(userId, adminId) {
+  return Boolean(userId && adminId && String(userId) === String(adminId));
+}
+
 function createCompatWebToken(userId) {
   const normalizedUserId = String(userId ?? '').trim();
   if (!normalizedUserId) return null;
   const nonce = crypto.randomBytes(32).toString('hex');
   return `${normalizedUserId}.${Date.now().toString(36)}.${nonce}`;
+}
+
+function createSystemStatsSample(startedAtMs) {
+  const memory = process.memoryUsage();
+  const cpus = os.cpus();
+  const cpuCount = Array.isArray(cpus) ? cpus.length : 1;
+  const loadAvg = os.loadavg();
+  return {
+    capturedAt: new Date().toISOString(),
+    uptimeSec: Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000)),
+    cpu: {
+      load1m: Number((Number(loadAvg?.[0] ?? 0)).toFixed(2)),
+      load5m: Number((Number(loadAvg?.[1] ?? 0)).toFixed(2)),
+      load15m: Number((Number(loadAvg?.[2] ?? 0)).toFixed(2)),
+      cores: Math.max(1, Number(cpuCount || 1)),
+    },
+    memory: {
+      rssMb: Number((memory.rss / (1024 * 1024)).toFixed(2)),
+      heapUsedMb: Number((memory.heapUsed / (1024 * 1024)).toFixed(2)),
+      heapTotalMb: Number((memory.heapTotal / (1024 * 1024)).toFixed(2)),
+      externalMb: Number((memory.external / (1024 * 1024)).toFixed(2)),
+    },
+    platform: process.platform,
+    node: process.version,
+  };
+}
+
+function normalizeSystemStatsRange(rawRange) {
+  const token = String(rawRange ?? '1h').trim().toLowerCase();
+  return ['1h', '6h', '12h', '24h'].includes(token) ? token : '1h';
+}
+
+function systemStatsRangeHours(range) {
+  if (range === '6h') return 6;
+  if (range === '12h') return 12;
+  if (range === '24h') return 24;
+  return 1;
+}
+
+function scoreScanCandidate(item) {
+  const trust = Number(item?.trustScore ?? item?.trust_score ?? 0);
+  const drop = Number(item?.dropPct ?? item?.discountPct ?? 0);
+  const updates = Number(item?.alertsCount ?? item?.updatesCount ?? 0);
+  const score = (trust * 0.6) + (drop * 0.3) + (Math.min(updates, 50) * 0.1);
+  return Number.isFinite(score) ? Number(score.toFixed(2)) : 0;
+}
+
+function buildCompatScanPlanPayload(trackings, budget, avgTokenPerAsin) {
+  const rows = Array.isArray(trackings) ? trackings : [];
+  const scored = rows
+    .map((item) => ({
+      asin: String(item?.asin || '').trim().toUpperCase(),
+      title: item?.title ? String(item.title) : null,
+      score: scoreScanCandidate(item),
+    }))
+    .filter((item) => item.asin);
+  scored.sort((a, b) => b.score - a.score);
+
+  const maxByBudget = Math.max(0, Math.floor(budget / Math.max(1, avgTokenPerAsin)));
+  const selected = scored.slice(0, maxByBudget);
+  const skipped = Math.max(0, scored.length - selected.length);
+  const estimatedTokens = selected.length * Math.max(1, avgTokenPerAsin);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    totalTrackings: scored.length,
+    budget,
+    avgTokenPerAsin,
+    estimatedTokens,
+    plannedCount: selected.length,
+    skippedCount: skipped,
+    strategy: 'compat_v1',
+    items: selected.map((item, index) => ({
+      order: index + 1,
+      asin: item.asin,
+      title: item.title,
+      score: item.score,
+      reason: index < 10 ? 'high_priority' : 'budget_fit',
+    })),
+  };
+}
+
+function buildPopularityRows(trackings, limit = 20) {
+  const rows = (Array.isArray(trackings) ? trackings : [])
+    .map((item) => {
+      const asin = String(item?.asin || '').trim().toUpperCase();
+      if (!asin) return null;
+      const trust = Number(item?.trustScore ?? item?.trust_score ?? 0);
+      const drop = Number(item?.dropPct ?? item?.discountPct ?? 0);
+      const alerts = Number(item?.alertsCount ?? item?.updatesCount ?? 0);
+      const score = Number((trust * 0.55 + drop * 0.35 + Math.min(alerts, 100) * 0.1).toFixed(2));
+      return {
+        asin,
+        title: item?.title ? String(item.title) : null,
+        category: item?.category ? String(item.category) : null,
+        trustScore: Number.isFinite(trust) ? trust : 0,
+        dropPct: Number.isFinite(drop) ? drop : 0,
+        trackers: Math.max(1, Number.isFinite(alerts) ? Math.round(alerts) : 1),
+        score,
+      };
+    })
+    .filter(Boolean);
+  rows.sort((a, b) => b.score - a.score);
+  return rows.slice(0, Math.max(1, limit));
+}
+
+function inferCategoryFromTracking(item) {
+  const title = String(item?.title || '').toLowerCase();
+  if (title.includes('laptop') || title.includes('rog') || title.includes('notebook')) return 'Computers';
+  if (title.includes('tablet') || title.includes('fire hd') || title.includes('ipad')) return 'Tablets';
+  if (title.includes('audio') || title.includes('headphones') || title.includes('speaker')) return 'Audio';
+  return 'General';
+}
+
+function buildCategoryRows(trackings, chatId) {
+  const counts = new Map();
+  for (const item of (Array.isArray(trackings) ? trackings : [])) {
+    const category = inferCategoryFromTracking(item);
+    counts.set(category, (counts.get(category) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([category, count], index) => ({
+      id: `${String(chatId || 'default')}:${index + 1}`,
+      category,
+      count,
+    }));
+}
+
+function buildTagRows(trackings, chatId) {
+  const tagCounts = new Map();
+  for (const item of (Array.isArray(trackings) ? trackings : [])) {
+    const titleTokens = String(item?.title || '')
+      .split(/[^A-Za-z0-9]+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 3)
+      .slice(0, 5);
+    for (const token of titleTokens) {
+      const normalized = token.toLowerCase();
+      tagCounts.set(normalized, (tagCounts.get(normalized) ?? 0) + 1);
+    }
+  }
+  return [...tagCounts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 30)
+    .map(([tag, count], index) => ({
+      id: `${String(chatId || 'default')}:tag:${index + 1}`,
+      tag,
+      count,
+    }));
+}
+
+function buildUserStatsPayload(trackings, chatId, schedulerMetrics = {}) {
+  const rows = Array.isArray(trackings) ? trackings : [];
+  const totalProducts = rows.length;
+  const totalAlerts = Number(schedulerMetrics?.totalAlerts || 0);
+  const alerts7d = Number(schedulerMetrics?.alerts7d || schedulerMetrics?.lastAlerts || 0);
+  const alerts30d = Number(schedulerMetrics?.alerts30d || schedulerMetrics?.totalAlerts || 0);
+  const productsAlerted = Math.min(totalProducts, Math.max(0, Number(schedulerMetrics?.productsAlerted || totalAlerts)));
+  const pctDropAlerts = Number(schedulerMetrics?.pctDropAlerts || 0);
+  const milestones = Number(schedulerMetrics?.milestones || 0);
+  const targetsHit = Number(schedulerMetrics?.targetsHit || 0);
+  return {
+    chat_id: chatId,
+    total_products: totalProducts,
+    total_alerts: totalAlerts,
+    tracking_since: rows[0]?.updatedAt ?? null,
+    targets_hit: targetsHit,
+    alerts_7d: alerts7d,
+    alerts_30d: alerts30d,
+    products_alerted: productsAlerted,
+    pct_drop_alerts: pctDropAlerts,
+    milestones,
+  };
+}
+
+function buildCompatPriceErrorRows(trackings, limit = 50) {
+  const rows = [];
+  for (const item of Array.isArray(trackings) ? trackings : []) {
+    const asin = String(item?.asin ?? '').trim().toUpperCase();
+    if (!/^[A-Z0-9]{10}$/.test(asin)) continue;
+    const pricesNew = item?.pricesNew && typeof item.pricesNew === 'object' ? item.pricesNew : {};
+    for (const [domainRaw, priceRaw] of Object.entries(pricesNew)) {
+      const domain = String(domainRaw ?? '').trim().toLowerCase();
+      if (!COMPAT_PRICE_ERROR_DOMAINS.has(domain)) continue;
+      const price = toFiniteNumber(priceRaw);
+      if (!Number.isFinite(price) || price <= 0) continue;
+      rows.push({
+        asin,
+        domain,
+        price: Number(price.toFixed(2)),
+        title: item?.title ?? null,
+        source: 'compat_runtime',
+        updated_at: item?.updatedAt ?? null,
+      });
+      if (rows.length >= limit) return rows;
+    }
+  }
+  return rows;
+}
+
+function buildCompatAlertPrecisionPayload(rows, days = 30) {
+  const nowMs = Date.now();
+  const sinceMs = nowMs - days * 24 * 60 * 60 * 1000;
+  const filtered = (Array.isArray(rows) ? rows : []).filter((row) => {
+    const ts = Date.parse(String(row?.created_at ?? ''));
+    return Number.isFinite(ts) && ts >= sinceMs;
+  });
+
+  const byTypeMap = new Map();
+  for (const row of filtered) {
+    const type = String(row?.alert_type ?? 'unknown').trim() || 'unknown';
+    if (!byTypeMap.has(type)) {
+      byTypeMap.set(type, { alert_type: type, sent: 0, accepted: 0, rejected: 0, unknown: 0, precision_pct: 0 });
+    }
+    const bucket = byTypeMap.get(type);
+    bucket.sent += 1;
+    const feedback = String(row?.feedback_status ?? '').trim().toLowerCase();
+    if (feedback === 'good' || feedback === 'ok' || feedback === 'accepted') bucket.accepted += 1;
+    else if (feedback === 'bad' || feedback === 'rejected' || feedback === 'false_positive') bucket.rejected += 1;
+    else bucket.unknown += 1;
+  }
+
+  const byType = [...byTypeMap.values()].map((item) => {
+    const denom = item.accepted + item.rejected;
+    return {
+      ...item,
+      precision_pct: denom > 0 ? Number(((item.accepted / denom) * 100).toFixed(2)) : 0,
+    };
+  });
+
+  const totalSent = byType.reduce((sum, item) => sum + item.sent, 0);
+  const totalAccepted = byType.reduce((sum, item) => sum + item.accepted, 0);
+  const totalRejected = byType.reduce((sum, item) => sum + item.rejected, 0);
+  const totalUnknown = byType.reduce((sum, item) => sum + item.unknown, 0);
+  const denom = totalAccepted + totalRejected;
+
+  return {
+    windowDays: days,
+    totals: {
+      sent: totalSent,
+      accepted: totalAccepted,
+      rejected: totalRejected,
+      unknown: totalUnknown,
+      precision_pct: denom > 0 ? Number(((totalAccepted / denom) * 100).toFixed(2)) : 0,
+    },
+    byType,
+  };
+}
+
+function buildCompatAlertDeliveryMetricsPayload(rows, hours = 24) {
+  const nowMs = Date.now();
+  const sinceMs = nowMs - hours * 60 * 60 * 1000;
+  const filtered = (Array.isArray(rows) ? rows : []).filter((row) => {
+    const ts = Date.parse(String(row?.created_at ?? ''));
+    return Number.isFinite(ts) && ts >= sinceMs;
+  });
+
+  const totals = { telegram: 0, discord: 0, unknown: 0 };
+  for (const row of filtered) {
+    const message = String(row?.message ?? '').toLowerCase();
+    if (message.includes('channel=telegram')) totals.telegram += 1;
+    else if (message.includes('channel=discord')) totals.discord += 1;
+    else totals.unknown += 1;
+  }
+
+  const total = totals.telegram + totals.discord + totals.unknown;
+  return {
+    windowHours: hours,
+    total,
+    channels: {
+      telegram: totals.telegram,
+      discord: totals.discord,
+      unknown: totals.unknown,
+    },
+    rates: {
+      telegramPct: total > 0 ? Number(((totals.telegram / total) * 100).toFixed(2)) : 0,
+      discordPct: total > 0 ? Number(((totals.discord / total) * 100).toFixed(2)) : 0,
+      unknownPct: total > 0 ? Number(((totals.unknown / total) * 100).toFixed(2)) : 0,
+    },
+  };
+}
+
+function normalizeCompatAlertHistoryRows(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((row) => {
+      const id = Number.parseInt(String(row?.id ?? ''), 10);
+      const alertType = String(row?.alert_type ?? '').trim();
+      const createdAtRaw = String(row?.created_at ?? '').trim();
+      const createdTs = Date.parse(createdAtRaw);
+      if (!Number.isInteger(id) || id <= 0 || !alertType || !Number.isFinite(createdTs)) return null;
+      return {
+        id,
+        chat_id: String(row?.chat_id ?? '').trim() || null,
+        asin: row?.asin ? String(row.asin).trim().toUpperCase() : null,
+        alert_type: alertType,
+        message: row?.message ? String(row.message) : null,
+        created_at: new Date(createdTs).toISOString(),
+        feedback_status: row?.feedback_status ? String(row.feedback_status).trim() : null,
+        feedback_source: row?.feedback_source ? String(row.feedback_source).trim() : null,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => Date.parse(String(b.created_at)) - Date.parse(String(a.created_at)));
+}
+
+async function loadCompatAlertHistory(store) {
+  if (!store.getRuntimeState) return [];
+  const state = await store.getRuntimeState(ALERT_HISTORY_STATE_KEY);
+  return normalizeCompatAlertHistoryRows(state?.stateValue ?? []);
+}
+
+async function saveCompatAlertHistory(store, rows) {
+  if (!store.setRuntimeState) return;
+  await store.setRuntimeState(ALERT_HISTORY_STATE_KEY, normalizeCompatAlertHistoryRows(rows));
+}
+
+function buildCompatAlertHistoryFromRuns(runs, limit = 200) {
+  const items = [];
+  for (const run of Array.isArray(runs) ? runs : []) {
+    const createdAt = run?.finishedAt ?? run?.startedAt ?? new Date().toISOString();
+    for (const alert of Array.isArray(run?.alerts) ? run.alerts : []) {
+      const kind = String(alert?.kind ?? '').trim().toLowerCase();
+      const alertType = kind === 'technical' ? 'technical' : 'drop_detected';
+      items.push({
+        chat_id: null,
+        asin: alert?.asin ? String(alert.asin).trim().toUpperCase() : null,
+        alert_type: alertType,
+        message: alert?.message ? String(alert.message) : alert?.channel ? `channel=${alert.channel}` : null,
+        created_at: createdAt,
+        feedback_status: null,
+        feedback_source: null,
+      });
+      if (items.length >= limit) break;
+    }
+    if (items.length >= limit) break;
+  }
+  return items.map((row, index) => ({
+    id: index + 1,
+    ...row,
+  }));
+}
+
+function sanitizeSystemStatsHistory(raw) {
+  if (!Array.isArray(raw)) return [];
+  const now = Date.now();
+  const maxAgeMs = 24 * 60 * 60 * 1000;
+  return raw
+    .filter((entry) => {
+      const ts = Date.parse(String(entry?.capturedAt ?? ''));
+      return Number.isFinite(ts) && ts <= now + 5 * 60 * 1000 && ts >= now - maxAgeMs;
+    })
+    .sort((a, b) => Date.parse(String(a.capturedAt)) - Date.parse(String(b.capturedAt)))
+    .slice(-1500);
+}
+
+async function appendSystemStatsHistory(store, sample) {
+  if (!store.getRuntimeState || !store.setRuntimeState) return [sample];
+  const state = await store.getRuntimeState(SYSTEM_STATS_HISTORY_STATE_KEY);
+  const previous = sanitizeSystemStatsHistory(state?.stateValue);
+  const next = sanitizeSystemStatsHistory([...previous, sample]);
+  await store.setRuntimeState(SYSTEM_STATS_HISTORY_STATE_KEY, next);
+  return next;
 }
 
 function normalizeMobilePagination(url) {
@@ -2193,6 +2584,7 @@ function renderTokenBudgetPrometheusMetrics(
 
 export function createSoonApiServer({ store = resolveStore() } = {}) {
   let lastAlertRoutingRemediationAtMs = 0;
+  const startedAtMs = Date.now();
 
   return http.createServer(async (req, res) => {
     try {
@@ -2234,6 +2626,306 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           products: trackings.length,
           trackings: trackings.length,
           uptime: Math.floor(process.uptime()),
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/version') {
+        const requestId = resolveCompatRequestId(req);
+        return sendJson(res, 200, {
+          version: String(process.env.npm_package_version || '0.1.0'),
+          build: {
+            sha: String(process.env.BUILD_SHA || process.env.GITHUB_SHA || '').trim() || null,
+            at: String(process.env.BUILD_AT || '').trim() || null,
+          },
+          node: process.version,
+          serverTime: new Date().toISOString(),
+          uptime: Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000)),
+          requestId,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/config') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const isAdmin = isCompatAdminUser(userId, adminId);
+        const requestId = resolveCompatRequestId(req);
+        return sendJson(res, 200, {
+          associateTag: isAdmin ? String(process.env.AMAZON_ASSOCIATE_TAG || '').trim() : '',
+          webAppUrl: String(process.env.PUBLIC_WEB_URL || '/index.html').trim() || '/index.html',
+          webAppVersion: String(process.env.WEBAPP_VERSION || process.env.npm_package_version || 'dev'),
+          telegramUserId: userId ? Number(userId) : null,
+          webToken: createCompatWebToken(userId),
+          adminPermissions: {
+            isAdmin,
+            actor: userId ? Number(userId) : null,
+            adminId: adminId ? Number(adminId) : null,
+            reason: null,
+            at: null,
+          },
+          hostScope: {
+            currentHost: String(req.headers.host || '').trim() || null,
+            userAppHost: null,
+            adminAppHost: null,
+            isUserHost: false,
+            isAdminHost: false,
+          },
+          webUiEdition: 'user',
+          restart: {
+            configured: false,
+            allowed: false,
+            adminChatId: null,
+            audit: {
+              status: 'disabled',
+              actor: null,
+              adminId: null,
+              reason: null,
+              at: null,
+            },
+          },
+          requestId,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/launch-readiness') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const trackings = await store.listTrackings();
+        const schedulerState = store.getRuntimeState ? await store.getRuntimeState('scheduler_status') : null;
+        const metrics = schedulerState?.stateValue?.metrics ?? {};
+        const blockers = [];
+        if (trackings.length <= 0) blockers.push('no_trackings');
+        if (Number(metrics?.lastErrors || 0) > 0) blockers.push('scan_last_errors_positive');
+        const ready = blockers.length === 0;
+        return sendJson(res, 200, {
+          generatedAt: new Date().toISOString(),
+          windowSec: clampInt(url.searchParams.get('windowSec'), 900, 60, 24 * 3600),
+          ready,
+          blockers,
+          notes: ready ? ['launch_window_looks_stable'] : [],
+          api: {
+            samples: 0,
+            p95Ms: 0,
+            p99Ms: 0,
+          },
+          keepa: {
+            capPerHour: clampInt(process.env.KEEPA_TOKEN_CAP_PER_HOUR, 0, 0, 1000000),
+            spentLastHour: 0,
+            spentLast24h: 0,
+            guardrail: metrics?.lastTokenGuardrail ?? null,
+          },
+          scan: {
+            lastRunAt: metrics?.lastRunAt ?? null,
+            lastPlanned: Number(metrics?.lastPlanned || 0),
+            lastScanned: Number(metrics?.lastScanned || 0),
+            lastAlerts: Number(metrics?.lastAlerts || 0),
+            lastErrors: Number(metrics?.lastErrors || 0),
+            lastPriorityTier: metrics?.lastPriorityTier ?? null,
+          },
+          alerts: {
+            sent24h: 0,
+          },
+          ai: {
+            http429_24h: 0,
+            http5xx_24h: 0,
+          },
+          requestId,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/ops/keepa-history-bootstrap') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+
+        const sampleLimit = clampInt(url.searchParams.get('sampleLimit'), 8, 1, 50);
+        const trackings = await store.listTrackings();
+        const watchIndexState = store.getRuntimeState ? await store.getRuntimeState(KEEPA_WATCH_INDEX_STATE_KEY) : null;
+        const watchIndex = watchIndexState?.stateValue ?? {};
+        const byAsin = watchIndex?.byAsin && typeof watchIndex.byAsin === 'object' ? watchIndex.byAsin : {};
+
+        const sample = [];
+        let pending = 0;
+        let ok = 0;
+        for (const item of trackings) {
+          const asin = String(item?.asin || '').trim().toUpperCase();
+          if (!asin) continue;
+          const state = byAsin[asin];
+          const hasWatch = Boolean(state && (state.lastSeenAt || state.lastUpdatedAt || state.updatedAt));
+          if (hasWatch) ok += 1;
+          else pending += 1;
+          if (sample.length < sampleLimit) {
+            sample.push({
+              asin,
+              status: hasWatch ? 'ok' : 'missing',
+              updatedAt: state?.lastSeenAt ?? state?.lastUpdatedAt ?? state?.updatedAt ?? null,
+              lastSyncedAt: state?.lastSyncedAt ?? null,
+            });
+          }
+        }
+
+        const payload = {
+          generatedAt: new Date().toISOString(),
+          status: pending > 0 ? 'degraded' : 'healthy',
+          backlog: {
+            trackedWithoutHistory: pending,
+            pending,
+            error: 0,
+            noData: 0,
+            missingSync: pending,
+            oldestOpenUpdatedAt: null,
+          },
+          global: {
+            totalRows: trackings.length,
+            pending,
+            error: 0,
+            noData: 0,
+            ok,
+            latestUpdatedAt: sample.find((row) => row.updatedAt)?.updatedAt ?? null,
+          },
+          sample,
+          requestId,
+        };
+        return sendJson(res, 200, payload);
+      }
+
+      if (method === 'GET' && pathname === '/api/ops/metrics') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+
+        const trackings = await store.listTrackings();
+        const schedulerState = store.getRuntimeState ? await store.getRuntimeState('scheduler_status') : null;
+        const keepaStatusState = store.getRuntimeState ? await store.getRuntimeState(KEEPA_STATUS_STATE_KEY) : null;
+        const selfHealState = store.getRuntimeState ? await store.getRuntimeState('self_heal_runtime_state') : null;
+
+        const memory = process.memoryUsage();
+        return sendJson(res, 200, {
+          generatedAt: new Date().toISOString(),
+          scheduler: schedulerState?.stateValue ?? null,
+          runtime: {
+            node: process.version,
+            uptimeSec: Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000)),
+            pid: process.pid,
+            host: os.hostname(),
+            memoryMb: {
+              rss: Number((memory.rss / 1024 / 1024).toFixed(2)),
+              heapUsed: Number((memory.heapUsed / 1024 / 1024).toFixed(2)),
+              heapTotal: Number((memory.heapTotal / 1024 / 1024).toFixed(2)),
+            },
+            cpu: {
+              load1m: Number(os.loadavg()[0] || 0),
+              cores: os.cpus().length,
+            },
+          },
+          trackings: {
+            total: trackings.length,
+          },
+          keepa: keepaStatusState?.stateValue ?? null,
+          ai: {
+            requestsTotal: 0,
+            fallbacksTotal: 0,
+            fallbackRatePct: 0,
+            requests24h: 0,
+            fallbacks24h: 0,
+            fallbackRate24hPct: 0,
+          },
+          selfHeal: selfHealState?.stateValue ?? null,
+          requestId,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/system-health') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        const isAdmin = isCompatAdminUser(userId, adminId);
+        const base = {
+          status: 'ok',
+          generatedAt: new Date().toISOString(),
+          requestId,
+        };
+        if (!isAdmin) {
+          return sendJson(res, 200, base);
+        }
+        const schedulerState = store.getRuntimeState ? await store.getRuntimeState('scheduler_status') : null;
+        const trackings = await store.listTrackings();
+        return sendJson(res, 200, {
+          ...base,
+          modules: modulesList(),
+          uptimeSec: Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000)),
+          storage: store.mode,
+          trackings: trackings.length,
+          scheduler: schedulerState?.stateValue ?? null,
+          operationalReadiness: {
+            ready: true,
+            reasons: [],
+          },
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/system-health/history') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const historyState = store.getRuntimeState ? await store.getRuntimeState(SYSTEM_STATS_HISTORY_STATE_KEY) : null;
+        const rows = sanitizeSystemStatsHistory(historyState?.stateValue ?? []).map((entry) => ({
+          ts: entry.capturedAt,
+          cpu: Number(entry?.cpu?.load1m || 0),
+          memory: Number(entry?.memory?.rssMb || 0),
+          temperature: null,
+          power: null,
+        }));
+        return sendJson(res, 200, {
+          rows,
+          count: rows.length,
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/system-stats') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const payload = createSystemStatsSample(startedAtMs);
+        await appendSystemStatsHistory(store, payload);
+        return sendJson(res, 200, payload);
+      }
+
+      if (method === 'GET' && pathname === '/api/system-stats/history') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const range = normalizeSystemStatsRange(url.searchParams.get('range'));
+        const historyState = store.getRuntimeState ? await store.getRuntimeState(SYSTEM_STATS_HISTORY_STATE_KEY) : null;
+        const history = sanitizeSystemStatsHistory(historyState?.stateValue ?? []);
+        const hours = systemStatsRangeHours(range);
+        const cutoffMs = Date.now() - hours * 60 * 60 * 1000;
+        const points = history.filter((entry) => Date.parse(String(entry.capturedAt)) >= cutoffMs);
+        return sendJson(res, 200, {
+          range,
+          hours,
+          count: points.length,
+          totalCount: history.length,
+          lastSampleAt: points[points.length - 1]?.capturedAt ?? history[history.length - 1]?.capturedAt ?? null,
+          points,
         });
       }
 
@@ -3173,6 +3865,787 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           remaining,
           retryInSec: secondsUntilNextUtcHour(nowTs),
           bucket: currentManualRefreshBucketUtc(nowTs),
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/scan-kpi') {
+        const trackings = await store.listTrackings();
+        const schedulerState = store.getRuntimeState ? await store.getRuntimeState('scheduler_status') : null;
+        const keepaStatusState = store.getRuntimeState ? await store.getRuntimeState(KEEPA_STATUS_STATE_KEY) : null;
+        const scheduler = schedulerState?.stateValue ?? {};
+        const metrics = scheduler.metrics ?? {};
+        const keepa = keepaStatusState?.stateValue ?? {};
+        const budget = clampInt(process.env.SOON_SCAN_HARD_TOKEN_CAP_PER_CYCLE, 120, 1, 100000);
+        const avgTokenPerAsin = clampInt(process.env.SOON_SCAN_EST_TOKEN_PER_ITEM, 1, 1, 100);
+        const maxByBudget = Math.max(0, Math.floor(budget / Math.max(1, avgTokenPerAsin)));
+        const planned = Math.min(trackings.length, maxByBudget);
+
+        return sendJson(res, 200, {
+          trackedCount: trackings.length,
+          dueCount: trackings.length,
+          planner: {
+            budget,
+            avgTokenPerAsin,
+            planned,
+            skippedBudget: Math.max(0, trackings.length - planned),
+            estimatedTokens: planned * avgTokenPerAsin,
+          },
+          tokens: {
+            tokensLeft: Number(keepa?.tokensLeft || keepa?.remaining || 0),
+            refillRate: Number(keepa?.refillRate || 20),
+            refillIn: Number(keepa?.refillIn || 0),
+            tokensConsumed: Number(keepa?.tokensConsumed || keepa?.consumed || 0),
+          },
+          scan: metrics,
+          scheduler: {
+            isScanning: Boolean(scheduler?.isScanning),
+            lastScanAt: scheduler?.lastScanAt ?? metrics?.lastRunAt ?? null,
+            intervalMinutes: Number(scheduler?.checkIntervalMinutes || 60),
+          },
+        });
+      }
+
+      const scanPlanMatch = pathname.match(/^\/api\/scan-plan\/([^/]+)$/);
+      if (method === 'GET' && scanPlanMatch) {
+        const chatId = normalizeChatId(scanPlanMatch[1]);
+        const requestedBudget = clampInt(url.searchParams.get('budget'), 0, 0, 100000);
+        const trackings = await store.listTrackings();
+        const budget = requestedBudget > 0
+          ? requestedBudget
+          : clampInt(process.env.SOON_SCAN_HARD_TOKEN_CAP_PER_CYCLE, 120, 1, 100000);
+        const avgTokenPerAsin = clampInt(process.env.SOON_SCAN_EST_TOKEN_PER_ITEM, 1, 1, 100);
+        const payload = buildCompatScanPlanPayload(trackings, budget, avgTokenPerAsin);
+        return sendJson(res, 200, {
+          chatId,
+          ...payload,
+        });
+      }
+
+      const tagsMatch = pathname.match(/^\/api\/tags\/([^/]+)$/);
+      if (method === 'GET' && tagsMatch) {
+        const chatId = normalizeChatId(tagsMatch[1]);
+        const trackings = await store.listTrackings();
+        const rows = buildTagRows(trackings, chatId);
+        return sendJson(res, 200, rows);
+      }
+
+      const categoriesMatch = pathname.match(/^\/api\/categories\/([^/]+)$/);
+      if (method === 'GET' && categoriesMatch) {
+        const chatId = normalizeChatId(categoriesMatch[1]);
+        const trackings = await store.listTrackings();
+        const rows = buildCategoryRows(trackings, chatId);
+        return sendJson(res, 200, rows);
+      }
+
+      const stockMatch = pathname.match(/^\/api\/stock\/([^/]+)$/);
+      if (method === 'GET' && stockMatch) {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const asin = decodeURIComponent(stockMatch[1]).toUpperCase();
+        if (!asin) return sendJson(res, 400, { error: 'asin_required', requestId });
+
+        const detail = await store.getProductDetail(asin);
+        if (!detail) {
+          return sendJson(res, 200, { out_of_stock: false, last_in_stock_at: null, asin });
+        }
+        return sendJson(res, 200, {
+          asin,
+          out_of_stock: false,
+          last_in_stock_at: detail?.updatedAt ?? null,
+        });
+      }
+
+      const buyboxMatch = pathname.match(/^\/api\/buybox\/([^/]+)$/);
+      if (method === 'GET' && buyboxMatch) {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const asin = decodeURIComponent(buyboxMatch[1]).toUpperCase();
+        if (!asin) return sendJson(res, 400, { error: 'asin_required', requestId });
+
+        const detail = await store.getProductDetail(asin);
+        if (!detail) {
+          return sendJson(res, 200, []);
+        }
+
+        const pricesNew = detail?.pricesNew && typeof detail.pricesNew === 'object' ? detail.pricesNew : {};
+        const bestPrice = Object.values(pricesNew)
+          .map((value) => toFiniteNumber(value))
+          .filter((value) => Number.isFinite(value) && value > 0)
+          .sort((a, b) => a - b)[0] ?? null;
+        const buyboxSeller = detail?.buyboxSeller ?? null;
+        const buyboxIsAmazon = detail?.buyboxIsAmazon === true;
+        const hasSignal = buyboxSeller !== null || detail?.buyboxIsAmazon !== undefined || bestPrice !== null;
+
+        const rows = hasSignal
+          ? [{
+              asin,
+              domain: 'de',
+              seller: buyboxSeller ?? (buyboxIsAmazon ? 'Amazon' : null),
+              is_amazon: buyboxIsAmazon,
+              price: bestPrice,
+              recorded_at: detail?.updatedAt ?? new Date().toISOString(),
+            }]
+          : [];
+        return sendJson(res, 200, rows);
+      }
+
+      const heatmapMatch = pathname.match(/^\/api\/heatmap\/([^/]+)$/);
+      if (method === 'GET' && heatmapMatch) {
+        const asin = decodeURIComponent(heatmapMatch[1]).toUpperCase();
+        if (!asin) return sendJson(res, 400, { error: 'asin_required' });
+
+        const days = clampInt(url.searchParams.get('days'), 1095, 1, 1095);
+        const sinceMs = Date.now() - days * 24 * 60 * 60 * 1000;
+
+        let rows = [];
+        if (store.getPriceHistory) {
+          const historyRows = await store.getPriceHistory(asin, 1000);
+          if (Array.isArray(historyRows)) {
+            rows = historyRows;
+          }
+        }
+        if (!rows.length) {
+          const detail = await store.getProductDetail(asin);
+          if (detail) {
+            rows = (Array.isArray(detail.historyPoints) ? detail.historyPoints : []).map((row) => ({
+              ts: row?.ts ?? null,
+              price: row?.value ?? null,
+              market: 'de',
+              condition: 'new',
+              currency: 'EUR',
+            }));
+          }
+        }
+
+        const payload = rows
+          .map((row) => {
+            const ts = row?.ts ? Date.parse(String(row.ts)) : NaN;
+            const price = toFiniteNumber(row?.price ?? row?.value);
+            if (!Number.isFinite(ts) || !Number.isFinite(price) || price <= 0) return null;
+            if (ts < sinceMs) return null;
+            return {
+              ts: new Date(ts).toISOString(),
+              market: String(row?.market ?? 'de').toLowerCase() || 'de',
+              condition: String(row?.condition ?? 'new').toLowerCase() || 'new',
+              price: Number(price.toFixed(2)),
+              currency: String(row?.currency ?? 'EUR').toUpperCase() || 'EUR',
+            };
+          })
+          .filter(Boolean)
+          .sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts));
+
+        return sendJson(res, 200, payload);
+      }
+
+      const statsMatch = pathname.match(/^\/api\/stats\/([^/]+)$/);
+      if (method === 'GET' && statsMatch) {
+        const chatId = normalizeChatId(statsMatch[1]);
+        const trackings = await store.listTrackings();
+        const schedulerState = store.getRuntimeState ? await store.getRuntimeState('scheduler_status') : null;
+        const metrics = schedulerState?.stateValue?.metrics ?? {};
+        const stats = buildUserStatsPayload(trackings, chatId, metrics);
+        return sendJson(res, 200, stats);
+      }
+
+      if (method === 'GET' && pathname === '/api/price-errors') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+
+        const limit = clampInt(url.searchParams.get('limit'), 50, 1, 200);
+        const scope = String(url.searchParams.get('scope') ?? 'tracked').trim().toLowerCase();
+        const trackedOnly = scope !== 'global';
+        const trackings = await store.listTrackings();
+        const sourceRows = buildCompatPriceErrorRows(trackings, trackedOnly ? limit : Math.max(limit, 200));
+        const rows = sourceRows.slice(0, limit);
+
+        const runtimeRulesState = store.getRuntimeState
+          ? await store.getRuntimeState(PRICE_ERROR_REALERT_RULES_STATE_KEY)
+          : null;
+        const runtimeRules =
+          runtimeRulesState?.stateValue && typeof runtimeRulesState.stateValue === 'object'
+            ? runtimeRulesState.stateValue
+            : {};
+        const decorated = rows.map((row) => {
+          const key = buildPriceErrorRealertRuleKey(userId, row.asin, row.domain);
+          const rule = runtimeRules[key];
+          if (!rule || typeof rule !== 'object') return row;
+          return {
+            ...row,
+            relert_drop_percent: toFiniteNumber(rule.dropPercent),
+            relert_target_price: toFiniteNumber(rule.targetPrice),
+            relert_set_at: rule.setAt ?? null,
+          };
+        });
+        return sendJson(res, 200, decorated);
+      }
+
+      if (method === 'POST' && pathname === '/api/price-errors/realert-threshold') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        const asin = String(body?.asin ?? '').trim().toUpperCase();
+        const domain = String(body?.domain ?? '').trim().toLowerCase();
+        const basePrice = toFiniteNumber(body?.basePrice);
+        const dropPercent = toFiniteNumber(body?.dropPercent);
+        const validAsin = /^[A-Z0-9]{10}$/.test(asin);
+        if (!validAsin || !COMPAT_PRICE_ERROR_DOMAINS.has(domain) || !Number.isFinite(basePrice) || basePrice <= 0) {
+          return sendJson(res, 400, { error: 'Invalid payload', requestId });
+        }
+        if (!Number.isFinite(dropPercent) || dropPercent <= 0 || dropPercent > 95) {
+          return sendJson(res, 400, { error: 'Invalid payload', requestId });
+        }
+
+        const targetPrice = Number((basePrice * (1 - dropPercent / 100)).toFixed(2));
+        const rule = {
+          chatId: userId,
+          asin,
+          domain,
+          basePrice: Number(basePrice.toFixed(2)),
+          dropPercent: Number(dropPercent.toFixed(2)),
+          targetPrice,
+          setAt: new Date().toISOString(),
+        };
+        const runtimeRulesState = store.getRuntimeState
+          ? await store.getRuntimeState(PRICE_ERROR_REALERT_RULES_STATE_KEY)
+          : null;
+        const existing =
+          runtimeRulesState?.stateValue && typeof runtimeRulesState.stateValue === 'object'
+            ? runtimeRulesState.stateValue
+            : {};
+        const next = {
+          ...existing,
+          [buildPriceErrorRealertRuleKey(userId, asin, domain)]: rule,
+        };
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(PRICE_ERROR_REALERT_RULES_STATE_KEY, next);
+        }
+        return sendJson(res, 200, {
+          success: true,
+          asin,
+          domain,
+          dropPercent: rule.dropPercent,
+          basePrice: rule.basePrice,
+          targetPrice: rule.targetPrice,
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/price-errors/realert-threshold/bulk') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        const dropPercent = toFiniteNumber(body?.dropPercent);
+        const limit = clampInt(body?.limit, 50, 1, 300);
+        if (!Number.isFinite(dropPercent) || dropPercent <= 0 || dropPercent > 95) {
+          return sendJson(res, 400, { error: 'Invalid payload', requestId });
+        }
+
+        const trackings = await store.listTrackings();
+        const rows = buildCompatPriceErrorRows(trackings, limit);
+        const runtimeRulesState = store.getRuntimeState
+          ? await store.getRuntimeState(PRICE_ERROR_REALERT_RULES_STATE_KEY)
+          : null;
+        const existing =
+          runtimeRulesState?.stateValue && typeof runtimeRulesState.stateValue === 'object'
+            ? runtimeRulesState.stateValue
+            : {};
+        const setAt = new Date().toISOString();
+        const next = { ...existing };
+        let applied = 0;
+        for (const row of rows) {
+          const basePrice = toFiniteNumber(row?.price);
+          if (!Number.isFinite(basePrice) || basePrice <= 0) continue;
+          const targetPrice = Number((basePrice * (1 - dropPercent / 100)).toFixed(2));
+          next[buildPriceErrorRealertRuleKey(userId, row.asin, row.domain)] = {
+            chatId: userId,
+            asin: row.asin,
+            domain: row.domain,
+            basePrice: Number(basePrice.toFixed(2)),
+            dropPercent: Number(dropPercent.toFixed(2)),
+            targetPrice,
+            setAt,
+          };
+          applied += 1;
+        }
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(PRICE_ERROR_REALERT_RULES_STATE_KEY, next);
+        }
+        return sendJson(res, 200, {
+          success: true,
+          applied,
+          scanned: rows.length,
+          dropPercent: Number(dropPercent.toFixed(2)),
+        });
+      }
+
+      if (method === 'DELETE' && pathname === '/api/price-errors/realert-threshold') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        const asin = String(body?.asin ?? '').trim().toUpperCase();
+        const domain = String(body?.domain ?? '').trim().toLowerCase();
+        const validAsin = /^[A-Z0-9]{10}$/.test(asin);
+        if (!validAsin || !COMPAT_PRICE_ERROR_DOMAINS.has(domain)) {
+          return sendJson(res, 400, { error: 'Invalid payload', requestId });
+        }
+
+        const runtimeRulesState = store.getRuntimeState
+          ? await store.getRuntimeState(PRICE_ERROR_REALERT_RULES_STATE_KEY)
+          : null;
+        const existing =
+          runtimeRulesState?.stateValue && typeof runtimeRulesState.stateValue === 'object'
+            ? runtimeRulesState.stateValue
+            : {};
+        const key = buildPriceErrorRealertRuleKey(userId, asin, domain);
+        const next = { ...existing };
+        delete next[key];
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(PRICE_ERROR_REALERT_RULES_STATE_KEY, next);
+        }
+        return sendJson(res, 200, { success: true, asin, domain, cleared: true });
+      }
+
+      const alertsHistoryMatch = pathname.match(/^\/api\/alerts\/([^/]+)$/);
+      if (method === 'GET' && alertsHistoryMatch) {
+        const chatId = normalizeChatId(alertsHistoryMatch[1]);
+        const limit = clampInt(url.searchParams.get('limit'), 50, 1, 200);
+        const adminId = resolveCompatAdminId();
+        const isAdmin = Boolean(adminId && chatId === adminId);
+
+        let historyRows = await loadCompatAlertHistory(store);
+        if (!historyRows.length && store.listLatestAutomationRuns) {
+          const runs = await store.listLatestAutomationRuns(50);
+          const bootstrapped = buildCompatAlertHistoryFromRuns(runs, 200).map((row) => ({
+            ...row,
+            chat_id: chatId,
+          }));
+          if (bootstrapped.length) {
+            await saveCompatAlertHistory(store, bootstrapped);
+            historyRows = await loadCompatAlertHistory(store);
+          }
+        }
+
+        const scoped = historyRows
+          .filter((row) => String(row?.chat_id ?? '') === chatId)
+          .filter((row) => isAdmin || USER_VISIBLE_ALERT_TYPES.has(String(row?.alert_type ?? '')))
+          .slice(0, limit);
+        return sendJson(res, 200, scoped);
+      }
+
+      const alertsPrecisionMatch = pathname.match(/^\/api\/alerts\/([^/]+)\/precision$/);
+      if (method === 'GET' && alertsPrecisionMatch) {
+        const chatId = normalizeChatId(alertsPrecisionMatch[1]);
+        const days = clampInt(url.searchParams.get('days'), 30, 1, 180);
+        const historyRows = await loadCompatAlertHistory(store);
+        const scoped = historyRows.filter((row) => String(row?.chat_id ?? '') === chatId);
+        return sendJson(res, 200, buildCompatAlertPrecisionPayload(scoped, days));
+      }
+
+      const alertsDeliveryMatch = pathname.match(/^\/api\/alerts\/([^/]+)\/delivery-metrics$/);
+      if (method === 'GET' && alertsDeliveryMatch) {
+        const chatId = normalizeChatId(alertsDeliveryMatch[1]);
+        const hours = clampInt(url.searchParams.get('hours'), 24, 1, 24 * 7);
+        const historyRows = await loadCompatAlertHistory(store);
+        const scoped = historyRows.filter((row) => String(row?.chat_id ?? '') === chatId);
+        return sendJson(res, 200, buildCompatAlertDeliveryMetricsPayload(scoped, hours));
+      }
+
+      const alertsPriceErrorPolicyMatch = pathname.match(/^\/api\/alerts\/([^/]+)\/price-error-policy$/);
+      if (method === 'GET' && alertsPriceErrorPolicyMatch) {
+        const chatId = normalizeChatId(alertsPriceErrorPolicyMatch[1]);
+        const days = clampInt(url.searchParams.get('days'), 30, 1, 180);
+        const minSamples = clampInt(url.searchParams.get('minSamples'), 2, 1, 100);
+        const trackings = await store.listTrackings();
+        const rows = buildCompatPriceErrorRows(trackings, 1000);
+        const byCategoryMap = new Map();
+        for (const row of rows) {
+          const tracking = trackings.find((item) => String(item?.asin ?? '').trim().toUpperCase() === row.asin);
+          const category = String(tracking?.category ?? 'unknown').trim() || 'unknown';
+          if (!byCategoryMap.has(category)) {
+            byCategoryMap.set(category, { category, samples: 0, markets: new Set(), avgPrice: 0 });
+          }
+          const bucket = byCategoryMap.get(category);
+          bucket.samples += 1;
+          bucket.markets.add(row.domain);
+          bucket.avgPrice += Number(row.price || 0);
+        }
+        const byCategory = [...byCategoryMap.values()]
+          .map((item) => ({
+            category: item.category,
+            samples: item.samples,
+            markets: item.markets.size,
+            avgPrice: item.samples > 0 ? Number((item.avgPrice / item.samples).toFixed(2)) : 0,
+          }))
+          .filter((item) => item.samples >= minSamples)
+          .sort((a, b) => b.samples - a.samples);
+
+        const schedulerState = store.getRuntimeState ? await store.getRuntimeState('scheduler_status') : null;
+        const scan = schedulerState?.stateValue?.metrics ?? {};
+        return sendJson(res, 200, {
+          windowDays: days,
+          minSamples,
+          byCategory,
+          calibration: [],
+          runtime: {
+            selfHealMode: String(scan.lastAnomalySelfHealMode || 'normal'),
+            selfHealReason: String(scan.lastAnomalySelfHealReason || 'stable'),
+            sloGuardrailBreached: Boolean(scan.lastAnomalySloGuardrailBreached),
+            sloGuardrailReasons: Array.isArray(scan.lastAnomalySloGuardrailReasons) ? scan.lastAnomalySloGuardrailReasons : [],
+            canaryEnabled: Boolean(scan.lastAnomalyCanaryEnabled),
+            canaryRolloutPct: Number(scan.lastAnomalyCanaryRolloutPct || 0),
+            canaryAutopilotEnabled: Boolean(scan.lastAnomalyCanaryAutopilotEnabled),
+            canaryAutopilotReason: String(scan.lastAnomalyCanaryAutopilotReason || ''),
+            canaryAutopilotPromoted: Boolean(scan.lastAnomalyCanaryAutopilotPromoted),
+            canaryAutopilotEvaluatedAt: String(scan.lastAnomalyCanaryAutopilotEvaluatedAt || ''),
+            canaryAutopilotMetrics: scan.lastAnomalyCanaryAutopilotMetrics || null,
+            blockedByScore: Number(scan.lastAlertsBlockedByScore || 0),
+            blockedByConfidence: Number(scan.lastAlertsBlockedByConfidence || 0),
+            rejectCooldownHits: Number(scan.lastRejectCooldownHits || 0),
+            scoreDistribution: Array.isArray(scan.lastScoreDistribution) ? scan.lastScoreDistribution : [],
+            decisionByCategory: Array.isArray(scan.lastAnomalyDecisionByCategory) ? scan.lastAnomalyDecisionByCategory : [],
+            decisionByVariant: Array.isArray(scan.lastAnomalyDecisionByVariant) ? scan.lastAnomalyDecisionByVariant : [],
+          },
+        });
+      }
+
+      const alertsThresholdRecommendationMatch = pathname.match(/^\/api\/alerts\/([^/]+)\/threshold-recommendation$/);
+      if (method === 'GET' && alertsThresholdRecommendationMatch) {
+        const chatId = normalizeChatId(alertsThresholdRecommendationMatch[1]);
+        const historyRows = await loadCompatAlertHistory(store);
+        const scoped = historyRows.filter((row) => String(row?.chat_id ?? '') === chatId);
+        const metrics7 = buildCompatAlertPrecisionPayload(scoped, 7);
+        const metrics30 = buildCompatAlertPrecisionPayload(scoped, 30);
+
+        const chatSettingsState = store.getRuntimeState
+          ? await store.getRuntimeState(buildChatSettingsStateKey(chatId))
+          : null;
+        const chatSettings = chatSettingsState?.stateValue ?? {};
+        const defaultDropPct = clampInt(chatSettings?.default_drop_pct, 10, 1, 90);
+        const customHunterState = store.getRuntimeState ? await store.getRuntimeState(HUNTER_CUSTOM_CONFIG_STATE_KEY) : null;
+        const hunterConfig = customHunterState?.stateValue?.config ?? {};
+        const currentHunterMinConfidence = clampInt(hunterConfig?.minConfidencePct, 45, 1, 99);
+
+        const precision30 = Number(metrics30?.totals?.precision_pct || 0);
+        const recommendedDefaultDropPct = precision30 < 35
+          ? clampInt(defaultDropPct + 2, defaultDropPct, 1, 90)
+          : precision30 > 80
+            ? clampInt(defaultDropPct - 1, defaultDropPct, 1, 90)
+            : defaultDropPct;
+        const recommendedHunterMinConfidence = precision30 < 35
+          ? clampInt(currentHunterMinConfidence + 5, currentHunterMinConfidence, 1, 99)
+          : precision30 > 80
+            ? clampInt(currentHunterMinConfidence - 2, currentHunterMinConfidence, 1, 99)
+            : currentHunterMinConfidence;
+        const hasChange =
+          recommendedDefaultDropPct !== defaultDropPct
+          || recommendedHunterMinConfidence !== currentHunterMinConfidence;
+
+        return sendJson(res, 200, {
+          hasChange,
+          reason: hasChange ? 'precision_tuning' : 'no_change',
+          current: {
+            defaultDropPct,
+            hunterMinConfidence: currentHunterMinConfidence,
+          },
+          recommended: {
+            defaultDropPct: recommendedDefaultDropPct,
+            hunterMinConfidence: recommendedHunterMinConfidence,
+          },
+          metrics7,
+          metrics30,
+          autoApply: true,
+          applied: {
+            enabled: false,
+            executed: false,
+            reason: 'compat_readonly',
+            at: null,
+            updated: {},
+          },
+        });
+      }
+
+      const alertsFeedbackMatch = pathname.match(/^\/api\/alerts\/([^/]+)\/(\d+)\/feedback$/);
+      if (method === 'PATCH' && alertsFeedbackMatch) {
+        const actorChatId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(actorChatId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const chatId = normalizeChatId(alertsFeedbackMatch[1]);
+        if (chatId !== String(actorChatId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const alertId = Number.parseInt(alertsFeedbackMatch[2], 10);
+        if (!Number.isInteger(alertId) || alertId <= 0) {
+          return sendJson(res, 400, { error: 'Invalid alertId', requestId });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        const status = String(body?.status ?? '').trim().toLowerCase();
+        const source = String(body?.source ?? '').trim() || null;
+        if (!status) {
+          return sendJson(res, 400, { error: 'Invalid feedback payload', requestId });
+        }
+
+        const rows = await loadCompatAlertHistory(store);
+        const index = rows.findIndex((row) => row.id === alertId && String(row?.chat_id ?? '') === chatId);
+        if (index < 0) {
+          return sendJson(res, 404, { error: 'Alert not found', requestId });
+        }
+        const updatedRow = {
+          ...rows[index],
+          feedback_status: status,
+          feedback_source: source,
+          chat_id: chatId,
+        };
+        const nextRows = rows.slice();
+        nextRows[index] = updatedRow;
+        await saveCompatAlertHistory(store, nextRows);
+        return sendJson(res, 200, { success: true, row: updatedRow });
+      }
+
+      const alertsDeleteSingleMatch = pathname.match(/^\/api\/alerts\/([^/]+)\/(\d+)$/);
+      if (method === 'DELETE' && alertsDeleteSingleMatch) {
+        const actorChatId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(actorChatId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const chatId = normalizeChatId(alertsDeleteSingleMatch[1]);
+        if (chatId !== String(actorChatId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const alertId = Number.parseInt(alertsDeleteSingleMatch[2], 10);
+        if (!Number.isInteger(alertId) || alertId <= 0) {
+          return sendJson(res, 400, { error: 'Invalid alertId', requestId });
+        }
+
+        const rows = await loadCompatAlertHistory(store);
+        const index = rows.findIndex((row) => row.id === alertId && String(row?.chat_id ?? '') === chatId);
+        if (index < 0) {
+          return sendJson(res, 404, { error: 'Alert not found', requestId });
+        }
+        const deletedRow = rows[index];
+        const nextRows = rows.filter((row) => !(row.id === alertId && String(row?.chat_id ?? '') === chatId));
+        await saveCompatAlertHistory(store, nextRows);
+        return sendJson(res, 200, { success: true, row: deletedRow });
+      }
+
+      const alertsClearMatch = pathname.match(/^\/api\/alerts\/([^/]+)\/clear$/);
+      if (method === 'DELETE' && alertsClearMatch) {
+        const chatId = normalizeChatId(alertsClearMatch[1]);
+        const rows = await loadCompatAlertHistory(store);
+        const nextRows = rows.filter((row) => String(row?.chat_id ?? '') !== chatId);
+        const cleared = rows.length - nextRows.length;
+        await saveCompatAlertHistory(store, nextRows);
+        return sendJson(res, 200, { success: true, cleared });
+      }
+
+      if (method === 'GET' && pathname === '/api/perf/routes') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+
+        const windowSec = clampInt(url.searchParams.get('windowSec'), 900, 60, 24 * 3600);
+        const limit = clampInt(url.searchParams.get('limit'), 20, 1, 100);
+        const schedulerState = store.getRuntimeState ? await store.getRuntimeState('scheduler_status') : null;
+        const metrics = schedulerState?.stateValue?.metrics ?? {};
+
+        const snapshot = {
+          window_sec: windowSec,
+          samples: Number(metrics?.apiSamples || 0),
+          overall: {
+            p50_ms: Number(metrics?.apiP50Ms || 0),
+            p95_ms: Number(metrics?.apiP95Ms || 0),
+            p99_ms: Number(metrics?.apiP99Ms || 0),
+          },
+          routes: Array.isArray(metrics?.apiRoutes) ? metrics.apiRoutes.slice(0, limit) : [],
+          slow_routes: Array.isArray(metrics?.slowRoutes) ? metrics.slowRoutes.slice(0, limit) : [],
+          rate_limits: metrics?.rateLimits && typeof metrics.rateLimits === 'object' ? metrics.rateLimits : {},
+          rate_limit_config: metrics?.rateLimitConfig && typeof metrics.rateLimitConfig === 'object'
+            ? metrics.rateLimitConfig
+            : {
+                enabled: false,
+              },
+          requestId,
+        };
+        return sendJson(res, 200, snapshot);
+      }
+
+      if (method === 'GET' && pathname === '/api/token-efficiency') {
+        const hours = clampInt(url.searchParams.get('hours'), 24, 1, 24 * 30);
+        const schedulerState = store.getRuntimeState ? await store.getRuntimeState('scheduler_status') : null;
+        const tokenUsageState = store.getRuntimeState ? await store.getRuntimeState(KEEPA_TOKEN_USAGE_STATE_KEY) : null;
+        const tokenUsage = normalizeKeepaTokenUsage(tokenUsageState?.stateValue ?? {});
+        const metrics = schedulerState?.stateValue?.metrics ?? {};
+
+        const tokensSpent = Number(tokenUsage.used || 0);
+        const alerts = Number(metrics?.lastAlerts || 0);
+        const tokensPerAlert = alerts > 0 ? Number((tokensSpent / alerts).toFixed(2)) : null;
+        const scanned = Number(metrics?.lastScanned || 0);
+        const estimated = Number(metrics?.lastEstimatedTokens || 0);
+        const tokensPerScanned = scanned > 0 ? Number((estimated / scanned).toFixed(2)) : null;
+
+        return sendJson(res, 200, {
+          windowHours: hours,
+          tokensSpent: Number(tokensSpent.toFixed(2)),
+          alerts,
+          tokensPerAlert,
+          latestScan: {
+            scanned,
+            alerts,
+            estimatedTokens: estimated,
+            coldSkipped: Number(metrics?.lastColdSkipped || 0),
+            budgetTokens: Number(metrics?.lastBudgetTokens || 0),
+            tokensPerScanned,
+          },
+          cumulative: {
+            estimatedTokens: Number(metrics?.cumulativeEstimatedTokens || 0),
+            totalScans: Number(metrics?.totalScans || 0),
+            totalScanned: Number(metrics?.totalScanned || 0),
+            totalAlerts: Number(metrics?.totalAlerts || 0),
+          },
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/popular') {
+        const limit = clampInt(url.searchParams.get('limit'), 20, 1, 50);
+        const trackings = await store.listTrackings();
+        const rows = buildPopularityRows(trackings, limit);
+        return sendJson(res, 200, rows);
+      }
+
+      const popularityMatch = pathname.match(/^\/api\/popularity\/([^/]+)$/);
+      if (method === 'GET' && popularityMatch) {
+        const asin = decodeURIComponent(popularityMatch[1]).toUpperCase();
+        if (!asin) return sendJson(res, 400, { error: 'asin_required' });
+
+        const trackings = await store.listTrackings();
+        const rows = buildPopularityRows(trackings, 500);
+        const hit = rows.find((row) => row.asin === asin);
+        return sendJson(res, 200, {
+          asin,
+          trackers: hit?.trackers ?? 0,
+          score: hit?.score ?? 0,
+          rank: hit ? rows.findIndex((row) => row.asin === asin) + 1 : null,
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/scan/run-now') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+
+        const scanPolicyState = store.getRuntimeState ? await store.getRuntimeState(SETTINGS_SCAN_POLICY_STATE_KEY) : null;
+        const scanEnabled = scanPolicyState?.stateValue?.scanEnabled ?? true;
+        if (scanEnabled === false) {
+          return sendJson(res, 409, { success: false, error: 'Skanowanie jest wyłączone', requestId });
+        }
+
+        const scanRuntimeState = store.getRuntimeState ? await store.getRuntimeState(SCAN_RUNTIME_STATE_KEY) : null;
+        const scanRuntime = scanRuntimeState?.stateValue ?? {};
+        if (scanRuntime?.isScanning === true) {
+          return sendJson(res, 200, {
+            success: true,
+            started: false,
+            reason: 'already_running',
+            error: 'Skan już trwa',
+            requestId,
+          });
+        }
+
+        const requestedAt = new Date().toISOString();
+        const nextRuntime = {
+          ...scanRuntime,
+          isScanning: true,
+          lastRunNowRequestedAt: requestedAt,
+          lastAction: 'run-now',
+          actor: userId ?? null,
+        };
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(SCAN_RUNTIME_STATE_KEY, nextRuntime);
+          const schedulerState = await store.getRuntimeState('scheduler_status');
+          await store.setRuntimeState('scheduler_status', {
+            ...(schedulerState?.stateValue ?? {}),
+            isScanning: true,
+            lastRunAt: requestedAt,
+            lastAction: 'run-now',
+          });
+        }
+
+        return sendJson(res, 200, {
+          success: true,
+          started: true,
+          requestedAt,
+          requestId,
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/scan/stop') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+
+        const requestedAt = new Date().toISOString();
+        const scanRuntimeState = store.getRuntimeState ? await store.getRuntimeState(SCAN_RUNTIME_STATE_KEY) : null;
+        const scanRuntime = scanRuntimeState?.stateValue ?? {};
+        const nextRuntime = {
+          ...scanRuntime,
+          isScanning: false,
+          stopRequestedAt: requestedAt,
+          lastAction: 'stop',
+          actor: userId ?? null,
+        };
+
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(SCAN_RUNTIME_STATE_KEY, nextRuntime);
+          const schedulerState = await store.getRuntimeState('scheduler_status');
+          await store.setRuntimeState('scheduler_status', {
+            ...(schedulerState?.stateValue ?? {}),
+            isScanning: false,
+            stopRequestedAt: requestedAt,
+            lastAction: 'stop',
+          });
+        }
+
+        return sendJson(res, 200, {
+          success: true,
+          stopped: true,
+          requestedAt,
+          requestId,
         });
       }
 

@@ -2688,3 +2688,187 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 - Zaktualizowano `docs/API_ENDPOINT_INVENTORY.md`:
   - `GET /api/keepa/watch-state/summary` -> DONE,
   - `GET /api/keepa/nl-reliability` -> DONE.
+
+## [2026-04-18 04:30:00Z] P0-C core system/version/config compatibility endpoints implemented
+- Dodano kompatybilne endpointy operacyjne:
+  - `GET /api/version`,
+  - `GET /api/config`,
+  - `GET /api/launch-readiness`,
+  - `GET /api/system-health`,
+  - `GET /api/system-health/history`,
+  - `GET /api/system-stats`,
+  - `GET /api/system-stats/history`.
+- Zachowanie zgodne z legacy:
+  - endpointy admin-only (`launch-readiness`, `system-stats*`, `system-health/history`) zwracają `403 Forbidden` bez uprawnień,
+  - `system-health` dla nie-admin zwraca tylko bezpieczny skrót statusu.
+- Dodano runtime historię próbek systemowych:
+  - key: `system_stats_history_v1`,
+  - retencja próbek 24h i filtrowanie zakresu `1h/6h/12h/24h`.
+- Dodano test kontraktowy:
+  - `P0-C: core system/version/config compatibility endpoints`
+    w `packages/api/test/contracts-v1.test.mjs`.
+- Zaktualizowano `docs/API_ENDPOINT_INVENTORY.md`:
+  - wszystkie powyższe endpointy oznaczone jako DONE.
+
+## [2026-04-18 05:05:00Z] P0-C ops compatibility endpoints + inventory sync
+- Dodano brakujące endpointy operacyjne (admin-only):
+  - `GET /api/ops/metrics`,
+  - `GET /api/ops/keepa-history-bootstrap`.
+- Kontrakt endpointów:
+  - oba endpointy zwracają `403 Forbidden` bez uprawnień admina,
+  - `ops/metrics` zwraca runtime snapshot (`runtime`, `trackings`, `scheduler`, `keepa`, `selfHeal`),
+  - `ops/keepa-history-bootstrap` zwraca stan backlogu i próbkę ASIN-ów (`status`, `backlog`, `global`, `sample`).
+- Rozszerzono test:
+  - `P0-C: core system/version/config compatibility endpoints`
+  - nowe asercje dla `ops/metrics` i `ops/keepa-history-bootstrap`.
+- Zsynchronizowano dokumentację z faktycznym stanem runtime:
+  - `docs/API_ENDPOINT_INVENTORY.md` (oznaczenia DONE dla endpointów keepa/ops/trackings/dashboard/history, które już działają w `packages/api/src/runtime/server.mjs`),
+  - `docs/FULL_MECHANICS_INVENTORY.md` (`O001`, `O002`, `O005`, `O006` -> DONE).
+- Walidacja:
+  - `npm run test:contracts` -> PASS (`66/66`).
+
+## [2026-04-18 05:30:00Z] P0-C scan control compatibility endpoints completed
+- Dodano brakujące endpointy kompatybilności skanera:
+  - `POST /api/scan/run-now`,
+  - `POST /api/scan/stop`.
+- Zachowanie zgodne z legacy:
+  - oba endpointy są admin-only (`403 Forbidden` bez uprawnień),
+  - `run-now` zwraca konflikt `409` gdy skan trwa (`Skan już trwa`),
+  - `run-now` zwraca konflikt `409` gdy `scanEnabled=false` (`Skanowanie jest wyłączone`),
+  - `stop` zapisuje żądanie zatrzymania i kończy aktywny stan skanowania.
+- Runtime state:
+  - `scan_runtime_state_v1` (stan skanowania i ostatnie akcje),
+  - aktualizacja `scheduler_status` przy `run-now` i `stop`.
+- Rozszerzono kontrakty:
+  - nowy test `P0-C: /api/scan/run-now + /api/scan/stop compatibility with admin guard`.
+- Aktualizacja dokumentacji:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`scan/run-now`, `scan/stop` -> DONE),
+  - `docs/FULL_MECHANICS_INVENTORY.md` (`O007` -> DONE).
+
+## [2026-04-18 05:50:00Z] P0-C scan observability compatibility endpoints completed
+- Dodano brakujące endpointy kompatybilności planowania skanu:
+  - `GET /api/scan-kpi`,
+  - `GET /api/scan-plan/:chatId`.
+- Kontrakt endpointów:
+  - `scan-kpi` zwraca `trackedCount`, `dueCount`, `planner`, `tokens`, `scan`, `scheduler`,
+  - `scan-plan/:chatId` zwraca plan pod budżet (`budget`, `plannedCount`, `skippedCount`, `items`) oraz `chatId`.
+- Implementacja:
+  - prosty scoring kandydatów (`trust/drop/updates`) i selekcja do budżetu (`avgTokenPerAsin`),
+  - wsparcie custom budget przez query `?budget=...`.
+- Rozszerzono testy kontraktowe:
+  - nowy test `P0-C: /api/scan-kpi + /api/scan-plan/:chatId compatibility endpoints`.
+- Aktualizacja dokumentacji:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`scan-kpi`, `scan-plan` -> DONE).
+
+## [2026-04-18 06:10:00Z] P0-C perf + token efficiency compatibility endpoints completed
+- Dodano brakujące endpointy kompatybilności analytics/system:
+  - `GET /api/perf/routes` (admin-only),
+  - `GET /api/token-efficiency`.
+- Kontrakt endpointów:
+  - `perf/routes` zwraca snapshot wydajności (`window_sec`, `samples`, `overall`, `routes`, `slow_routes`, `rate_limits`, `rate_limit_config`),
+  - `token-efficiency` zwraca metryki okna (`windowHours`, `tokensSpent`, `alerts`, `tokensPerAlert`, `latestScan`, `cumulative`).
+- Rozszerzono testy kontraktowe:
+  - nowy test `P0-C: /api/perf/routes + /api/token-efficiency compatibility endpoints`.
+- Aktualizacja dokumentacji:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`perf/routes`, `token-efficiency` -> DONE),
+  - `docs/FULL_MECHANICS_INVENTORY.md` (`N002`, `N003`, `N004` -> DONE).
+
+## [2026-04-18 06:25:00Z] P0-C popularity compatibility endpoints completed
+- Dodano brakujące endpointy kompatybilności popularity:
+  - `GET /api/popular`,
+  - `GET /api/popularity/:asin`.
+- Kontrakt endpointów:
+  - `popular` zwraca listę ASIN-ów posortowaną scorem (`asin`, `title`, `category`, `trustScore`, `dropPct`, `trackers`, `score`),
+  - `popularity/:asin` zwraca `trackers`, `score`, `rank` dla konkretnego ASIN (oraz `0/null` gdy brak danych).
+- Rozszerzono testy kontraktowe:
+  - nowy test `P0-C: /api/popular + /api/popularity/:asin compatibility endpoints`.
+- Aktualizacja dokumentacji:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`popular`, `popularity/:asin` -> DONE).
+
+## [2026-04-18 06:40:00Z] P0-C categories + tags compatibility endpoints completed
+- Dodano brakujące endpointy kompatybilności analytics/misc:
+  - `GET /api/categories/:chatId`,
+  - `GET /api/tags/:chatId`.
+- Kontrakt endpointów:
+  - `categories/:chatId` zwraca listę kategorii (`id`, `category`, `count`),
+  - `tags/:chatId` zwraca listę tagów (`id`, `tag`, `count`).
+- Implementacja:
+  - kategorie i tagi budowane na podstawie aktualnych trackingów runtime (best-effort compatibility).
+- Rozszerzono testy kontraktowe:
+  - nowy test `P0-C: /api/categories/:chatId + /api/tags/:chatId compatibility endpoints`.
+- Aktualizacja dokumentacji:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`categories`, `tags` -> DONE),
+  - `docs/FULL_MECHANICS_INVENTORY.md` (`N007` -> DONE).
+
+## [2026-04-18 06:55:00Z] P0-C stats + stock compatibility endpoints completed
+- Dodano brakujące endpointy kompatybilności analytics/misc:
+  - `GET /api/stats/:chatId`,
+  - `GET /api/stock/:asin` (admin-only).
+- Kontrakt endpointów:
+  - `stats/:chatId` zwraca kompatybilny payload liczników (`total_products`, `total_alerts`, `alerts_7d`, `alerts_30d`, itp.),
+  - `stock/:asin` zwraca `out_of_stock` + `last_in_stock_at` i jest chroniony guardem admina.
+- Rozszerzono testy kontraktowe:
+  - nowy test `P0-C: /api/stats/:chatId + /api/stock/:asin compatibility endpoints`.
+- Aktualizacja dokumentacji:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`stats`, `stock` -> DONE),
+  - `docs/FULL_MECHANICS_INVENTORY.md` (`N008` -> DONE).
+
+## [2026-04-18 07:10:00Z] P0-C heatmap + buybox compatibility endpoints completed
+- Dodano brakujące endpointy kompatybilności analytics/misc:
+  - `GET /api/heatmap/:asin`,
+  - `GET /api/buybox/:asin` (admin-only).
+- Kontrakt endpointów:
+  - `heatmap/:asin` zwraca ujednoliconą listę punktów cenowych (`ts`, `market`, `condition`, `price`, `currency`) filtrowaną po `days`,
+  - `buybox/:asin` jest chroniony guardem admina (`403 Forbidden` bez uprawnień) i zwraca kompatybilną listę wpisów historii buybox (best-effort payload).
+- Rozszerzono testy kontraktowe:
+  - nowy test `P0-C: /api/heatmap/:asin + /api/buybox/:asin compatibility endpoints`.
+- Aktualizacja dokumentacji:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`heatmap`, `buybox` -> DONE).
+
+## [2026-04-18 07:30:00Z] P0-C price-errors re-alert compatibility endpoints completed
+- Dodano brakujące endpointy kompatybilności analytics alert-write/history:
+  - `GET /api/price-errors` (admin-only),
+  - `POST /api/price-errors/realert-threshold` (admin-only),
+  - `POST /api/price-errors/realert-threshold/bulk` (admin-only),
+  - `DELETE /api/price-errors/realert-threshold` (admin-only).
+- Kontrakt endpointów:
+  - guard admina zwraca `403 Forbidden` bez uprawnień,
+  - re-alert single/bulk zapisuje runtime reguły progów i zwraca `success`,
+  - delete czyści konkretną regułę (`cleared: true`),
+  - `price-errors` zwraca kompatybilną listę pozycji i dekoruje wpisy aktywną regułą re-alert.
+- Rozszerzono testy kontraktowe:
+  - nowy test `P0-C: /api/price-errors re-alert compatibility endpoints`.
+- Aktualizacja dokumentacji:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`price-errors`, `realert-threshold*` -> DONE).
+
+## [2026-04-18 07:45:00Z] P0-C alerts history + feedback/delete/clear compatibility endpoints completed
+- Dodano brakujące endpointy kompatybilności alert history/write:
+  - `GET /api/alerts/:chatId`,
+  - `PATCH /api/alerts/:chatId/:alertId/feedback` (admin-only + actor match),
+  - `DELETE /api/alerts/:chatId/:alertId` (admin-only + actor match),
+  - `DELETE /api/alerts/:chatId/clear`.
+- Implementacja runtime:
+  - nowy stan `compat_alert_history_v1` jako warstwa kompatybilności historii alertów,
+  - bootstrap historii z `automation runs` przy pierwszym odczycie (best-effort),
+  - filtrowanie typów alertów dla nie-admin (`USER_VISIBLE_ALERT_TYPES`),
+  - obsługa aktualizacji feedbacku oraz usuwania pojedynczego i zbiorczego.
+- Rozszerzono testy kontraktowe:
+  - nowy test `P0-C: /api/alerts/:chatId compatibility read/write endpoints`.
+- Aktualizacja dokumentacji:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`alerts/:chatId`, `feedback`, `delete`, `clear` -> DONE).
+
+## [2026-04-18 08:00:00Z] P0-C alerts policy compatibility endpoints completed
+- Dodano brakujące endpointy kompatybilności `alerts-policy`:
+  - `GET /api/alerts/:chatId/precision`,
+  - `GET /api/alerts/:chatId/delivery-metrics`,
+  - `GET /api/alerts/:chatId/price-error-policy`,
+  - `GET /api/alerts/:chatId/threshold-recommendation`.
+- Implementacja runtime:
+  - metryki precision budowane z `compat_alert_history_v1` z oknem `days`,
+  - metryki delivery kanałów budowane z historii alertów z oknem `hours`,
+  - `price-error-policy` zwraca agregację kategorii + runtime snapshot scheduler/self-heal/canary,
+  - `threshold-recommendation` zwraca rekomendacje progów (best-effort compat) na podstawie precision 7/30d.
+- Rozszerzono testy kontraktowe:
+  - nowy test `P0-C: /api/alerts/:chatId policy compatibility endpoints`.
+- Aktualizacja dokumentacji:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`alerts policy endpoints` -> DONE).

@@ -129,6 +129,111 @@ test('P0-C: core auth/session compatibility endpoints', async () => {
   }
 });
 
+test('P0-C: core system/version/config compatibility endpoints', async () => {
+  const store = createInMemoryStore();
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(
+      async (baseUrl) => {
+        const version = await readJson(await fetch(`${baseUrl}/api/version`, { headers: { 'x-request-id': 'req-version' } }));
+        assert.equal(version.status, 200);
+        assert.ok(typeof version.body.version === 'string');
+        assert.ok(typeof version.body.serverTime === 'string');
+        assert.ok(Number.isFinite(Number(version.body.uptime)));
+        assert.equal(version.body.requestId, 'req-version');
+
+        const configAdmin = await readJson(
+          await fetch(`${baseUrl}/api/config`, { headers: { 'x-telegram-user-id': '2041' } }),
+        );
+        assert.equal(configAdmin.status, 200);
+        assert.ok(configAdmin.body.adminPermissions);
+        assert.equal(configAdmin.body.adminPermissions.isAdmin, true);
+        assert.ok(typeof configAdmin.body.webToken === 'string' && configAdmin.body.webToken.length > 16);
+
+        const launchForbidden = await readJson(
+          await fetch(`${baseUrl}/api/launch-readiness`, { headers: { 'x-telegram-user-id': '9999' } }),
+        );
+        assert.equal(launchForbidden.status, 403);
+        assert.equal(launchForbidden.body.error, 'Forbidden');
+
+        const launchReady = await readJson(
+          await fetch(`${baseUrl}/api/launch-readiness?windowSec=600`, { headers: { 'x-telegram-user-id': '2041' } }),
+        );
+        assert.equal(launchReady.status, 200);
+        assert.ok(Array.isArray(launchReady.body.blockers));
+        assert.ok(typeof launchReady.body.ready === 'boolean');
+
+        const opsMetricsForbidden = await readJson(await fetch(`${baseUrl}/api/ops/metrics`));
+        assert.equal(opsMetricsForbidden.status, 403);
+        assert.equal(opsMetricsForbidden.body.error, 'Forbidden');
+
+        const opsMetrics = await readJson(
+          await fetch(`${baseUrl}/api/ops/metrics`, { headers: { 'x-telegram-user-id': '2041' } }),
+        );
+        assert.equal(opsMetrics.status, 200);
+        assert.ok(opsMetrics.body.runtime);
+        assert.ok(opsMetrics.body.trackings);
+        assert.ok(Number.isFinite(Number(opsMetrics.body.trackings.total)));
+
+        const keepaBootstrap = await readJson(
+          await fetch(`${baseUrl}/api/ops/keepa-history-bootstrap?sampleLimit=5`, {
+            headers: { 'x-telegram-user-id': '2041' },
+          }),
+        );
+        assert.equal(keepaBootstrap.status, 200);
+        assert.ok(typeof keepaBootstrap.body.status === 'string');
+        assert.ok(keepaBootstrap.body.backlog);
+        assert.ok(Array.isArray(keepaBootstrap.body.sample));
+
+        const systemHealthPublic = await readJson(await fetch(`${baseUrl}/api/system-health`));
+        assert.equal(systemHealthPublic.status, 200);
+        assert.equal(systemHealthPublic.body.status, 'ok');
+        assert.ok(!('modules' in systemHealthPublic.body));
+
+        const systemHealthAdmin = await readJson(
+          await fetch(`${baseUrl}/api/system-health`, { headers: { 'x-telegram-user-id': '2041' } }),
+        );
+        assert.equal(systemHealthAdmin.status, 200);
+        assert.ok(Array.isArray(systemHealthAdmin.body.modules));
+        assert.ok(systemHealthAdmin.body.operationalReadiness);
+
+        const systemStatsForbidden = await readJson(await fetch(`${baseUrl}/api/system-stats`));
+        assert.equal(systemStatsForbidden.status, 403);
+        assert.equal(systemStatsForbidden.body.error, 'Forbidden');
+
+        const systemStats = await readJson(
+          await fetch(`${baseUrl}/api/system-stats`, { headers: { 'x-telegram-user-id': '2041' } }),
+        );
+        assert.equal(systemStats.status, 200);
+        assert.ok(systemStats.body.cpu);
+        assert.ok(systemStats.body.memory);
+        assert.ok(typeof systemStats.body.capturedAt === 'string');
+
+        const systemStatsHistory = await readJson(
+          await fetch(`${baseUrl}/api/system-stats/history?range=1h`, { headers: { 'x-telegram-user-id': '2041' } }),
+        );
+        assert.equal(systemStatsHistory.status, 200);
+        assert.equal(systemStatsHistory.body.range, '1h');
+        assert.ok(Array.isArray(systemStatsHistory.body.points));
+        assert.ok(Number.isFinite(Number(systemStatsHistory.body.totalCount)));
+
+        const systemHealthHistory = await readJson(
+          await fetch(`${baseUrl}/api/system-health/history`, { headers: { 'x-telegram-user-id': '2041' } }),
+        );
+        assert.equal(systemHealthHistory.status, 200);
+        assert.ok(Array.isArray(systemHealthHistory.body.rows));
+        assert.ok(Number.isFinite(Number(systemHealthHistory.body.count)));
+      },
+      { store },
+    );
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
 test('P0-C: mobile v1 auth/session compatibility endpoints', async () => {
   const store = createInMemoryStore();
   const previousAdminId = process.env.SOON_ADMIN_ID;
@@ -1077,6 +1182,507 @@ test('P0-C: /api/settings/:chatId/scan-policy read/write compatibility with admi
         postScanTokenRechargeMin: 11,
         idleScavengerMinWindowMin: 33,
       });
+    });
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
+test('P0-C: /api/scan/run-now + /api/scan/stop compatibility with admin guard', async () => {
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(async (baseUrl) => {
+      const enableScanPolicy = await readJson(
+        await fetch(`${baseUrl}/api/settings/2041/scan-policy`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-telegram-user-id': '2041',
+          },
+          body: JSON.stringify({
+            scanEnabled: true,
+            forceFullEachCycle: false,
+            postScanTokenRechargeMin: 15,
+            idleScavengerMinWindowMin: 20,
+          }),
+        }),
+      );
+      assert.equal(enableScanPolicy.status, 200);
+      assert.equal(enableScanPolicy.body.scanPolicy.scanEnabled, true);
+
+      const runForbidden = await readJson(await fetch(`${baseUrl}/api/scan/run-now`, { method: 'POST' }));
+      assert.equal(runForbidden.status, 403);
+      assert.equal(runForbidden.body.error, 'Forbidden');
+
+      const stopForbidden = await readJson(await fetch(`${baseUrl}/api/scan/stop`, { method: 'POST' }));
+      assert.equal(stopForbidden.status, 403);
+      assert.equal(stopForbidden.body.error, 'Forbidden');
+
+      const runNow = await readJson(
+        await fetch(`${baseUrl}/api/scan/run-now`, {
+          method: 'POST',
+          headers: { 'x-telegram-user-id': '2041' },
+        }),
+      );
+      assert.equal(runNow.status, 200);
+      assert.equal(runNow.body.success, true);
+      assert.equal(runNow.body.started, true);
+      assert.ok(typeof runNow.body.requestedAt === 'string' && runNow.body.requestedAt.length > 10);
+
+      const runConflict = await readJson(
+        await fetch(`${baseUrl}/api/scan/run-now`, {
+          method: 'POST',
+          headers: { 'x-telegram-user-id': '2041' },
+        }),
+      );
+      assert.equal(runConflict.status, 200);
+      assert.equal(runConflict.body.success, true);
+      assert.equal(runConflict.body.started, false);
+      assert.equal(runConflict.body.reason, 'already_running');
+      assert.equal(runConflict.body.error, 'Skan już trwa');
+
+      const stopNow = await readJson(
+        await fetch(`${baseUrl}/api/scan/stop`, {
+          method: 'POST',
+          headers: { 'x-telegram-user-id': '2041' },
+        }),
+      );
+      assert.equal(stopNow.status, 200);
+      assert.equal(stopNow.body.success, true);
+      assert.equal(stopNow.body.stopped, true);
+
+      const disableScanPolicy = await readJson(
+        await fetch(`${baseUrl}/api/settings/2041/scan-policy`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-telegram-user-id': '2041',
+          },
+          body: JSON.stringify({
+            scanEnabled: false,
+            forceFullEachCycle: false,
+            postScanTokenRechargeMin: 15,
+            idleScavengerMinWindowMin: 20,
+          }),
+        }),
+      );
+      assert.equal(disableScanPolicy.status, 200);
+      assert.equal(disableScanPolicy.body.scanPolicy.scanEnabled, false);
+
+      const runDisabled = await readJson(
+        await fetch(`${baseUrl}/api/scan/run-now`, {
+          method: 'POST',
+          headers: { 'x-telegram-user-id': '2041' },
+        }),
+      );
+      assert.equal(runDisabled.status, 409);
+      assert.equal(runDisabled.body.success, false);
+      assert.equal(runDisabled.body.error, 'Skanowanie jest wyłączone');
+    });
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
+test('P0-C: /api/scan-kpi + /api/scan-plan/:chatId compatibility endpoints', async () => {
+  await withServer(async (baseUrl) => {
+    const scanKpi = await readJson(await fetch(`${baseUrl}/api/scan-kpi`));
+    assert.equal(scanKpi.status, 200);
+    assert.ok(Number.isFinite(Number(scanKpi.body.trackedCount)));
+    assert.ok(Number.isFinite(Number(scanKpi.body.dueCount)));
+    assert.ok(scanKpi.body.planner && typeof scanKpi.body.planner === 'object');
+    assert.ok(scanKpi.body.tokens && typeof scanKpi.body.tokens === 'object');
+    assert.ok(scanKpi.body.scheduler && typeof scanKpi.body.scheduler === 'object');
+
+    const scanPlanAuto = await readJson(await fetch(`${baseUrl}/api/scan-plan/2041`));
+    assert.equal(scanPlanAuto.status, 200);
+    assert.equal(scanPlanAuto.body.chatId, '2041');
+    assert.ok(Number.isFinite(Number(scanPlanAuto.body.totalTrackings)));
+    assert.ok(Number.isFinite(Number(scanPlanAuto.body.budget)));
+    assert.ok(Number.isFinite(Number(scanPlanAuto.body.plannedCount)));
+    assert.ok(Number.isFinite(Number(scanPlanAuto.body.skippedCount)));
+    assert.ok(Array.isArray(scanPlanAuto.body.items));
+
+    const scanPlanCustom = await readJson(await fetch(`${baseUrl}/api/scan-plan/2041?budget=7`));
+    assert.equal(scanPlanCustom.status, 200);
+    assert.equal(scanPlanCustom.body.chatId, '2041');
+    assert.equal(scanPlanCustom.body.budget, 7);
+    assert.ok(Number.isFinite(Number(scanPlanCustom.body.plannedCount)));
+    assert.ok(Array.isArray(scanPlanCustom.body.items));
+  });
+});
+
+test('P0-C: /api/perf/routes + /api/token-efficiency compatibility endpoints', async () => {
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(async (baseUrl) => {
+      const perfForbidden = await readJson(await fetch(`${baseUrl}/api/perf/routes`));
+      assert.equal(perfForbidden.status, 403);
+      assert.equal(perfForbidden.body.error, 'Forbidden');
+
+      const perfAdmin = await readJson(
+        await fetch(`${baseUrl}/api/perf/routes?windowSec=600&limit=10`, {
+          headers: { 'x-telegram-user-id': '2041' },
+        }),
+      );
+      assert.equal(perfAdmin.status, 200);
+      assert.equal(perfAdmin.body.window_sec, 600);
+      assert.ok(Number.isFinite(Number(perfAdmin.body.samples)));
+      assert.ok(perfAdmin.body.overall && typeof perfAdmin.body.overall === 'object');
+      assert.ok(Array.isArray(perfAdmin.body.routes));
+      assert.ok(Array.isArray(perfAdmin.body.slow_routes));
+
+      const tokenEfficiency = await readJson(await fetch(`${baseUrl}/api/token-efficiency?hours=48`));
+      assert.equal(tokenEfficiency.status, 200);
+      assert.equal(tokenEfficiency.body.windowHours, 48);
+      assert.ok(Number.isFinite(Number(tokenEfficiency.body.tokensSpent)));
+      assert.ok(Number.isFinite(Number(tokenEfficiency.body.alerts)));
+      assert.ok(tokenEfficiency.body.latestScan && typeof tokenEfficiency.body.latestScan === 'object');
+      assert.ok(tokenEfficiency.body.cumulative && typeof tokenEfficiency.body.cumulative === 'object');
+    });
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
+test('P0-C: /api/popular + /api/popularity/:asin compatibility endpoints', async () => {
+  await withServer(async (baseUrl) => {
+    const popular = await readJson(await fetch(`${baseUrl}/api/popular?limit=5`));
+    assert.equal(popular.status, 200);
+    assert.ok(Array.isArray(popular.body));
+    assert.ok(popular.body.length >= 1);
+    const sample = popular.body[0];
+    assert.ok(typeof sample.asin === 'string' && sample.asin.length >= 6);
+    assert.ok(Number.isFinite(Number(sample.score)));
+
+    const asin = sample.asin;
+    const popularity = await readJson(await fetch(`${baseUrl}/api/popularity/${asin}`));
+    assert.equal(popularity.status, 200);
+    assert.equal(popularity.body.asin, asin);
+    assert.ok(Number.isFinite(Number(popularity.body.trackers)));
+    assert.ok(Number.isFinite(Number(popularity.body.score)));
+    assert.ok(popularity.body.rank === null || Number.isFinite(Number(popularity.body.rank)));
+
+    const missingPopularity = await readJson(await fetch(`${baseUrl}/api/popularity/B000000000`));
+    assert.equal(missingPopularity.status, 200);
+    assert.equal(missingPopularity.body.asin, 'B000000000');
+    assert.equal(missingPopularity.body.trackers, 0);
+    assert.equal(missingPopularity.body.score, 0);
+    assert.equal(missingPopularity.body.rank, null);
+  });
+});
+
+test('P0-C: /api/categories/:chatId + /api/tags/:chatId compatibility endpoints', async () => {
+  await withServer(async (baseUrl) => {
+    const categories = await readJson(await fetch(`${baseUrl}/api/categories/2041`));
+    assert.equal(categories.status, 200);
+    assert.ok(Array.isArray(categories.body));
+    assert.ok(categories.body.length >= 1);
+    assert.ok(typeof categories.body[0].category === 'string' && categories.body[0].category.length >= 1);
+    assert.ok(Number.isFinite(Number(categories.body[0].count)));
+
+    const tags = await readJson(await fetch(`${baseUrl}/api/tags/2041`));
+    assert.equal(tags.status, 200);
+    assert.ok(Array.isArray(tags.body));
+    assert.ok(tags.body.length >= 1);
+    assert.ok(typeof tags.body[0].tag === 'string' && tags.body[0].tag.length >= 1);
+    assert.ok(Number.isFinite(Number(tags.body[0].count)));
+  });
+});
+
+test('P0-C: /api/stats/:chatId + /api/stock/:asin compatibility endpoints', async () => {
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(async (baseUrl) => {
+      const stats = await readJson(await fetch(`${baseUrl}/api/stats/2041`));
+      assert.equal(stats.status, 200);
+      assert.equal(stats.body.chat_id, '2041');
+      assert.ok(Number.isFinite(Number(stats.body.total_products)));
+      assert.ok(Number.isFinite(Number(stats.body.total_alerts)));
+      assert.ok(Number.isFinite(Number(stats.body.alerts_7d)));
+      assert.ok(Number.isFinite(Number(stats.body.alerts_30d)));
+
+      const stockForbidden = await readJson(await fetch(`${baseUrl}/api/stock/B0BYW7MMBR`));
+      assert.equal(stockForbidden.status, 403);
+      assert.equal(stockForbidden.body.error, 'Forbidden');
+
+      const stockAdmin = await readJson(
+        await fetch(`${baseUrl}/api/stock/B0BYW7MMBR`, {
+          headers: { 'x-telegram-user-id': '2041' },
+        }),
+      );
+      assert.equal(stockAdmin.status, 200);
+      assert.equal(stockAdmin.body.asin, 'B0BYW7MMBR');
+      assert.equal(typeof stockAdmin.body.out_of_stock, 'boolean');
+      assert.ok(stockAdmin.body.last_in_stock_at === null || typeof stockAdmin.body.last_in_stock_at === 'string');
+    });
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
+test('P0-C: /api/heatmap/:asin + /api/buybox/:asin compatibility endpoints', async () => {
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(async (baseUrl) => {
+      const heatmap = await readJson(await fetch(`${baseUrl}/api/heatmap/B0BYW7MMBR?days=30`));
+      assert.equal(heatmap.status, 200);
+      assert.ok(Array.isArray(heatmap.body));
+      if (heatmap.body.length > 0) {
+        assert.ok(typeof heatmap.body[0].ts === 'string');
+        assert.ok(Number.isFinite(Number(heatmap.body[0].price)));
+      }
+
+      const buyboxForbidden = await readJson(await fetch(`${baseUrl}/api/buybox/B0BYW7MMBR`));
+      assert.equal(buyboxForbidden.status, 403);
+      assert.equal(buyboxForbidden.body.error, 'Forbidden');
+
+      const buyboxAdmin = await readJson(
+        await fetch(`${baseUrl}/api/buybox/B0BYW7MMBR`, {
+          headers: { 'x-telegram-user-id': '2041' },
+        }),
+      );
+      assert.equal(buyboxAdmin.status, 200);
+      assert.ok(Array.isArray(buyboxAdmin.body));
+      if (buyboxAdmin.body.length > 0) {
+        assert.equal(buyboxAdmin.body[0].asin, 'B0BYW7MMBR');
+      }
+    });
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
+test('P0-C: /api/price-errors re-alert compatibility endpoints', async () => {
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(async (baseUrl) => {
+      const priceErrorsForbidden = await readJson(await fetch(`${baseUrl}/api/price-errors`));
+      assert.equal(priceErrorsForbidden.status, 403);
+      assert.equal(priceErrorsForbidden.body.error, 'Forbidden');
+
+      const priceErrorsAdmin = await readJson(
+        await fetch(`${baseUrl}/api/price-errors?limit=5`, {
+          headers: { 'x-telegram-user-id': '2041' },
+        }),
+      );
+      assert.equal(priceErrorsAdmin.status, 200);
+      assert.ok(Array.isArray(priceErrorsAdmin.body));
+
+      const relertForbidden = await readJson(
+        await fetch(`${baseUrl}/api/price-errors/realert-threshold`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            asin: 'B0BYW7MMBR',
+            domain: 'de',
+            basePrice: 999,
+            dropPercent: 10,
+          }),
+        }),
+      );
+      assert.equal(relertForbidden.status, 403);
+      assert.equal(relertForbidden.body.error, 'Forbidden');
+
+      const relertSaved = await readJson(
+        await fetch(`${baseUrl}/api/price-errors/realert-threshold`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-telegram-user-id': '2041',
+          },
+          body: JSON.stringify({
+            asin: 'B0BYW7MMBR',
+            domain: 'de',
+            basePrice: 1000,
+            dropPercent: 10,
+          }),
+        }),
+      );
+      assert.equal(relertSaved.status, 200);
+      assert.equal(relertSaved.body.success, true);
+      assert.equal(relertSaved.body.targetPrice, 900);
+
+      const relertBulk = await readJson(
+        await fetch(`${baseUrl}/api/price-errors/realert-threshold/bulk`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-telegram-user-id': '2041',
+          },
+          body: JSON.stringify({
+            dropPercent: 12,
+            limit: 10,
+          }),
+        }),
+      );
+      assert.equal(relertBulk.status, 200);
+      assert.equal(relertBulk.body.success, true);
+      assert.ok(Number.isFinite(Number(relertBulk.body.applied)));
+      assert.ok(Number.isFinite(Number(relertBulk.body.scanned)));
+
+      const relertCleared = await readJson(
+        await fetch(`${baseUrl}/api/price-errors/realert-threshold`, {
+          method: 'DELETE',
+          headers: {
+            'content-type': 'application/json',
+            'x-telegram-user-id': '2041',
+          },
+          body: JSON.stringify({
+            asin: 'B0BYW7MMBR',
+            domain: 'de',
+          }),
+        }),
+      );
+      assert.equal(relertCleared.status, 200);
+      assert.equal(relertCleared.body.success, true);
+      assert.equal(relertCleared.body.cleared, true);
+    });
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
+test('P0-C: /api/alerts/:chatId compatibility read/write endpoints', async () => {
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(async (baseUrl) => {
+      const warmup = await readJson(
+        await fetch(`${baseUrl}/automation/cycle`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            budgetMode: 'capped',
+            budgetTokens: 5,
+            candidates: [
+              { asin: 'B0BYW7MMBR', expectedValue: 0.9, confidence: 0.9, tokenCost: 1, priority: 1 },
+            ],
+          }),
+        }),
+      );
+      assert.equal(warmup.status, 200);
+
+      const alerts = await readJson(await fetch(`${baseUrl}/api/alerts/2041?limit=10`));
+      assert.equal(alerts.status, 200);
+      assert.ok(Array.isArray(alerts.body));
+
+      const feedbackForbidden = await readJson(
+        await fetch(`${baseUrl}/api/alerts/2041/1/feedback`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ status: 'ok', source: 'contract' }),
+        }),
+      );
+      assert.equal(feedbackForbidden.status, 403);
+      assert.equal(feedbackForbidden.body.error, 'Forbidden');
+
+      const feedbackNotFound = await readJson(
+        await fetch(`${baseUrl}/api/alerts/2041/99999/feedback`, {
+          method: 'PATCH',
+          headers: {
+            'content-type': 'application/json',
+            'x-telegram-user-id': '2041',
+          },
+          body: JSON.stringify({ status: 'ok', source: 'contract' }),
+        }),
+      );
+      assert.equal(feedbackNotFound.status, 404);
+      assert.equal(feedbackNotFound.body.error, 'Alert not found');
+
+      const deleteNotFound = await readJson(
+        await fetch(`${baseUrl}/api/alerts/2041/99999`, {
+          method: 'DELETE',
+          headers: {
+            'x-telegram-user-id': '2041',
+          },
+        }),
+      );
+      assert.equal(deleteNotFound.status, 404);
+      assert.equal(deleteNotFound.body.error, 'Alert not found');
+
+      const clear = await readJson(
+        await fetch(`${baseUrl}/api/alerts/2041/clear`, {
+          method: 'DELETE',
+        }),
+      );
+      assert.equal(clear.status, 200);
+      assert.equal(clear.body.success, true);
+      assert.ok(Number.isFinite(Number(clear.body.cleared)));
+    });
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
+test('P0-C: /api/alerts/:chatId policy compatibility endpoints', async () => {
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(async (baseUrl) => {
+      const warmup = await readJson(
+        await fetch(`${baseUrl}/automation/cycle`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            budgetMode: 'capped',
+            budgetTokens: 5,
+            candidates: [
+              { asin: 'B0BYW7MMBR', expectedValue: 0.9, confidence: 0.9, tokenCost: 1, priority: 1 },
+            ],
+          }),
+        }),
+      );
+      assert.equal(warmup.status, 200);
+
+      const precision = await readJson(await fetch(`${baseUrl}/api/alerts/2041/precision?days=30`));
+      assert.equal(precision.status, 200);
+      assert.equal(precision.body.windowDays, 30);
+      assert.ok(precision.body.totals && typeof precision.body.totals === 'object');
+      assert.ok(Array.isArray(precision.body.byType));
+
+      const delivery = await readJson(await fetch(`${baseUrl}/api/alerts/2041/delivery-metrics?hours=24`));
+      assert.equal(delivery.status, 200);
+      assert.equal(delivery.body.windowHours, 24);
+      assert.ok(delivery.body.channels && typeof delivery.body.channels === 'object');
+      assert.ok(delivery.body.rates && typeof delivery.body.rates === 'object');
+
+      const policy = await readJson(
+        await fetch(`${baseUrl}/api/alerts/2041/price-error-policy?days=30&minSamples=1`),
+      );
+      assert.equal(policy.status, 200);
+      assert.equal(policy.body.windowDays, 30);
+      assert.equal(policy.body.minSamples, 1);
+      assert.ok(Array.isArray(policy.body.byCategory));
+      assert.ok(policy.body.runtime && typeof policy.body.runtime === 'object');
+
+      const recommendation = await readJson(await fetch(`${baseUrl}/api/alerts/2041/threshold-recommendation`));
+      assert.equal(recommendation.status, 200);
+      assert.equal(typeof recommendation.body.hasChange, 'boolean');
+      assert.ok(recommendation.body.current && typeof recommendation.body.current === 'object');
+      assert.ok(recommendation.body.recommended && typeof recommendation.body.recommended === 'object');
+      assert.ok(recommendation.body.metrics7 && typeof recommendation.body.metrics7 === 'object');
+      assert.ok(recommendation.body.metrics30 && typeof recommendation.body.metrics30 === 'object');
+      assert.ok(recommendation.body.applied && typeof recommendation.body.applied === 'object');
     });
   } finally {
     if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
