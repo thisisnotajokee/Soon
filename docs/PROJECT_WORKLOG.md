@@ -2980,3 +2980,14 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - `ops/reports/deploy/soon-post-deploy-backup-20260418T035831Z.meta.json`.
 - Decyzja operacyjna:
   - `GO` dla finalnego cutover produkcyjnego.
+
+## [2026-04-18 04:05:00Z] Post-merge verify after PR #98 — PASS
+- Kontekst:
+  - PR `#98` (`docs: record final production cutover GO`) został zmergowany do `main`,
+  - wymagane checki quality-gate dla merge commitu przeszły (`monitoring-strict`, `monitoring-smoke`, `memory`, `postgres`).
+- Post-merge verify (pakiet szybki):
+  - ręczny `workflow_dispatch` `runtime-state-watchdog` -> `PASS` (run `24596502948`),
+  - `make check` na VM210 -> `PASS`,
+  - `https://api.ambot.nl/health` -> `200` (`status=ok`, `storage=postgres`).
+- Decyzja operacyjna:
+  - stabilizacja po merge rozpoczęta, brak sygnałów regresji bezpośrednio po scaleniu.
