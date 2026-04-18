@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Soon UI v1</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>Soon</h1>
+          <p class="subtitle">Tracking Core v1</p>
+        </div>
+        <div class="topbar-actions">
+          <button id="reload-trackings" type="button">Odśwież listę</button>
+          <button id="reload-detail" type="button">Odśwież szczegóły</button>
+        </div>
+      </header>
+
+      <section class="status-row">
+        <div class="status-item">
+          <span class="label">API</span>
+          <strong id="health-status">...</strong>
+        </div>
+        <div class="status-item">
+          <span class="label">Storage</span>
+          <strong id="health-storage">...</strong>
+        </div>
+        <div class="status-item">
+          <span class="label">Trackings</span>
+          <strong id="trackings-count">0</strong>
+        </div>
+        <div class="status-item">
+          <span class="label">Chat ID</span>
+          <strong id="chat-id">...</strong>
+        </div>
+      </section>
+
+      <main class="layout">
+        <aside class="panel">
+          <h2>Lista trackingów</h2>
+          <div class="list-controls">
+            <label>
+              Szukaj
+              <input id="filter-query" type="search" placeholder="ASIN / tytuł" />
+            </label>
+            <label>
+              Filtr
+              <select id="filter-snooze">
+                <option value="all">Wszystkie</option>
+                <option value="active">Aktywne</option>
+                <option value="snoozed">Snoozowane</option>
+              </select>
+            </label>
+            <label>
+              Sortowanie
+              <select id="sort-by">
+                <option value="updated_desc">Najnowsze</option>
+                <option value="new_min_asc">new min (rosnąco)</option>
+                <option value="used_min_asc">used min (rosnąco)</option>
+                <option value="title_asc">Tytuł A-Z</option>
+              </select>
+            </label>
+          </div>
+          <ul id="tracking-list" class="tracking-list"></ul>
+        </aside>
+
+        <section class="panel detail-panel">
+          <h2>Szczegóły produktu</h2>
+          <div id="detail-empty" class="empty-state">Wybierz produkt z listy.</div>
+          <div id="detail-content" class="detail-content hidden">
+            <header class="detail-header">
+              <div>
+                <h3 id="detail-title"></h3>
+                <p id="detail-asin" class="muted"></p>
+              </div>
+              <span id="detail-snooze-badge" class="chip hidden"></span>
+            </header>
+
+            <section>
+              <h4>Historia (new)</h4>
+              <svg id="detail-chart" class="price-chart" viewBox="0 0 600 180" role="img" aria-label="Wykres historii cen"></svg>
+            </section>
+
+            <section class="detail-actions">
+              <button id="action-refresh" type="button">Refresh ASIN</button>
+              <button id="action-snooze" type="button">Snooze 60 min</button>
+              <button id="action-unsnooze" type="button">Unsnooze</button>
+            </section>
+
+            <section>
+              <h4>Ceny new</h4>
+              <ul id="detail-new-prices" class="market-list"></ul>
+            </section>
+
+            <section>
+              <h4>Ceny used</h4>
+              <ul id="detail-used-prices" class="market-list"></ul>
+            </section>
+
+            <section class="grid-2">
+              <div>
+                <h4>Thresholds</h4>
+                <form id="threshold-form" class="threshold-form">
+                  <label>
+                    Drop %
+                    <input id="threshold-drop-pct" type="number" min="1" max="95" step="1" />
+                  </label>
+                  <button id="threshold-save" type="submit">Zapisz próg</button>
+                </form>
+                <ul id="detail-thresholds" class="plain-list"></ul>
+              </div>
+              <div>
+                <h4>Podsumowanie</h4>
+                <ul id="detail-summary" class="plain-list"></ul>
+              </div>
+            </section>
+
+            <section>
+              <h4>Ostatnia historia cen</h4>
+              <ul id="detail-history" class="history-list"></ul>
+            </section>
+          </div>
+        </section>
+      </main>
+
+      <section class="panel settings-panel">
+        <h2>Ustawienia v1</h2>
+        <form id="settings-form" class="settings-form">
+          <label>
+            Product interval (min)
+            <input id="settings-product-interval" type="number" min="1" max="1440" step="1" />
+          </label>
+          <label>
+            Scan interval (min)
+            <input id="settings-scan-interval" type="number" min="1" max="1440" step="1" />
+          </label>
+          <label class="checkbox-label">
+            <input id="settings-notifications" type="checkbox" />
+            Notifications enabled
+          </label>
+          <button id="settings-save" type="submit">Zapisz ustawienia</button>
+        </form>
+        <p id="settings-updated" class="muted"></p>
+      </section>
+
+      <p id="ui-error" class="error hidden"></p>
+    </div>
+
+    <script type="module" src="/main.mjs"></script>
+  </body>
+</html>
