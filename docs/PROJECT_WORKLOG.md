@@ -2872,3 +2872,111 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - nowy test `P0-C: /api/alerts/:chatId policy compatibility endpoints`.
 - Aktualizacja dokumentacji:
   - `docs/API_ENDPOINT_INVENTORY.md` (`alerts policy endpoints` -> DONE).
+
+## [2026-04-18 03:42:00Z] Cutover Candidate Cycle #1 (VM210) executed — NO-GO (infra DB connectivity)
+- Zakres wykonany:
+  - deploy check na `main` na VM210 (`git fetch`, `git checkout main`, `git pull --ff-only`),
+  - próba pełnego cyklu operacyjnego (`npm run db:migrate`, `make check`, `make doctor`, `make smoke`),
+  - ręczny `workflow_dispatch` dla `runtime-state-watchdog`,
+  - snapshot post-deploy (`npm run ops:deploy:snapshot`).
+- Stan runtime na VM210:
+  - branch/sha: `main` / `c45b3e7f9e23789168d8c66c72fd7da39f91caf4`,
+  - `soon-api` i `cloudflared`: `active`,
+  - `GET /health`: `200` (`storage=postgres`).
+- Wynik cyklu:
+  - `npm run db:migrate` na VM210: `FAIL` (`ECONNREFUSED 192.168.1.10:6432`),
+  - `make check` na VM210: `FAIL` (`/api/check-alert-status` -> `500` z tym samym `ECONNREFUSED 192.168.1.10:6432`),
+  - test portu z VM210: `DB_PORT_CLOSED` dla `192.168.1.10:6432`.
+- Watchdog:
+  - run: `runtime-state-watchdog` id `24596114008`,
+  - status: `failure`,
+  - URL: `https://github.com/thisisnotajokee/Soon/actions/runs/24596114008`,
+  - failing step: `Run runtime-state watchdog`,
+  - root cause: `connect ECONNREFUSED 192.168.1.10:6432`.
+- Artefakty:
+  - `ops/reports/deploy/soon-post-deploy-backup-20260418T034158Z.tgz`,
+  - `ops/reports/deploy/soon-post-deploy-backup-20260418T034158Z.meta.json`.
+- Decyzja operacyjna:
+  - `NO-GO` dla domknięcia Cycle #1 jako zielonego cyklu cutover,
+  - blocker jest infrastrukturalny (łączność DB), nie kontraktowy/runtime feature gap.
+
+### Następny krok
+1. Przywrócić dostępność DB endpointu `192.168.1.10:6432` z VM210 (network/firewall/pgbouncer/postgres).
+2. Po przywróceniu łączności powtórzyć pełny Cycle #1 (deploy check + `make check` + `make doctor` + watchdog dispatch + snapshot) i oczekiwać `GO`.
+
+## [2026-04-18 03:49:00Z] Cutover Candidate Cycle #1 rerun after DB connectivity remediation — GO
+- Triage infra DB (host `192.168.1.10`) potwierdził root cause:
+  - `ambot-pro-pgbouncer-1` działał bez ekspozycji host-port (`5432/tcp` tylko wewnątrz sieci docker),
+  - VM210 miało `PING_OK`, ale `TCP_6432_CLOSED`.
+- Działanie naprawcze (operacyjne workaround):
+  - uruchomiono proxy host-network: `soon-db-proxy` (`alpine/socat`) z mapowaniem `0.0.0.0:6432 -> 127.0.0.1:5433`,
+  - po starcie proxy: `TCP_6432_OPEN` z VM210.
+- Walidacja po naprawie na VM210:
+  - `npm run db:migrate` -> `PASS`,
+  - `make check` -> `PASS`,
+  - `make doctor` -> `PASS`,
+  - `make smoke` -> `PASS` (contracts/workers/scripts/web smoke zielone).
+- Watchdog:
+  - run: `runtime-state-watchdog` id `24596221929`,
+  - status: `success`,
+  - URL: `https://github.com/thisisnotajokee/Soon/actions/runs/24596221929`.
+- Artefakty:
+  - `ops/reports/deploy/soon-post-deploy-backup-20260418T034841Z.tgz`,
+  - `ops/reports/deploy/soon-post-deploy-backup-20260418T034841Z.meta.json`.
+- Decyzja operacyjna:
+  - `GO` dla Cutover Candidate Cycle #1 (po remediacji łączności DB).
+
+### Następny krok
+1. Utrwalić fix infrastrukturalny bez obejścia (docelowo wystawić PgBouncer przez Compose na host-port `6432` i usunąć `soon-db-proxy`).
+2. Wykonać Cutover Candidate Cycle #2 (ten sam pakiet walidacji) dla spełnienia warunku „2 kolejne zielone cykle”.
+
+## [2026-04-18 03:56:00Z] DB connectivity fix hardened + Cutover Candidate Cycle #2 completed — GO (2/2 green cycles met)
+- Utrwalono fix infrastrukturalny na hoście DB (`192.168.1.10`):
+  - przywrócono czysty `docker-compose.yml` z backupu `docker-compose.yml.bak.20260418T034558Z`,
+  - dodano stałą ekspozycję host-portu w sekcji `pgbouncer`:
+    - `ports: "0.0.0.0:${PGBOUNCER_PUBLIC_PORT:-6432}:${PGBOUNCER_LISTEN_PORT:-5432}"`,
+  - odtworzono usługę `ambot-pro-pgbouncer-1`,
+  - usunięto tymczasowe obejście `soon-db-proxy`.
+- Stan końcowy DB host:
+  - `ambot-pro-pgbouncer-1` -> `0.0.0.0:6432->5432/tcp`,
+  - host nasłuchuje na `:6432`.
+- Cutover Candidate Cycle #2 (VM210) — pełny pakiet walidacji:
+  - deploy check (`main` + `git pull --ff-only`) -> `PASS`,
+  - connectivity gate `TCP_6432_OPEN` -> `PASS`,
+  - `npm run db:migrate` -> `PASS`,
+  - `make check` -> `PASS`,
+  - `make doctor` -> `PASS`,
+  - `make smoke` -> `PASS`.
+- Watchdog:
+  - run: `runtime-state-watchdog` id `24596327951`,
+  - status: `success`,
+  - URL: `https://github.com/thisisnotajokee/Soon/actions/runs/24596327951`.
+- Snapshot post-deploy:
+  - `ops/reports/deploy/soon-post-deploy-backup-20260418T035503Z.tgz`,
+  - `ops/reports/deploy/soon-post-deploy-backup-20260418T035503Z.meta.json`.
+- Decyzja operacyjna:
+  - `GO` dla Cycle #2,
+  - warunek cutover „2 kolejne zielone cykle (`quality-gate/runtime-state-watchdog` + smoke operacyjny)” został spełniony (`Cycle #1 GO po remediacji` + `Cycle #2 GO`).
+
+## [2026-04-18 03:59:00Z] Final production cutover runbook executed — GO
+- Wykonano finalną checklistę GO/NO-GO z `docs/POST_DEPLOY_BACKUP_ROLLBACK_RUNBOOK_V1.md`:
+  - `quality-gate` na `main` -> `PASS` (run `24594511171`),
+  - `runtime-state-watchdog` -> `PASS` (run `24596327951`, następnie potwierdzenie po final cutover: `24596393005`),
+  - `https://api.ambot.nl/health` -> `200` (`status=ok`, `storage=postgres`),
+  - `systemctl is-active soon-api cloudflared` na VM210 -> `active active`,
+  - `make check` na VM210 -> `PASS`.
+- Wykonano kontrolowane finalne przełączenie produkcyjne na VM210:
+  - `git fetch origin && git checkout main && git pull --ff-only`,
+  - `npm ci`,
+  - `npm run db:migrate`,
+  - `systemctl restart soon-api`,
+  - `health-check` lokalny + `make check`.
+- Wynik cutover:
+  - branch/sha runtime: `main` / `c45b3e7f9e23789168d8c66c72fd7da39f91caf4`,
+  - walidacja runtime po restarcie: `PASS`,
+  - rollback nie był wymagany.
+- Snapshot post-cutover:
+  - `ops/reports/deploy/soon-post-deploy-backup-20260418T035831Z.tgz`,
+  - `ops/reports/deploy/soon-post-deploy-backup-20260418T035831Z.meta.json`.
+- Decyzja operacyjna:
+  - `GO` dla finalnego cutover produkcyjnego.
