@@ -141,6 +141,36 @@
             <input id="settings-notifications" type="checkbox" />
             Notifications enabled
           </label>
+
+          <fieldset class="settings-block">
+            <legend>Notification channels</legend>
+            <label class="checkbox-label">
+              <input id="settings-channel-telegram" type="checkbox" />
+              Telegram
+            </label>
+            <label class="checkbox-label">
+              <input id="settings-channel-discord" type="checkbox" />
+              Discord
+            </label>
+            <label class="checkbox-label">
+              <input id="settings-channel-email" type="checkbox" />
+              Email
+            </label>
+            <label class="checkbox-label">
+              <input id="settings-channel-push" type="checkbox" />
+              Push
+            </label>
+          </fieldset>
+
+          <label class="settings-block">
+            Alert profiles (JSON)
+            <textarea
+              id="settings-alert-profiles"
+              rows="6"
+              placeholder='{"default":{"dropPct":10,"severity":"info"}}'
+            ></textarea>
+          </label>
+
           <button id="settings-save" type="submit">Zapisz ustawienia</button>
         </form>
         <p id="settings-updated" class="muted"></p>

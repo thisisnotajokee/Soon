@@ -3062,3 +3062,22 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - `make help` -> PASS (nowe cele widoczne).
 - Następny krok:
   - W codziennej pracy używać `wf-start`/`wf-finish` jako domyślnego flow i utrzymać zasadę „1 task = 1 branch = 1 PR”.
+
+## [2026-04-18 21:10:49Z] UI settings extended with notification-channels + alert-profiles roundtrip
+- Zakres (`packages/web` + runtime settings payload):
+  - Rozszerzono `GET /api/settings/:chatId` o pola `notification_channels`, `alert_profiles` i runtime `notificationsEnabled` z `notification_prefs.enabled`.
+  - Rozszerzono panel `Ustawienia v1` w web UI:
+    - checkboxy kanałów (`telegram`, `discord`, `email`, `push`),
+    - edycja `alert_profiles` jako JSON (walidacja parse + object shape).
+  - Rozszerzono klienta API web o metody:
+    - `getAlertProfiles`, `setNotificationChannels`, `setAlertProfiles`.
+  - UI zapisuje teraz pełny pakiet settings:
+    - `product-interval`, `scan-interval`, `notifications`, `notification-channels`, `alert-profiles`.
+- Weryfikacja:
+  - `node --check packages/web/src/main.mjs` -> PASS,
+  - `node --check packages/web/src/api-client.mjs` -> PASS,
+  - `npm run -s smoke:e2e` -> PASS.
+- Uwaga środowiskowa:
+  - `make check`/`obs:*:check` lokalnie FAIL (`fetch failed`) przy niedostępnym runtime (`127.0.0.1:3100`) w tym środowisku uruchomieniowym.
+- Następny krok:
+  - Dodać lekki UI helper dla `alert_profiles` (presety/mini-edytor) bez zmiany kontraktu API.

@@ -145,6 +145,38 @@ export function createApiClient(baseUrl) {
       return body;
     },
 
+    async getAlertProfiles(chatId) {
+      const response = await fetch(`${apiBase}/api/settings/${encodeURIComponent(String(chatId))}/alert-profiles`);
+      const body = await response.json();
+      assertOk(response, body, 'getAlertProfiles');
+      return body;
+    },
+
+    async setAlertProfiles(chatId, alertProfiles) {
+      const response = await fetch(`${apiBase}/api/settings/${encodeURIComponent(String(chatId))}/alert-profiles`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ alert_profiles: alertProfiles }),
+      });
+      const body = await response.json();
+      assertOk(response, body, 'setAlertProfiles');
+      return body;
+    },
+
+    async setNotificationChannels(chatId, channels) {
+      const response = await fetch(
+        `${apiBase}/api/settings/${encodeURIComponent(String(chatId))}/notification-channels`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ notification_channels: channels }),
+        },
+      );
+      const body = await response.json();
+      assertOk(response, body, 'setNotificationChannels');
+      return body;
+    },
+
     async runAutomationCycle() {
       const response = await fetch(`${apiBase}/automation/cycle`, { method: 'POST' });
       const body = await response.json();

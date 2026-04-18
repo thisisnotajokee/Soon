@@ -13,6 +13,13 @@ const state = {
   settings: null,
 };
 
+const DEFAULT_CHANNELS = {
+  telegram: true,
+  discord: false,
+  email: false,
+  push: false,
+};
+
 const nodes = {
   healthStatus: document.querySelector('#health-status'),
   healthStorage: document.querySelector('#health-storage'),
@@ -42,6 +49,11 @@ const nodes = {
   settingsProductInterval: document.querySelector('#settings-product-interval'),
   settingsScanInterval: document.querySelector('#settings-scan-interval'),
   settingsNotifications: document.querySelector('#settings-notifications'),
+  settingsChannelTelegram: document.querySelector('#settings-channel-telegram'),
+  settingsChannelDiscord: document.querySelector('#settings-channel-discord'),
+  settingsChannelEmail: document.querySelector('#settings-channel-email'),
+  settingsChannelPush: document.querySelector('#settings-channel-push'),
+  settingsAlertProfiles: document.querySelector('#settings-alert-profiles'),
   settingsUpdated: document.querySelector('#settings-updated'),
   uiError: document.querySelector('#ui-error'),
   reloadTrackings: document.querySelector('#reload-trackings'),
@@ -231,9 +243,20 @@ function getSelectedTracking() {
 function renderSettings() {
   const settings = state.settings;
   if (!settings) return;
+  const channels = {
+    ...DEFAULT_CHANNELS,
+    ...(settings.notification_channels && typeof settings.notification_channels === 'object'
+      ? settings.notification_channels
+      : {}),
+  };
   nodes.settingsProductInterval.value = String(settings.productIntervalMin ?? 60);
   nodes.settingsScanInterval.value = String(settings.scanIntervalMin ?? 60);
   nodes.settingsNotifications.checked = Boolean(settings.notificationsEnabled);
+  nodes.settingsChannelTelegram.checked = Boolean(channels.telegram);
+  nodes.settingsChannelDiscord.checked = Boolean(channels.discord);
+  nodes.settingsChannelEmail.checked = Boolean(channels.email);
+  nodes.settingsChannelPush.checked = Boolean(channels.push);
+  nodes.settingsAlertProfiles.value = JSON.stringify(settings.alert_profiles ?? {}, null, 2);
   nodes.settingsUpdated.textContent = settings.updatedAt
     ? `Ostatnia aktualizacja: ${formatIso(settings.updatedAt)}`
     : 'Ustawienia domyślne';
@@ -260,8 +283,17 @@ async function loadTrackings() {
 }
 
 async function loadSettings() {
-  const settings = await client.getSettings(chatId);
-  state.settings = settings;
+  const [settings, alertProfilesPayload] = await Promise.all([
+    client.getSettings(chatId),
+    client.getAlertProfiles(chatId),
+  ]);
+  state.settings = {
+    ...settings,
+    alert_profiles:
+      alertProfilesPayload?.alert_profiles && typeof alertProfilesPayload.alert_profiles === 'object'
+        ? alertProfilesPayload.alert_profiles
+        : settings.alert_profiles ?? {},
+  };
   renderSettings();
 }
 
@@ -437,10 +469,27 @@ nodes.settingsForm.addEventListener('submit', async (event) => {
     if (!Number.isFinite(scanIntervalMin) || scanIntervalMin < 1 || scanIntervalMin > 1440) {
       throw new Error('Scan interval musi być w zakresie 1-1440');
     }
+    const notificationChannels = {
+      telegram: Boolean(nodes.settingsChannelTelegram.checked),
+      discord: Boolean(nodes.settingsChannelDiscord.checked),
+      email: Boolean(nodes.settingsChannelEmail.checked),
+      push: Boolean(nodes.settingsChannelPush.checked),
+    };
+    let alertProfiles = {};
+    try {
+      alertProfiles = JSON.parse(String(nodes.settingsAlertProfiles.value || '{}'));
+    } catch {
+      throw new Error('Alert profiles musi być poprawnym JSON');
+    }
+    if (typeof alertProfiles !== 'object' || alertProfiles === null || Array.isArray(alertProfiles)) {
+      throw new Error('Alert profiles musi być obiektem JSON');
+    }
 
     await client.setProductInterval(chatId, Math.round(productIntervalMin));
     await client.setScanInterval(chatId, Math.round(scanIntervalMin));
     await client.setNotifications(chatId, nodes.settingsNotifications.checked);
+    await client.setNotificationChannels(chatId, notificationChannels);
+    await client.setAlertProfiles(chatId, alertProfiles);
     await loadSettings();
     await loadTrackings();
   } catch (error) {
