@@ -3081,3 +3081,28 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - `make check`/`obs:*:check` lokalnie FAIL (`fetch failed`) przy niedostępnym runtime (`127.0.0.1:3100`) w tym środowisku uruchomieniowym.
 - Następny krok:
   - Dodać lekki UI helper dla `alert_profiles` (presety/mini-edytor) bez zmiany kontraktu API.
+
+## [2026-04-18 22:06:37Z] Mobile testability pass for UI (chat-id switch + LAN helpers)
+- Zakres (`packages/web` + workflow tooling):
+  - Dodano szybki panel sesji w UI do testów mobilnych:
+    - ręczna zmiana `chatId` bez edycji URL,
+    - zapis `chatId` do `localStorage` (`soon.chatId`),
+    - sync `chatId` z query param (`?chatId=`) przez `history.replaceState`,
+    - przycisk `Kopiuj URL` do szybkiego share/open na smartphonie.
+  - Uspójniono użycie `chatId` w całym UI flow (dashboard/settings/actions), aby testy mobilne działały na aktywnym kontekście użytkownika.
+  - Drobne poprawki UX mobile:
+    - większe cele dotykowe (`min-height: 44px`),
+    - sticky topbar na małych ekranach,
+    - responsywna siatka formularza `chat-id`.
+  - Rozszerzono narzędzia lokalne:
+    - `make up-lan` (API na `HOST=0.0.0.0`),
+    - `make mobile-url CHAT_ID=<id>` (druk URL-i LAN dla smartphona).
+  - Zaktualizowano `docs/WORKFLOW.md` o sekcję testów LAN na telefonie.
+- Weryfikacja:
+  - `node --check packages/web/src/main.mjs` -> PASS,
+  - `make help` -> PASS (nowe cele widoczne),
+  - `make mobile-url CHAT_ID=123456` -> PASS (fallback URL print).
+- Uwaga środowiskowa:
+  - `make up-lan` lokalnie FAIL w tym środowisku (`DB migrations: connect EPERM 127.0.0.1:5433`), traktowane jako ograniczenie runtime/sandbox, nie regresja UI.
+- Następny krok:
+  - Wykonać realny test smartfonowy na hostowym środowisku dev (ten sam Wi‑Fi), zweryfikować flow: load listy -> detail -> save settings -> reload.

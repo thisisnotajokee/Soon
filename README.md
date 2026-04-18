@@ -30,6 +30,13 @@ Status: scaffold architektury v1 + działający runtime API MVP.
 4. `make smoke`
 5. `make down` (na koniec)
 
+## Szybki start (Docker Desktop)
+
+1. `make docker-up`
+2. `make docker-mobile-url CHAT_ID=demo`
+3. Otwórz wygenerowany URL na smartphonie (ta sama sieć Wi-Fi)
+4. `make docker-down` (na koniec)
+
 ## Komendy operacyjne (Makefile)
 
 1. `make up` — migracje + start API w tle + wait for health.

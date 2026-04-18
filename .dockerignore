@@ -1,0 +1,11 @@
+.git
+.github
+.cursor
+.vscode
+node_modules
+ops/reports
+tmp
+*.log
+.env.local
+.env.*
+!.env.example

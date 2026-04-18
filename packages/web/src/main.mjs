@@ -2,7 +2,15 @@ import { createApiClient } from '/api-client.mjs';
 
 const client = createApiClient(window.location.origin);
 const params = new URLSearchParams(window.location.search);
-const chatId = params.get('chatId') || params.get('userId') || params.get('x-telegram-user-id') || 'demo';
+const queryChatId = params.get('chatId') || params.get('userId') || params.get('x-telegram-user-id') || '';
+const savedChatId = (() => {
+  try {
+    return window.localStorage.getItem('soon.chatId') || '';
+  } catch {
+    return '';
+  }
+})();
+const initialChatId = String(queryChatId || savedChatId || 'demo').trim() || 'demo';
 
 const state = {
   trackings: [],
@@ -11,6 +19,7 @@ const state = {
   filterSnooze: 'all',
   sortBy: 'updated_desc',
   settings: null,
+  chatId: initialChatId,
 };
 
 const DEFAULT_CHANNELS = {
@@ -45,6 +54,10 @@ const nodes = {
   filterQuery: document.querySelector('#filter-query'),
   filterSnooze: document.querySelector('#filter-snooze'),
   sortBy: document.querySelector('#sort-by'),
+  chatIdForm: document.querySelector('#chat-id-form'),
+  chatIdInput: document.querySelector('#chat-id-input'),
+  chatIdApply: document.querySelector('#chat-id-apply'),
+  copyMobileUrl: document.querySelector('#copy-mobile-url'),
   settingsForm: document.querySelector('#settings-form'),
   settingsProductInterval: document.querySelector('#settings-product-interval'),
   settingsScanInterval: document.querySelector('#settings-scan-interval'),
@@ -240,6 +253,19 @@ function getSelectedTracking() {
   return state.trackings.find((item) => item.asin === state.selectedAsin) || null;
 }
 
+function persistChatId(nextChatId) {
+  const value = String(nextChatId || '').trim() || 'demo';
+  state.chatId = value;
+  try {
+    window.localStorage.setItem('soon.chatId', value);
+  } catch {
+    // ignore storage limitations in restricted browsers
+  }
+  const url = new URL(window.location.href);
+  url.searchParams.set('chatId', value);
+  window.history.replaceState({}, '', url.toString());
+}
+
 function renderSettings() {
   const settings = state.settings;
   if (!settings) return;
@@ -269,7 +295,7 @@ async function loadHealth() {
 }
 
 async function loadTrackings() {
-  const dashboard = await client.getDashboard(chatId);
+  const dashboard = await client.getDashboard(state.chatId);
   state.trackings = Array.isArray(dashboard.items) ? dashboard.items : [];
 
   if (!state.selectedAsin && state.trackings.length) {
@@ -284,8 +310,8 @@ async function loadTrackings() {
 
 async function loadSettings() {
   const [settings, alertProfilesPayload] = await Promise.all([
-    client.getSettings(chatId),
-    client.getAlertProfiles(chatId),
+    client.getSettings(state.chatId),
+    client.getAlertProfiles(state.chatId),
   ]);
   state.settings = {
     ...settings,
@@ -346,7 +372,8 @@ async function loadDetail() {
 
 async function refreshAll() {
   setError('');
-  nodes.chatId.textContent = chatId;
+  nodes.chatId.textContent = state.chatId;
+  nodes.chatIdInput.value = state.chatId;
   try {
     await loadHealth();
     await loadSettings();
@@ -413,7 +440,7 @@ nodes.thresholdForm.addEventListener('submit', async (event) => {
     if (!Number.isFinite(dropPct) || dropPct < 1 || dropPct > 95) {
       throw new Error('Drop % musi być w zakresie 1-95');
     }
-    await client.setDropPct(chatId, state.selectedAsin, Math.round(dropPct));
+    await client.setDropPct(state.chatId, state.selectedAsin, Math.round(dropPct));
     await loadTrackings();
     await loadDetail();
   } catch (error) {
@@ -437,7 +464,7 @@ nodes.actionSnooze.addEventListener('click', async () => {
   if (!state.selectedAsin) return;
   try {
     setError('');
-    await client.snoozeTracking(chatId, state.selectedAsin, 60);
+    await client.snoozeTracking(state.chatId, state.selectedAsin, 60);
     await loadTrackings();
     await loadDetail();
   } catch (error) {
@@ -449,7 +476,7 @@ nodes.actionUnsnooze.addEventListener('click', async () => {
   if (!state.selectedAsin) return;
   try {
     setError('');
-    await client.unsnoozeTracking(chatId, state.selectedAsin);
+    await client.unsnoozeTracking(state.chatId, state.selectedAsin);
     await loadTrackings();
     await loadDetail();
   } catch (error) {
@@ -485,11 +512,11 @@ nodes.settingsForm.addEventListener('submit', async (event) => {
       throw new Error('Alert profiles musi być obiektem JSON');
     }
 
-    await client.setProductInterval(chatId, Math.round(productIntervalMin));
-    await client.setScanInterval(chatId, Math.round(scanIntervalMin));
-    await client.setNotifications(chatId, nodes.settingsNotifications.checked);
-    await client.setNotificationChannels(chatId, notificationChannels);
-    await client.setAlertProfiles(chatId, alertProfiles);
+    await client.setProductInterval(state.chatId, Math.round(productIntervalMin));
+    await client.setScanInterval(state.chatId, Math.round(scanIntervalMin));
+    await client.setNotifications(state.chatId, nodes.settingsNotifications.checked);
+    await client.setNotificationChannels(state.chatId, notificationChannels);
+    await client.setAlertProfiles(state.chatId, alertProfiles);
     await loadSettings();
     await loadTrackings();
   } catch (error) {
@@ -497,4 +524,29 @@ nodes.settingsForm.addEventListener('submit', async (event) => {
   }
 });
 
+nodes.chatIdForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const nextChatId = String(nodes.chatIdInput.value || '').trim();
+  if (!nextChatId) {
+    setError('Chat ID nie może być puste');
+    return;
+  }
+  setError('');
+  persistChatId(nextChatId);
+  await refreshAll();
+});
+
+nodes.copyMobileUrl.addEventListener('click', async () => {
+  const url = new URL(window.location.href);
+  url.searchParams.set('chatId', state.chatId);
+  const text = url.toString();
+  try {
+    await navigator.clipboard.writeText(text);
+    setError('');
+  } catch {
+    setError(`Skopiuj ręcznie URL: ${text}`);
+  }
+});
+
+persistChatId(initialChatId);
 refreshAll();
