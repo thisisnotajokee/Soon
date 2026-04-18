@@ -1446,6 +1446,99 @@ test('P0-C: /api/heatmap/:asin + /api/buybox/:asin compatibility endpoints', asy
   }
 });
 
+test('P0-C: /api/price-errors re-alert compatibility endpoints', async () => {
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(async (baseUrl) => {
+      const priceErrorsForbidden = await readJson(await fetch(`${baseUrl}/api/price-errors`));
+      assert.equal(priceErrorsForbidden.status, 403);
+      assert.equal(priceErrorsForbidden.body.error, 'Forbidden');
+
+      const priceErrorsAdmin = await readJson(
+        await fetch(`${baseUrl}/api/price-errors?limit=5`, {
+          headers: { 'x-telegram-user-id': '2041' },
+        }),
+      );
+      assert.equal(priceErrorsAdmin.status, 200);
+      assert.ok(Array.isArray(priceErrorsAdmin.body));
+
+      const relertForbidden = await readJson(
+        await fetch(`${baseUrl}/api/price-errors/realert-threshold`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            asin: 'B0BYW7MMBR',
+            domain: 'de',
+            basePrice: 999,
+            dropPercent: 10,
+          }),
+        }),
+      );
+      assert.equal(relertForbidden.status, 403);
+      assert.equal(relertForbidden.body.error, 'Forbidden');
+
+      const relertSaved = await readJson(
+        await fetch(`${baseUrl}/api/price-errors/realert-threshold`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-telegram-user-id': '2041',
+          },
+          body: JSON.stringify({
+            asin: 'B0BYW7MMBR',
+            domain: 'de',
+            basePrice: 1000,
+            dropPercent: 10,
+          }),
+        }),
+      );
+      assert.equal(relertSaved.status, 200);
+      assert.equal(relertSaved.body.success, true);
+      assert.equal(relertSaved.body.targetPrice, 900);
+
+      const relertBulk = await readJson(
+        await fetch(`${baseUrl}/api/price-errors/realert-threshold/bulk`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-telegram-user-id': '2041',
+          },
+          body: JSON.stringify({
+            dropPercent: 12,
+            limit: 10,
+          }),
+        }),
+      );
+      assert.equal(relertBulk.status, 200);
+      assert.equal(relertBulk.body.success, true);
+      assert.ok(Number.isFinite(Number(relertBulk.body.applied)));
+      assert.ok(Number.isFinite(Number(relertBulk.body.scanned)));
+
+      const relertCleared = await readJson(
+        await fetch(`${baseUrl}/api/price-errors/realert-threshold`, {
+          method: 'DELETE',
+          headers: {
+            'content-type': 'application/json',
+            'x-telegram-user-id': '2041',
+          },
+          body: JSON.stringify({
+            asin: 'B0BYW7MMBR',
+            domain: 'de',
+          }),
+        }),
+      );
+      assert.equal(relertCleared.status, 200);
+      assert.equal(relertCleared.body.success, true);
+      assert.equal(relertCleared.body.cleared, true);
+    });
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
 test('P0-C: /api/settings/:chatId/preferences validates payload and persists', async () => {
   await withServer(async (baseUrl) => {
     const invalid = await readJson(

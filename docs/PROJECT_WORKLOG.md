@@ -2824,3 +2824,19 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - nowy test `P0-C: /api/heatmap/:asin + /api/buybox/:asin compatibility endpoints`.
 - Aktualizacja dokumentacji:
   - `docs/API_ENDPOINT_INVENTORY.md` (`heatmap`, `buybox` -> DONE).
+
+## [2026-04-18 07:30:00Z] P0-C price-errors re-alert compatibility endpoints completed
+- Dodano brakujące endpointy kompatybilności analytics alert-write/history:
+  - `GET /api/price-errors` (admin-only),
+  - `POST /api/price-errors/realert-threshold` (admin-only),
+  - `POST /api/price-errors/realert-threshold/bulk` (admin-only),
+  - `DELETE /api/price-errors/realert-threshold` (admin-only).
+- Kontrakt endpointów:
+  - guard admina zwraca `403 Forbidden` bez uprawnień,
+  - re-alert single/bulk zapisuje runtime reguły progów i zwraca `success`,
+  - delete czyści konkretną regułę (`cleared: true`),
+  - `price-errors` zwraca kompatybilną listę pozycji i dekoruje wpisy aktywną regułą re-alert.
+- Rozszerzono testy kontraktowe:
+  - nowy test `P0-C: /api/price-errors re-alert compatibility endpoints`.
+- Aktualizacja dokumentacji:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`price-errors`, `realert-threshold*` -> DONE).

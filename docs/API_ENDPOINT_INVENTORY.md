@@ -112,10 +112,10 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [x] `GET /api/perf/routes` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/popular` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/popularity/:asin` — `packages/api/src/runtime/server.mjs`
-- [ ] `GET /api/price-errors` — `src/routes/api/analytics/alerts-history-routes.js`
-- [ ] `DELETE /api/price-errors/realert-threshold` — `src/routes/api/analytics/alerts-write-routes.js`
-- [ ] `POST /api/price-errors/realert-threshold` — `src/routes/api/analytics/alerts-write-routes.js`
-- [ ] `POST /api/price-errors/realert-threshold/bulk` — `src/routes/api/analytics/alerts-write-routes.js`
+- [x] `GET /api/price-errors` — `packages/api/src/runtime/server.mjs`
+- [x] `DELETE /api/price-errors/realert-threshold` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /api/price-errors/realert-threshold` — `packages/api/src/runtime/server.mjs`
+- [x] `POST /api/price-errors/realert-threshold/bulk` — `packages/api/src/runtime/server.mjs`
 - [x] `POST /api/refresh-all/:chatId` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/refresh-all/:chatId/status/:jobId` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/refresh-budget/:chatId` — `packages/api/src/runtime/server.mjs`

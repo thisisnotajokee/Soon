@@ -39,6 +39,7 @@ const TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_STATE_KEY = 'token_budget_probe_ops_ke
 const TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_AUDIT_STATE_KEY = 'token_budget_probe_ops_key_rotation_audit_last';
 const TRACKING_CHAT_SETTINGS_PREFIX = 'tracking_chat_settings:';
 const TRACKING_SNOOZE_PREFIX = 'tracking_snooze:';
+const PRICE_ERROR_REALERT_RULES_STATE_KEY = 'price_error_realert_rules_v1';
 const TRACKINGS_CACHE_RUNTIME_STATE_KEY = 'trackings_cache_runtime';
 const TRACKINGS_CACHE_AUTOTUNE_LAST_STATE_KEY = 'trackings_cache_autotune_last';
 const TRACKINGS_CACHE_RUNTIME_HISTORY_STATE_KEY = 'trackings_cache_runtime_history';
@@ -105,6 +106,7 @@ const RUNTIME_STATE_ALLOWLIST = new Set([
   TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_AUDIT_STATE_KEY,
 ]);
 const API_LOG_BUFFER_MAX_ENTRIES = 1200;
+const COMPAT_PRICE_ERROR_DOMAINS = new Set(['de', 'it', 'fr', 'es', 'uk', 'nl']);
 const refreshAllJobs = new Map();
 
 let apiLogNextId = 1;
@@ -908,6 +910,13 @@ function buildTrackingSnoozeStateKey(chatId, asin) {
     .toUpperCase()}`;
 }
 
+function buildPriceErrorRealertRuleKey(chatId, asin, domain) {
+  const normalizedChatId = String(chatId ?? '').trim().toLowerCase() || 'default';
+  const normalizedAsin = String(asin ?? '').trim().toUpperCase();
+  const normalizedDomain = String(domain ?? '').trim().toLowerCase();
+  return `${normalizedChatId}:${normalizedAsin}:${normalizedDomain}`;
+}
+
 function normalizeChatId(raw) {
   const normalized = String(raw ?? '').trim();
   return normalized || 'default';
@@ -1113,6 +1122,31 @@ function buildUserStatsPayload(trackings, chatId, schedulerMetrics = {}) {
     pct_drop_alerts: pctDropAlerts,
     milestones,
   };
+}
+
+function buildCompatPriceErrorRows(trackings, limit = 50) {
+  const rows = [];
+  for (const item of Array.isArray(trackings) ? trackings : []) {
+    const asin = String(item?.asin ?? '').trim().toUpperCase();
+    if (!/^[A-Z0-9]{10}$/.test(asin)) continue;
+    const pricesNew = item?.pricesNew && typeof item.pricesNew === 'object' ? item.pricesNew : {};
+    for (const [domainRaw, priceRaw] of Object.entries(pricesNew)) {
+      const domain = String(domainRaw ?? '').trim().toLowerCase();
+      if (!COMPAT_PRICE_ERROR_DOMAINS.has(domain)) continue;
+      const price = toFiniteNumber(priceRaw);
+      if (!Number.isFinite(price) || price <= 0) continue;
+      rows.push({
+        asin,
+        domain,
+        price: Number(price.toFixed(2)),
+        title: item?.title ?? null,
+        source: 'compat_runtime',
+        updated_at: item?.updatedAt ?? null,
+      });
+      if (rows.length >= limit) return rows;
+    }
+  }
+  return rows;
 }
 
 function sanitizeSystemStatsHistory(raw) {
@@ -3865,6 +3899,179 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         const metrics = schedulerState?.stateValue?.metrics ?? {};
         const stats = buildUserStatsPayload(trackings, chatId, metrics);
         return sendJson(res, 200, stats);
+      }
+
+      if (method === 'GET' && pathname === '/api/price-errors') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+
+        const limit = clampInt(url.searchParams.get('limit'), 50, 1, 200);
+        const scope = String(url.searchParams.get('scope') ?? 'tracked').trim().toLowerCase();
+        const trackedOnly = scope !== 'global';
+        const trackings = await store.listTrackings();
+        const sourceRows = buildCompatPriceErrorRows(trackings, trackedOnly ? limit : Math.max(limit, 200));
+        const rows = sourceRows.slice(0, limit);
+
+        const runtimeRulesState = store.getRuntimeState
+          ? await store.getRuntimeState(PRICE_ERROR_REALERT_RULES_STATE_KEY)
+          : null;
+        const runtimeRules =
+          runtimeRulesState?.stateValue && typeof runtimeRulesState.stateValue === 'object'
+            ? runtimeRulesState.stateValue
+            : {};
+        const decorated = rows.map((row) => {
+          const key = buildPriceErrorRealertRuleKey(userId, row.asin, row.domain);
+          const rule = runtimeRules[key];
+          if (!rule || typeof rule !== 'object') return row;
+          return {
+            ...row,
+            relert_drop_percent: toFiniteNumber(rule.dropPercent),
+            relert_target_price: toFiniteNumber(rule.targetPrice),
+            relert_set_at: rule.setAt ?? null,
+          };
+        });
+        return sendJson(res, 200, decorated);
+      }
+
+      if (method === 'POST' && pathname === '/api/price-errors/realert-threshold') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        const asin = String(body?.asin ?? '').trim().toUpperCase();
+        const domain = String(body?.domain ?? '').trim().toLowerCase();
+        const basePrice = toFiniteNumber(body?.basePrice);
+        const dropPercent = toFiniteNumber(body?.dropPercent);
+        const validAsin = /^[A-Z0-9]{10}$/.test(asin);
+        if (!validAsin || !COMPAT_PRICE_ERROR_DOMAINS.has(domain) || !Number.isFinite(basePrice) || basePrice <= 0) {
+          return sendJson(res, 400, { error: 'Invalid payload', requestId });
+        }
+        if (!Number.isFinite(dropPercent) || dropPercent <= 0 || dropPercent > 95) {
+          return sendJson(res, 400, { error: 'Invalid payload', requestId });
+        }
+
+        const targetPrice = Number((basePrice * (1 - dropPercent / 100)).toFixed(2));
+        const rule = {
+          chatId: userId,
+          asin,
+          domain,
+          basePrice: Number(basePrice.toFixed(2)),
+          dropPercent: Number(dropPercent.toFixed(2)),
+          targetPrice,
+          setAt: new Date().toISOString(),
+        };
+        const runtimeRulesState = store.getRuntimeState
+          ? await store.getRuntimeState(PRICE_ERROR_REALERT_RULES_STATE_KEY)
+          : null;
+        const existing =
+          runtimeRulesState?.stateValue && typeof runtimeRulesState.stateValue === 'object'
+            ? runtimeRulesState.stateValue
+            : {};
+        const next = {
+          ...existing,
+          [buildPriceErrorRealertRuleKey(userId, asin, domain)]: rule,
+        };
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(PRICE_ERROR_REALERT_RULES_STATE_KEY, next);
+        }
+        return sendJson(res, 200, {
+          success: true,
+          asin,
+          domain,
+          dropPercent: rule.dropPercent,
+          basePrice: rule.basePrice,
+          targetPrice: rule.targetPrice,
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/price-errors/realert-threshold/bulk') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        const dropPercent = toFiniteNumber(body?.dropPercent);
+        const limit = clampInt(body?.limit, 50, 1, 300);
+        if (!Number.isFinite(dropPercent) || dropPercent <= 0 || dropPercent > 95) {
+          return sendJson(res, 400, { error: 'Invalid payload', requestId });
+        }
+
+        const trackings = await store.listTrackings();
+        const rows = buildCompatPriceErrorRows(trackings, limit);
+        const runtimeRulesState = store.getRuntimeState
+          ? await store.getRuntimeState(PRICE_ERROR_REALERT_RULES_STATE_KEY)
+          : null;
+        const existing =
+          runtimeRulesState?.stateValue && typeof runtimeRulesState.stateValue === 'object'
+            ? runtimeRulesState.stateValue
+            : {};
+        const setAt = new Date().toISOString();
+        const next = { ...existing };
+        let applied = 0;
+        for (const row of rows) {
+          const basePrice = toFiniteNumber(row?.price);
+          if (!Number.isFinite(basePrice) || basePrice <= 0) continue;
+          const targetPrice = Number((basePrice * (1 - dropPercent / 100)).toFixed(2));
+          next[buildPriceErrorRealertRuleKey(userId, row.asin, row.domain)] = {
+            chatId: userId,
+            asin: row.asin,
+            domain: row.domain,
+            basePrice: Number(basePrice.toFixed(2)),
+            dropPercent: Number(dropPercent.toFixed(2)),
+            targetPrice,
+            setAt,
+          };
+          applied += 1;
+        }
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(PRICE_ERROR_REALERT_RULES_STATE_KEY, next);
+        }
+        return sendJson(res, 200, {
+          success: true,
+          applied,
+          scanned: rows.length,
+          dropPercent: Number(dropPercent.toFixed(2)),
+        });
+      }
+
+      if (method === 'DELETE' && pathname === '/api/price-errors/realert-threshold') {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        const asin = String(body?.asin ?? '').trim().toUpperCase();
+        const domain = String(body?.domain ?? '').trim().toLowerCase();
+        const validAsin = /^[A-Z0-9]{10}$/.test(asin);
+        if (!validAsin || !COMPAT_PRICE_ERROR_DOMAINS.has(domain)) {
+          return sendJson(res, 400, { error: 'Invalid payload', requestId });
+        }
+
+        const runtimeRulesState = store.getRuntimeState
+          ? await store.getRuntimeState(PRICE_ERROR_REALERT_RULES_STATE_KEY)
+          : null;
+        const existing =
+          runtimeRulesState?.stateValue && typeof runtimeRulesState.stateValue === 'object'
+            ? runtimeRulesState.stateValue
+            : {};
+        const key = buildPriceErrorRealertRuleKey(userId, asin, domain);
+        const next = { ...existing };
+        delete next[key];
+        if (store.setRuntimeState) {
+          await store.setRuntimeState(PRICE_ERROR_REALERT_RULES_STATE_KEY, next);
+        }
+        return sendJson(res, 200, { success: true, asin, domain, cleared: true });
       }
 
       if (method === 'GET' && pathname === '/api/perf/routes') {
