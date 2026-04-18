@@ -2991,3 +2991,27 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - `https://api.ambot.nl/health` -> `200` (`status=ok`, `storage=postgres`).
 - Decyzja operacyjna:
   - stabilizacja po merge rozpoczęta, brak sygnałów regresji bezpośrednio po scaleniu.
+
+## [2026-04-18 04:14:00Z] D+1 stabilization quick-check — PASS
+- `runtime-state-watchdog` (manual dispatch) -> `PASS`:
+  - run id `24596660554`,
+  - URL: `https://github.com/thisisnotajokee/Soon/actions/runs/24596660554`.
+- VM210 runtime check:
+  - `make check` -> `PASS` (`Soon/alerts PASS`, `Soon/runtime-alerts PASS`).
+- Public health:
+  - `https://api.ambot.nl/health` -> `200` (`status=ok`, `storage=postgres`).
+- Decyzja operacyjna:
+  - brak regresji w szybkim oknie D+1; kontynuujemy stabilizację 24–72h.
+
+## [2026-04-18 04:18:00Z] Stabilization follow-up checkpoint — PASS
+- `runtime-state-watchdog` (manual dispatch) -> `PASS`:
+  - run id `24596710721`,
+  - URL: `https://github.com/thisisnotajokee/Soon/actions/runs/24596710721`.
+- VM210 runtime check:
+  - `make check` -> `PASS` (`Soon/alerts PASS`, `Soon/runtime-alerts PASS`).
+- Public health:
+  - `https://api.ambot.nl/health` -> `200` (`status=ok`, `storage=postgres`).
+- Decyzja operacyjna:
+  - stabilizacja utrzymana; brak sygnałów regresji.
+- Plan D+3:
+  - docelowy checkpoint D+3 wykonujemy `2026-04-21` (watchdog + VM210 `make check` + public health).
