@@ -40,6 +40,7 @@ const TOKEN_BUDGET_PROBE_OPS_KEY_ROTATION_AUDIT_STATE_KEY = 'token_budget_probe_
 const TRACKING_CHAT_SETTINGS_PREFIX = 'tracking_chat_settings:';
 const TRACKING_SNOOZE_PREFIX = 'tracking_snooze:';
 const PRICE_ERROR_REALERT_RULES_STATE_KEY = 'price_error_realert_rules_v1';
+const ALERT_HISTORY_STATE_KEY = 'compat_alert_history_v1';
 const TRACKINGS_CACHE_RUNTIME_STATE_KEY = 'trackings_cache_runtime';
 const TRACKINGS_CACHE_AUTOTUNE_LAST_STATE_KEY = 'trackings_cache_autotune_last';
 const TRACKINGS_CACHE_RUNTIME_HISTORY_STATE_KEY = 'trackings_cache_runtime_history';
@@ -107,6 +108,16 @@ const RUNTIME_STATE_ALLOWLIST = new Set([
 ]);
 const API_LOG_BUFFER_MAX_ENTRIES = 1200;
 const COMPAT_PRICE_ERROR_DOMAINS = new Set(['de', 'it', 'fr', 'es', 'uk', 'nl']);
+const USER_VISIBLE_ALERT_TYPES = new Set([
+  'drop_detected',
+  'target_hit',
+  'buybox',
+  'buybox_change',
+  'buybox_amazon',
+  'stock_back',
+  'stock_out',
+  'price_error',
+]);
 const refreshAllJobs = new Map();
 
 let apiLogNextId = 1;
@@ -1147,6 +1158,67 @@ function buildCompatPriceErrorRows(trackings, limit = 50) {
     }
   }
   return rows;
+}
+
+function normalizeCompatAlertHistoryRows(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((row) => {
+      const id = Number.parseInt(String(row?.id ?? ''), 10);
+      const alertType = String(row?.alert_type ?? '').trim();
+      const createdAtRaw = String(row?.created_at ?? '').trim();
+      const createdTs = Date.parse(createdAtRaw);
+      if (!Number.isInteger(id) || id <= 0 || !alertType || !Number.isFinite(createdTs)) return null;
+      return {
+        id,
+        chat_id: String(row?.chat_id ?? '').trim() || null,
+        asin: row?.asin ? String(row.asin).trim().toUpperCase() : null,
+        alert_type: alertType,
+        message: row?.message ? String(row.message) : null,
+        created_at: new Date(createdTs).toISOString(),
+        feedback_status: row?.feedback_status ? String(row.feedback_status).trim() : null,
+        feedback_source: row?.feedback_source ? String(row.feedback_source).trim() : null,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => Date.parse(String(b.created_at)) - Date.parse(String(a.created_at)));
+}
+
+async function loadCompatAlertHistory(store) {
+  if (!store.getRuntimeState) return [];
+  const state = await store.getRuntimeState(ALERT_HISTORY_STATE_KEY);
+  return normalizeCompatAlertHistoryRows(state?.stateValue ?? []);
+}
+
+async function saveCompatAlertHistory(store, rows) {
+  if (!store.setRuntimeState) return;
+  await store.setRuntimeState(ALERT_HISTORY_STATE_KEY, normalizeCompatAlertHistoryRows(rows));
+}
+
+function buildCompatAlertHistoryFromRuns(runs, limit = 200) {
+  const items = [];
+  for (const run of Array.isArray(runs) ? runs : []) {
+    const createdAt = run?.finishedAt ?? run?.startedAt ?? new Date().toISOString();
+    for (const alert of Array.isArray(run?.alerts) ? run.alerts : []) {
+      const kind = String(alert?.kind ?? '').trim().toLowerCase();
+      const alertType = kind === 'technical' ? 'technical' : 'drop_detected';
+      items.push({
+        chat_id: null,
+        asin: alert?.asin ? String(alert.asin).trim().toUpperCase() : null,
+        alert_type: alertType,
+        message: alert?.message ? String(alert.message) : alert?.channel ? `channel=${alert.channel}` : null,
+        created_at: createdAt,
+        feedback_status: null,
+        feedback_source: null,
+      });
+      if (items.length >= limit) break;
+    }
+    if (items.length >= limit) break;
+  }
+  return items.map((row, index) => ({
+    id: index + 1,
+    ...row,
+  }));
 }
 
 function sanitizeSystemStatsHistory(raw) {
@@ -4072,6 +4144,111 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
           await store.setRuntimeState(PRICE_ERROR_REALERT_RULES_STATE_KEY, next);
         }
         return sendJson(res, 200, { success: true, asin, domain, cleared: true });
+      }
+
+      const alertsHistoryMatch = pathname.match(/^\/api\/alerts\/([^/]+)$/);
+      if (method === 'GET' && alertsHistoryMatch) {
+        const chatId = normalizeChatId(alertsHistoryMatch[1]);
+        const limit = clampInt(url.searchParams.get('limit'), 50, 1, 200);
+        const adminId = resolveCompatAdminId();
+        const isAdmin = Boolean(adminId && chatId === adminId);
+
+        let historyRows = await loadCompatAlertHistory(store);
+        if (!historyRows.length && store.listLatestAutomationRuns) {
+          const runs = await store.listLatestAutomationRuns(50);
+          const bootstrapped = buildCompatAlertHistoryFromRuns(runs, 200).map((row) => ({
+            ...row,
+            chat_id: chatId,
+          }));
+          if (bootstrapped.length) {
+            await saveCompatAlertHistory(store, bootstrapped);
+            historyRows = await loadCompatAlertHistory(store);
+          }
+        }
+
+        const scoped = historyRows
+          .filter((row) => String(row?.chat_id ?? '') === chatId)
+          .filter((row) => isAdmin || USER_VISIBLE_ALERT_TYPES.has(String(row?.alert_type ?? '')))
+          .slice(0, limit);
+        return sendJson(res, 200, scoped);
+      }
+
+      const alertsFeedbackMatch = pathname.match(/^\/api\/alerts\/([^/]+)\/(\d+)\/feedback$/);
+      if (method === 'PATCH' && alertsFeedbackMatch) {
+        const actorChatId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(actorChatId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const chatId = normalizeChatId(alertsFeedbackMatch[1]);
+        if (chatId !== String(actorChatId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const alertId = Number.parseInt(alertsFeedbackMatch[2], 10);
+        if (!Number.isInteger(alertId) || alertId <= 0) {
+          return sendJson(res, 400, { error: 'Invalid alertId', requestId });
+        }
+        const body = await readJsonBody(req).catch(() => ({}));
+        const status = String(body?.status ?? '').trim().toLowerCase();
+        const source = String(body?.source ?? '').trim() || null;
+        if (!status) {
+          return sendJson(res, 400, { error: 'Invalid feedback payload', requestId });
+        }
+
+        const rows = await loadCompatAlertHistory(store);
+        const index = rows.findIndex((row) => row.id === alertId && String(row?.chat_id ?? '') === chatId);
+        if (index < 0) {
+          return sendJson(res, 404, { error: 'Alert not found', requestId });
+        }
+        const updatedRow = {
+          ...rows[index],
+          feedback_status: status,
+          feedback_source: source,
+          chat_id: chatId,
+        };
+        const nextRows = rows.slice();
+        nextRows[index] = updatedRow;
+        await saveCompatAlertHistory(store, nextRows);
+        return sendJson(res, 200, { success: true, row: updatedRow });
+      }
+
+      const alertsDeleteSingleMatch = pathname.match(/^\/api\/alerts\/([^/]+)\/(\d+)$/);
+      if (method === 'DELETE' && alertsDeleteSingleMatch) {
+        const actorChatId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(actorChatId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const chatId = normalizeChatId(alertsDeleteSingleMatch[1]);
+        if (chatId !== String(actorChatId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const alertId = Number.parseInt(alertsDeleteSingleMatch[2], 10);
+        if (!Number.isInteger(alertId) || alertId <= 0) {
+          return sendJson(res, 400, { error: 'Invalid alertId', requestId });
+        }
+
+        const rows = await loadCompatAlertHistory(store);
+        const index = rows.findIndex((row) => row.id === alertId && String(row?.chat_id ?? '') === chatId);
+        if (index < 0) {
+          return sendJson(res, 404, { error: 'Alert not found', requestId });
+        }
+        const deletedRow = rows[index];
+        const nextRows = rows.filter((row) => !(row.id === alertId && String(row?.chat_id ?? '') === chatId));
+        await saveCompatAlertHistory(store, nextRows);
+        return sendJson(res, 200, { success: true, row: deletedRow });
+      }
+
+      const alertsClearMatch = pathname.match(/^\/api\/alerts\/([^/]+)\/clear$/);
+      if (method === 'DELETE' && alertsClearMatch) {
+        const chatId = normalizeChatId(alertsClearMatch[1]);
+        const rows = await loadCompatAlertHistory(store);
+        const nextRows = rows.filter((row) => String(row?.chat_id ?? '') !== chatId);
+        const cleared = rows.length - nextRows.length;
+        await saveCompatAlertHistory(store, nextRows);
+        return sendJson(res, 200, { success: true, cleared });
       }
 
       if (method === 'GET' && pathname === '/api/perf/routes') {

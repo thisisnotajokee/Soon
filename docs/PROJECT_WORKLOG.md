@@ -2840,3 +2840,19 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - nowy test `P0-C: /api/price-errors re-alert compatibility endpoints`.
 - Aktualizacja dokumentacji:
   - `docs/API_ENDPOINT_INVENTORY.md` (`price-errors`, `realert-threshold*` -> DONE).
+
+## [2026-04-18 07:45:00Z] P0-C alerts history + feedback/delete/clear compatibility endpoints completed
+- Dodano brakujące endpointy kompatybilności alert history/write:
+  - `GET /api/alerts/:chatId`,
+  - `PATCH /api/alerts/:chatId/:alertId/feedback` (admin-only + actor match),
+  - `DELETE /api/alerts/:chatId/:alertId` (admin-only + actor match),
+  - `DELETE /api/alerts/:chatId/clear`.
+- Implementacja runtime:
+  - nowy stan `compat_alert_history_v1` jako warstwa kompatybilności historii alertów,
+  - bootstrap historii z `automation runs` przy pierwszym odczycie (best-effort),
+  - filtrowanie typów alertów dla nie-admin (`USER_VISIBLE_ALERT_TYPES`),
+  - obsługa aktualizacji feedbacku oraz usuwania pojedynczego i zbiorczego.
+- Rozszerzono testy kontraktowe:
+  - nowy test `P0-C: /api/alerts/:chatId compatibility read/write endpoints`.
+- Aktualizacja dokumentacji:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`alerts/:chatId`, `feedback`, `delete`, `clear` -> DONE).

@@ -25,10 +25,10 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `GET /api/ai/queue-health` — `src/routes/api/ai/routes/health.js`
 - [ ] `GET /api/ai/suggest-target/:asin` — `src/routes/api/ai/routes/analysis.js`
 - [ ] `GET /api/ai/usage` — `src/routes/api/ai/routes/health.js`
-- [ ] `GET /api/alerts/:chatId` — `src/routes/api/analytics/alerts-history-routes.js`
-- [ ] `DELETE /api/alerts/:chatId/:alertId` — `src/routes/api/analytics/alerts-write-routes.js`
-- [ ] `PATCH /api/alerts/:chatId/:alertId/feedback` — `src/routes/api/analytics/alerts-write-routes.js`
-- [ ] `DELETE /api/alerts/:chatId/clear` — `src/routes/api/analytics/alerts-write-routes.js`
+- [x] `GET /api/alerts/:chatId` — `packages/api/src/runtime/server.mjs`
+- [x] `DELETE /api/alerts/:chatId/:alertId` — `packages/api/src/runtime/server.mjs`
+- [x] `PATCH /api/alerts/:chatId/:alertId/feedback` — `packages/api/src/runtime/server.mjs`
+- [x] `DELETE /api/alerts/:chatId/clear` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/alerts/:chatId/delivery-metrics` — `src/routes/api/analytics/alerts-policy-routes.js`
 - [ ] `GET /api/alerts/:chatId/precision` — `src/routes/api/analytics/alerts-policy-routes.js`
 - [ ] `GET /api/alerts/:chatId/price-error-policy` — `src/routes/api/analytics/alerts-policy-routes.js`

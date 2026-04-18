@@ -1539,6 +1539,80 @@ test('P0-C: /api/price-errors re-alert compatibility endpoints', async () => {
   }
 });
 
+test('P0-C: /api/alerts/:chatId compatibility read/write endpoints', async () => {
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(async (baseUrl) => {
+      const warmup = await readJson(
+        await fetch(`${baseUrl}/automation/cycle`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            budgetMode: 'capped',
+            budgetTokens: 5,
+            candidates: [
+              { asin: 'B0BYW7MMBR', expectedValue: 0.9, confidence: 0.9, tokenCost: 1, priority: 1 },
+            ],
+          }),
+        }),
+      );
+      assert.equal(warmup.status, 200);
+
+      const alerts = await readJson(await fetch(`${baseUrl}/api/alerts/2041?limit=10`));
+      assert.equal(alerts.status, 200);
+      assert.ok(Array.isArray(alerts.body));
+
+      const feedbackForbidden = await readJson(
+        await fetch(`${baseUrl}/api/alerts/2041/1/feedback`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ status: 'ok', source: 'contract' }),
+        }),
+      );
+      assert.equal(feedbackForbidden.status, 403);
+      assert.equal(feedbackForbidden.body.error, 'Forbidden');
+
+      const feedbackNotFound = await readJson(
+        await fetch(`${baseUrl}/api/alerts/2041/99999/feedback`, {
+          method: 'PATCH',
+          headers: {
+            'content-type': 'application/json',
+            'x-telegram-user-id': '2041',
+          },
+          body: JSON.stringify({ status: 'ok', source: 'contract' }),
+        }),
+      );
+      assert.equal(feedbackNotFound.status, 404);
+      assert.equal(feedbackNotFound.body.error, 'Alert not found');
+
+      const deleteNotFound = await readJson(
+        await fetch(`${baseUrl}/api/alerts/2041/99999`, {
+          method: 'DELETE',
+          headers: {
+            'x-telegram-user-id': '2041',
+          },
+        }),
+      );
+      assert.equal(deleteNotFound.status, 404);
+      assert.equal(deleteNotFound.body.error, 'Alert not found');
+
+      const clear = await readJson(
+        await fetch(`${baseUrl}/api/alerts/2041/clear`, {
+          method: 'DELETE',
+        }),
+      );
+      assert.equal(clear.status, 200);
+      assert.equal(clear.body.success, true);
+      assert.ok(Number.isFinite(Number(clear.body.cleared)));
+    });
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
 test('P0-C: /api/settings/:chatId/preferences validates payload and persists', async () => {
   await withServer(async (baseUrl) => {
     const invalid = await readJson(
