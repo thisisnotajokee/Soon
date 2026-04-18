@@ -1220,8 +1220,10 @@ test('P0-C: /api/scan/run-now + /api/scan/stop compatibility with admin guard', 
           headers: { 'x-telegram-user-id': '2041' },
         }),
       );
-      assert.equal(runConflict.status, 409);
-      assert.equal(runConflict.body.success, false);
+      assert.equal(runConflict.status, 200);
+      assert.equal(runConflict.body.success, true);
+      assert.equal(runConflict.body.started, false);
+      assert.equal(runConflict.body.reason, 'already_running');
       assert.equal(runConflict.body.error, 'Skan już trwa');
 
       const stopNow = await readJson(

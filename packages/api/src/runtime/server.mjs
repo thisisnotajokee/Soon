@@ -4575,7 +4575,13 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         const scanRuntimeState = store.getRuntimeState ? await store.getRuntimeState(SCAN_RUNTIME_STATE_KEY) : null;
         const scanRuntime = scanRuntimeState?.stateValue ?? {};
         if (scanRuntime?.isScanning === true) {
-          return sendJson(res, 409, { success: false, error: 'Skan już trwa', requestId });
+          return sendJson(res, 200, {
+            success: true,
+            started: false,
+            reason: 'already_running',
+            error: 'Skan już trwa',
+            requestId,
+          });
         }
 
         const requestedAt = new Date().toISOString();
