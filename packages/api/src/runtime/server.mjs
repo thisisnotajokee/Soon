@@ -4739,12 +4739,30 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
             ? null
             : clampInt(state.scanIntervalMin, 60, 1, 24 * 60);
         const defaultDropPct = clampInt(state?.default_drop_pct, 10, 1, 90);
+        const notificationsEnabled =
+          state?.notification_prefs && typeof state.notification_prefs === 'object'
+            ? Boolean(state.notification_prefs.enabled)
+            : true;
+        const notificationChannels =
+          state?.notification_channels && typeof state.notification_channels === 'object'
+            ? Object.fromEntries(
+                Object.entries(state.notification_channels)
+                  .filter(([key]) => typeof key === 'string' && key.trim())
+                  .map(([key, value]) => [key, Boolean(value)]),
+              )
+            : {};
+        const alertProfiles =
+          state?.alert_profiles && typeof state.alert_profiles === 'object' && !Array.isArray(state.alert_profiles)
+            ? state.alert_profiles
+            : {};
         return sendJson(res, 200, {
           chatId,
           productIntervalMin,
-          notificationsEnabled: true,
+          notificationsEnabled,
           scanIntervalMin,
           default_drop_pct: defaultDropPct,
+          notification_channels: notificationChannels,
+          alert_profiles: alertProfiles,
           updatedAt: state?.updatedAt ?? null,
         });
       }
