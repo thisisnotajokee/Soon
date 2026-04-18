@@ -34,7 +34,7 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `GET /api/alerts/:chatId/price-error-policy` — `src/routes/api/analytics/alerts-policy-routes.js`
 - [ ] `GET /api/alerts/:chatId/threshold-recommendation` — `src/routes/api/analytics/alerts-policy-routes.js`
 - [x] `GET /api/auth/whoami` — `packages/api/src/runtime/server.mjs`
-- [ ] `GET /api/buybox/:asin` — `src/routes/api/analytics/misc-routes.js`
+- [x] `GET /api/buybox/:asin` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/categories/:chatId` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/check-alert-status` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/config` — `packages/api/src/runtime/server.mjs`
@@ -57,7 +57,7 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [ ] `POST /api/forum/threads/:threadId/comments` — `src/routes/api/forum.js`
 - [ ] `POST /api/forum/threads/:threadId/report` — `src/routes/api/forum.js`
 - [ ] `POST /api/forum/threads/:threadId/vote` — `src/routes/api/forum.js`
-- [ ] `GET /api/heatmap/:asin` — `src/routes/api/analytics/misc-routes.js`
+- [x] `GET /api/heatmap/:asin` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/history/:asin` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/hunter-autonomy-decision-health` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/hunter-bandit-context` — `packages/api/src/runtime/server.mjs`

@@ -1411,6 +1411,41 @@ test('P0-C: /api/stats/:chatId + /api/stock/:asin compatibility endpoints', asyn
   }
 });
 
+test('P0-C: /api/heatmap/:asin + /api/buybox/:asin compatibility endpoints', async () => {
+  const previousAdminId = process.env.SOON_ADMIN_ID;
+  process.env.SOON_ADMIN_ID = '2041';
+
+  try {
+    await withServer(async (baseUrl) => {
+      const heatmap = await readJson(await fetch(`${baseUrl}/api/heatmap/B0BYW7MMBR?days=30`));
+      assert.equal(heatmap.status, 200);
+      assert.ok(Array.isArray(heatmap.body));
+      if (heatmap.body.length > 0) {
+        assert.ok(typeof heatmap.body[0].ts === 'string');
+        assert.ok(Number.isFinite(Number(heatmap.body[0].price)));
+      }
+
+      const buyboxForbidden = await readJson(await fetch(`${baseUrl}/api/buybox/B0BYW7MMBR`));
+      assert.equal(buyboxForbidden.status, 403);
+      assert.equal(buyboxForbidden.body.error, 'Forbidden');
+
+      const buyboxAdmin = await readJson(
+        await fetch(`${baseUrl}/api/buybox/B0BYW7MMBR`, {
+          headers: { 'x-telegram-user-id': '2041' },
+        }),
+      );
+      assert.equal(buyboxAdmin.status, 200);
+      assert.ok(Array.isArray(buyboxAdmin.body));
+      if (buyboxAdmin.body.length > 0) {
+        assert.equal(buyboxAdmin.body[0].asin, 'B0BYW7MMBR');
+      }
+    });
+  } finally {
+    if (previousAdminId === undefined) delete process.env.SOON_ADMIN_ID;
+    else process.env.SOON_ADMIN_ID = previousAdminId;
+  }
+});
+
 test('P0-C: /api/settings/:chatId/preferences validates payload and persists', async () => {
   await withServer(async (baseUrl) => {
     const invalid = await readJson(

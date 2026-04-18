@@ -3771,6 +3771,92 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
         });
       }
 
+      const buyboxMatch = pathname.match(/^\/api\/buybox\/([^/]+)$/);
+      if (method === 'GET' && buyboxMatch) {
+        const userId = resolveCompatAuthUserId(req, url);
+        const adminId = resolveCompatAdminId();
+        const requestId = resolveCompatRequestId(req);
+        if (!isCompatAdminUser(userId, adminId)) {
+          return sendJson(res, 403, { error: 'Forbidden', requestId });
+        }
+        const asin = decodeURIComponent(buyboxMatch[1]).toUpperCase();
+        if (!asin) return sendJson(res, 400, { error: 'asin_required', requestId });
+
+        const detail = await store.getProductDetail(asin);
+        if (!detail) {
+          return sendJson(res, 200, []);
+        }
+
+        const pricesNew = detail?.pricesNew && typeof detail.pricesNew === 'object' ? detail.pricesNew : {};
+        const bestPrice = Object.values(pricesNew)
+          .map((value) => toFiniteNumber(value))
+          .filter((value) => Number.isFinite(value) && value > 0)
+          .sort((a, b) => a - b)[0] ?? null;
+        const buyboxSeller = detail?.buyboxSeller ?? null;
+        const buyboxIsAmazon = detail?.buyboxIsAmazon === true;
+        const hasSignal = buyboxSeller !== null || detail?.buyboxIsAmazon !== undefined || bestPrice !== null;
+
+        const rows = hasSignal
+          ? [{
+              asin,
+              domain: 'de',
+              seller: buyboxSeller ?? (buyboxIsAmazon ? 'Amazon' : null),
+              is_amazon: buyboxIsAmazon,
+              price: bestPrice,
+              recorded_at: detail?.updatedAt ?? new Date().toISOString(),
+            }]
+          : [];
+        return sendJson(res, 200, rows);
+      }
+
+      const heatmapMatch = pathname.match(/^\/api\/heatmap\/([^/]+)$/);
+      if (method === 'GET' && heatmapMatch) {
+        const asin = decodeURIComponent(heatmapMatch[1]).toUpperCase();
+        if (!asin) return sendJson(res, 400, { error: 'asin_required' });
+
+        const days = clampInt(url.searchParams.get('days'), 1095, 1, 1095);
+        const sinceMs = Date.now() - days * 24 * 60 * 60 * 1000;
+
+        let rows = [];
+        if (store.getPriceHistory) {
+          const historyRows = await store.getPriceHistory(asin, 1000);
+          if (Array.isArray(historyRows)) {
+            rows = historyRows;
+          }
+        }
+        if (!rows.length) {
+          const detail = await store.getProductDetail(asin);
+          if (detail) {
+            rows = (Array.isArray(detail.historyPoints) ? detail.historyPoints : []).map((row) => ({
+              ts: row?.ts ?? null,
+              price: row?.value ?? null,
+              market: 'de',
+              condition: 'new',
+              currency: 'EUR',
+            }));
+          }
+        }
+
+        const payload = rows
+          .map((row) => {
+            const ts = row?.ts ? Date.parse(String(row.ts)) : NaN;
+            const price = toFiniteNumber(row?.price ?? row?.value);
+            if (!Number.isFinite(ts) || !Number.isFinite(price) || price <= 0) return null;
+            if (ts < sinceMs) return null;
+            return {
+              ts: new Date(ts).toISOString(),
+              market: String(row?.market ?? 'de').toLowerCase() || 'de',
+              condition: String(row?.condition ?? 'new').toLowerCase() || 'new',
+              price: Number(price.toFixed(2)),
+              currency: String(row?.currency ?? 'EUR').toUpperCase() || 'EUR',
+            };
+          })
+          .filter(Boolean)
+          .sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts));
+
+        return sendJson(res, 200, payload);
+      }
+
       const statsMatch = pathname.match(/^\/api\/stats\/([^/]+)$/);
       if (method === 'GET' && statsMatch) {
         const chatId = normalizeChatId(statsMatch[1]);

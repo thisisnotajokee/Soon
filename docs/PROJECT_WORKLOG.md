@@ -2812,3 +2812,15 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 - Aktualizacja dokumentacji:
   - `docs/API_ENDPOINT_INVENTORY.md` (`stats`, `stock` -> DONE),
   - `docs/FULL_MECHANICS_INVENTORY.md` (`N008` -> DONE).
+
+## [2026-04-18 07:10:00Z] P0-C heatmap + buybox compatibility endpoints completed
+- Dodano brakujące endpointy kompatybilności analytics/misc:
+  - `GET /api/heatmap/:asin`,
+  - `GET /api/buybox/:asin` (admin-only).
+- Kontrakt endpointów:
+  - `heatmap/:asin` zwraca ujednoliconą listę punktów cenowych (`ts`, `market`, `condition`, `price`, `currency`) filtrowaną po `days`,
+  - `buybox/:asin` jest chroniony guardem admina (`403 Forbidden` bez uprawnień) i zwraca kompatybilną listę wpisów historii buybox (best-effort payload).
+- Rozszerzono testy kontraktowe:
+  - nowy test `P0-C: /api/heatmap/:asin + /api/buybox/:asin compatibility endpoints`.
+- Aktualizacja dokumentacji:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`heatmap`, `buybox` -> DONE).
