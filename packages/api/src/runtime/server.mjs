@@ -1021,6 +1021,30 @@ function buildCompatScanPlanPayload(trackings, budget, avgTokenPerAsin) {
   };
 }
 
+function buildPopularityRows(trackings, limit = 20) {
+  const rows = (Array.isArray(trackings) ? trackings : [])
+    .map((item) => {
+      const asin = String(item?.asin || '').trim().toUpperCase();
+      if (!asin) return null;
+      const trust = Number(item?.trustScore ?? item?.trust_score ?? 0);
+      const drop = Number(item?.dropPct ?? item?.discountPct ?? 0);
+      const alerts = Number(item?.alertsCount ?? item?.updatesCount ?? 0);
+      const score = Number((trust * 0.55 + drop * 0.35 + Math.min(alerts, 100) * 0.1).toFixed(2));
+      return {
+        asin,
+        title: item?.title ? String(item.title) : null,
+        category: item?.category ? String(item.category) : null,
+        trustScore: Number.isFinite(trust) ? trust : 0,
+        dropPct: Number.isFinite(drop) ? drop : 0,
+        trackers: Math.max(1, Number.isFinite(alerts) ? Math.round(alerts) : 1),
+        score,
+      };
+    })
+    .filter(Boolean);
+  rows.sort((a, b) => b.score - a.score);
+  return rows.slice(0, Math.max(1, limit));
+}
+
 function sanitizeSystemStatsHistory(raw) {
   if (!Array.isArray(raw)) return [];
   const now = Date.now();
@@ -3706,6 +3730,29 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
             totalScanned: Number(metrics?.totalScanned || 0),
             totalAlerts: Number(metrics?.totalAlerts || 0),
           },
+        });
+      }
+
+      if (method === 'GET' && pathname === '/api/popular') {
+        const limit = clampInt(url.searchParams.get('limit'), 20, 1, 50);
+        const trackings = await store.listTrackings();
+        const rows = buildPopularityRows(trackings, limit);
+        return sendJson(res, 200, rows);
+      }
+
+      const popularityMatch = pathname.match(/^\/api\/popularity\/([^/]+)$/);
+      if (method === 'GET' && popularityMatch) {
+        const asin = decodeURIComponent(popularityMatch[1]).toUpperCase();
+        if (!asin) return sendJson(res, 400, { error: 'asin_required' });
+
+        const trackings = await store.listTrackings();
+        const rows = buildPopularityRows(trackings, 500);
+        const hit = rows.find((row) => row.asin === asin);
+        return sendJson(res, 200, {
+          asin,
+          trackers: hit?.trackers ?? 0,
+          score: hit?.score ?? 0,
+          rank: hit ? rows.findIndex((row) => row.asin === asin) + 1 : null,
         });
       }
 

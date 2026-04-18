@@ -110,8 +110,8 @@ Generated from `src/routes/api/**/*.js` on 2026-04-15.
 - [x] `GET /api/ops/keepa-history-bootstrap` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/ops/metrics` — `packages/api/src/runtime/server.mjs`
 - [x] `GET /api/perf/routes` — `packages/api/src/runtime/server.mjs`
-- [ ] `GET /api/popular` — `src/routes/api/analytics/misc-routes.js`
-- [ ] `GET /api/popularity/:asin` — `src/routes/api/analytics/misc-routes.js`
+- [x] `GET /api/popular` — `packages/api/src/runtime/server.mjs`
+- [x] `GET /api/popularity/:asin` — `packages/api/src/runtime/server.mjs`
 - [ ] `GET /api/price-errors` — `src/routes/api/analytics/alerts-history-routes.js`
 - [ ] `DELETE /api/price-errors/realert-threshold` — `src/routes/api/analytics/alerts-write-routes.js`
 - [ ] `POST /api/price-errors/realert-threshold` — `src/routes/api/analytics/alerts-write-routes.js`

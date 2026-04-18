@@ -2772,3 +2772,15 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 - Aktualizacja dokumentacji:
   - `docs/API_ENDPOINT_INVENTORY.md` (`perf/routes`, `token-efficiency` -> DONE),
   - `docs/FULL_MECHANICS_INVENTORY.md` (`N002`, `N003`, `N004` -> DONE).
+
+## [2026-04-18 06:25:00Z] P0-C popularity compatibility endpoints completed
+- Dodano brakujące endpointy kompatybilności popularity:
+  - `GET /api/popular`,
+  - `GET /api/popularity/:asin`.
+- Kontrakt endpointów:
+  - `popular` zwraca listę ASIN-ów posortowaną scorem (`asin`, `title`, `category`, `trustScore`, `dropPct`, `trackers`, `score`),
+  - `popularity/:asin` zwraca `trackers`, `score`, `rank` dla konkretnego ASIN (oraz `0/null` gdy brak danych).
+- Rozszerzono testy kontraktowe:
+  - nowy test `P0-C: /api/popular + /api/popularity/:asin compatibility endpoints`.
+- Aktualizacja dokumentacji:
+  - `docs/API_ENDPOINT_INVENTORY.md` (`popular`, `popularity/:asin` -> DONE).

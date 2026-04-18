@@ -1332,6 +1332,33 @@ test('P0-C: /api/perf/routes + /api/token-efficiency compatibility endpoints', a
   }
 });
 
+test('P0-C: /api/popular + /api/popularity/:asin compatibility endpoints', async () => {
+  await withServer(async (baseUrl) => {
+    const popular = await readJson(await fetch(`${baseUrl}/api/popular?limit=5`));
+    assert.equal(popular.status, 200);
+    assert.ok(Array.isArray(popular.body));
+    assert.ok(popular.body.length >= 1);
+    const sample = popular.body[0];
+    assert.ok(typeof sample.asin === 'string' && sample.asin.length >= 6);
+    assert.ok(Number.isFinite(Number(sample.score)));
+
+    const asin = sample.asin;
+    const popularity = await readJson(await fetch(`${baseUrl}/api/popularity/${asin}`));
+    assert.equal(popularity.status, 200);
+    assert.equal(popularity.body.asin, asin);
+    assert.ok(Number.isFinite(Number(popularity.body.trackers)));
+    assert.ok(Number.isFinite(Number(popularity.body.score)));
+    assert.ok(popularity.body.rank === null || Number.isFinite(Number(popularity.body.rank)));
+
+    const missingPopularity = await readJson(await fetch(`${baseUrl}/api/popularity/B000000000`));
+    assert.equal(missingPopularity.status, 200);
+    assert.equal(missingPopularity.body.asin, 'B000000000');
+    assert.equal(missingPopularity.body.trackers, 0);
+    assert.equal(missingPopularity.body.score, 0);
+    assert.equal(missingPopularity.body.rank, null);
+  });
+});
+
 test('P0-C: /api/settings/:chatId/preferences validates payload and persists', async () => {
   await withServer(async (baseUrl) => {
     const invalid = await readJson(
