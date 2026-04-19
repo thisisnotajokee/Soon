@@ -630,10 +630,9 @@ function renderTrackingList() {
     const li = document.createElement('li');
     li.className = `tracking-item${item.asin === state.selectedAsin ? ' selected' : ''}`;
 
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'tracking-button';
-    button.dataset.asin = item.asin;
+    const card = document.createElement('div');
+    card.className = 'pcard';
+    card.dataset.asin = item.asin;
 
     const cardTop = document.createElement('div');
     cardTop.className = 'pcard-top';
@@ -681,7 +680,9 @@ function renderTrackingList() {
     statusRow.className = 'pcard-track-status';
     const statusBadge = document.createElement('span');
     statusBadge.className = `track-status-badge ${preview.isActive ? 'active' : 'inactive'}`;
-    statusBadge.textContent = preview.isActive ? 'Aktywnie śledzony' : 'Śledzenie wyłączone';
+    statusBadge.innerHTML = preview.isActive
+      ? '<span class="material-icons-round">track_changes</span>Aktywnie śledzony'
+      : '<span class="material-icons-round">pause_circle</span>Śledzenie wyłączone';
     statusRow.appendChild(statusBadge);
 
     const cardPrices = document.createElement('div');
@@ -724,20 +725,21 @@ function renderTrackingList() {
 
     info.append(title, meta, statusRow, cardPrices);
     cardTop.append(thumb, info);
-    button.appendChild(cardTop);
+    card.appendChild(cardTop);
 
     const signalItems = [];
     const reco = recommendationBadge(preview.deltaPctVsAvg);
     if (reco) {
       const recoChip = document.createElement('span');
       recoChip.className = `reco ${reco.kind}`;
-      recoChip.textContent = reco.text;
+      const icon = reco.kind === 'buy' ? 'shopping_bag' : reco.kind === 'great' ? 'local_offer' : 'schedule';
+      recoChip.innerHTML = `<span class="material-icons-round">${icon}</span>${reco.text}`;
       signalItems.push(recoChip);
     }
     if (Number.isFinite(deltaPctRaw) && deltaPctRaw <= -20) {
       const atlChip = document.createElement('span');
       atlChip.className = 'atl-badge';
-      atlChip.textContent = 'Historyczne minimum';
+      atlChip.innerHTML = '<span class="material-icons-round">south</span>Historyczne minimum';
       signalItems.push(atlChip);
     }
     if (preview.outOfStock) {
@@ -769,7 +771,7 @@ function renderTrackingList() {
         signals.appendChild(signal);
       }
       signalsRow.appendChild(signals);
-      button.appendChild(signalsRow);
+      card.appendChild(signalsRow);
     }
 
     const grid = document.createElement('div');
@@ -812,16 +814,16 @@ function renderTrackingList() {
 
       grid.appendChild(gridItem);
     }
-    button.appendChild(grid);
+    card.appendChild(grid);
 
     const spark = document.createElement('div');
     spark.className = 'pcard-spark';
     renderCardSparkline(spark, preview.sparkline);
     if (spark.innerHTML) {
-      button.appendChild(spark);
+      card.appendChild(spark);
     }
 
-    li.appendChild(button);
+    li.appendChild(card);
     nodes.trackingList.appendChild(li);
   }
 
@@ -1154,8 +1156,8 @@ nodes.reloadDetail.addEventListener('click', async () => {
 });
 
 nodes.trackingList.addEventListener('click', async (event) => {
-  const target = event.target.closest('button[data-asin]');
-  if (!target) return;
+  const target = event.target.closest('[data-asin]');
+  if (!target || !target.classList.contains('pcard')) return;
   state.selectedAsin = target.dataset.asin;
   state.detailTab = 'overview';
   renderTrackingList();

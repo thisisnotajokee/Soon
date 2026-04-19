@@ -10,6 +10,33 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ---
 
+## [2026-04-19 03:37:05Z] UI parity stage-1D: direct Ambot class/layout port for Trackings + Detail
+
+### Scope
+
+- Executed direct UI class/layout port from `ambot-pro` to `Soon` for:
+  - tracked cards container/rendering (`pcard`, `pgrid`, `pdrop`, `track-status-badge` family),
+  - detail view shell (`detail/dbar/dscroll/dhdr/chart-wrap/dtabs/dtpanel` family),
+  - bottom navigation (`bnav/bnav-item` visual model with Material Icons).
+- Switched Soon tracked-card root element from custom `tracking-button` to Ambot-like `div.pcard` while preserving existing Soon interactions:
+  - card click -> detail,
+  - price row click -> Amazon best domain,
+  - market row click -> Amazon selected domain.
+- Preserved Soon scope constraints:
+  - no AI feature enablement,
+  - no swipe gestures/context menu logic.
+
+### Validation
+
+- `node --check packages/web/src/main.mjs` -> PASS
+- `npm --prefix /home/piotras/Soon run -s smoke:e2e` -> PASS
+- `make -C /home/piotras/Soon check` -> PASS
+
+### Next
+
+- Visual acceptance on smartphone (LAN/docker URL) against Ambot screenshots and minor pixel polish only where still visibly different.
+- Add browser screenshot smoke for `Śledzone` and `Szczegóły` to lock this parity baseline.
+
 ## [2026-04-19 03:12:57Z] UI parity stage-1C: detail view polish (Ambot-like layout/UX, no AI)
 
 ### Scope

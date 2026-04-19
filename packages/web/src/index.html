@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Soon UI v1</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Icons+Round" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -62,51 +63,66 @@
           </aside>
         </main>
 
-        <section id="detail-overlay" class="tracking-detail-overlay hidden" aria-hidden="true">
-          <header class="detail-topbar">
-            <button id="detail-back" type="button">← Wróć</button>
-            <strong>Szczegóły produktu</strong>
+        <section id="detail-overlay" class="tracking-detail-overlay detail hidden" aria-hidden="true">
+          <header class="detail-topbar dbar">
+            <button id="detail-back" class="topbtn" type="button" aria-label="Wróć">
+              <span class="material-icons-round">arrow_back</span>
+            </button>
+            <strong class="dbar-title">Szczegóły produktu</strong>
             <div class="detail-topbar-actions">
-              <button id="detail-share" type="button" aria-label="Udostępnij">⤴</button>
-              <button id="detail-delete" type="button" aria-label="Usuń">🗑</button>
+              <button id="detail-share" class="topbtn" type="button" aria-label="Udostępnij">
+                <span class="material-icons-round">share</span>
+              </button>
+              <button id="detail-delete" class="topbtn" type="button" aria-label="Usuń">
+                <span class="material-icons-round">delete</span>
+              </button>
             </div>
           </header>
-          <div class="detail-scroll">
+          <div class="detail-scroll dscroll">
             <section class="panel detail-panel">
               <div id="detail-empty" class="empty-state">Wybierz produkt z listy.</div>
               <div id="detail-content" class="detail-content hidden">
-                <header class="detail-header detail-hero">
-                  <div class="detail-thumb">
+                <header class="detail-header detail-hero dhdr">
+                  <div class="detail-thumb dhdr-img">
                     <img id="detail-thumb-img" alt="" />
                     <span id="detail-thumb-fallback" class="detail-thumb-fallback" aria-hidden="true">📦</span>
                   </div>
-                  <div class="detail-hero-main">
-                    <h3 id="detail-title"></h3>
+                  <div class="detail-hero-main dhdr-info">
+                    <h3 id="detail-title" class="dhdr-title" data-fit-overflow data-fit-min-scale="0.72"></h3>
                     <p id="detail-asin" class="muted"></p>
                     <p id="detail-rating" class="detail-rating">(0.0)</p>
-                    <div class="detail-price-line">
-                      <span id="detail-market-flag" class="detail-market-flag">🇩🇪</span>
-                      <strong id="detail-main-price"></strong>
-                      <span id="detail-best-badge" class="detail-best-badge">Najlepsza cena</span>
-                      <span id="detail-drop-badge" class="detail-drop-badge"></span>
+                    <div class="detail-price-line detail-price-row">
+                      <span id="detail-market-flag" class="detail-market-flag pflag">🇩🇪</span>
+                      <strong id="detail-main-price" class="dhdr-price"></strong>
+                      <span id="detail-best-badge" class="detail-best-badge reco great">Najlepsza cena</span>
+                      <span id="detail-drop-badge" class="detail-drop-badge dhdr-change"></span>
                     </div>
                   </div>
                   <span id="detail-snooze-badge" class="chip hidden"></span>
                 </header>
 
                 <section class="detail-buy-wrap">
-                  <button id="detail-buy-now" class="detail-buy-btn" type="button">🛒 Kup teraz</button>
+                  <button id="detail-buy-now" class="detail-buy-btn buy-btn" type="button">
+                    <span class="material-icons-round buy-icon">shopping_cart</span>
+                    <span id="buyNowText" data-fit-overflow data-fit-min-scale="0.76">Kup teraz</span>
+                  </button>
                 </section>
 
-                <section class="detail-tabs" id="detail-tabs">
-                  <button id="detail-tab-overview" class="detail-tab on" type="button"><span class="detail-tab-icon">▦</span>Przegląd</button>
-                  <button id="detail-tab-settings" class="detail-tab" type="button"><span class="detail-tab-icon">☰</span>Ustawienia</button>
+                <section class="detail-tabs dtabs" id="detail-tabs">
+                  <button id="detail-tab-overview" class="detail-tab dtab on" type="button">
+                    <span class="material-icons-round">grid_view</span><span>Przegląd</span>
+                  </button>
+                  <button id="detail-tab-settings" class="detail-tab dtab" type="button">
+                    <span class="material-icons-round">tune</span><span>Ustawienia</span>
+                  </button>
                 </section>
 
-                <section id="detail-panel-overview" class="detail-tab-panel on">
-                  <section class="detail-section detail-section-chart">
+                <section id="detail-panel-overview" class="detail-tab-panel dtpanel on">
+                  <section class="detail-section detail-section-chart chart-wrap">
                     <h4>Historia (new)</h4>
-                    <svg id="detail-chart" class="price-chart" viewBox="0 0 600 180" role="img" aria-label="Wykres historii cen"></svg>
+                    <div class="chart-box">
+                      <svg id="detail-chart" class="price-chart" viewBox="0 0 600 180" role="img" aria-label="Wykres historii cen"></svg>
+                    </div>
                     <div class="detail-chart-legend">
                       <span><i class="dot dot-new"></i>DE New</span>
                       <span><i class="dot dot-used"></i>DE Używane</span>
@@ -118,20 +134,20 @@
                       <div class="mini-card"><span>ZMIENNOŚĆ</span><strong id="mini-volatility">—</strong></div>
                       <div class="mini-card"><span>OD MINIMUM</span><strong id="mini-days-from-min">—</strong></div>
                     </div>
-                    <div class="detail-range-row">
+                    <div class="detail-range-row trange">
                       <button type="button" data-range="1d">1D</button>
                       <button type="button" data-range="1w">1W</button>
                       <button type="button" data-range="1m">1M</button>
                       <button type="button" data-range="3m" class="on">3M</button>
                       <button type="button" data-range="6m">6M</button>
                     </div>
-                    <div class="detail-market-row">
-                      <button type="button" data-market="de" class="on">🇩🇪 DE</button>
-                      <button type="button" data-market="it">🇮🇹 IT</button>
-                      <button type="button" data-market="fr">🇫🇷 FR</button>
-                      <button type="button" data-market="es">🇪🇸 ES</button>
-                      <button type="button" data-market="uk">🇬🇧 UK</button>
-                      <button type="button" data-market="nl">🇳🇱 NL</button>
+                    <div class="detail-market-row market-toggle-bar">
+                      <button type="button" class="mchip on" data-market="de"><span class="flag-round">🇩🇪</span><span>DE</span></button>
+                      <button type="button" class="mchip" data-market="it"><span class="flag-round">🇮🇹</span><span>IT</span></button>
+                      <button type="button" class="mchip" data-market="fr"><span class="flag-round">🇫🇷</span><span>FR</span></button>
+                      <button type="button" class="mchip" data-market="es"><span class="flag-round">🇪🇸</span><span>ES</span></button>
+                      <button type="button" class="mchip" data-market="uk"><span class="flag-round">🇬🇧</span><span>UK</span></button>
+                      <button type="button" class="mchip" data-market="nl"><span class="flag-round">🇳🇱</span><span>NL</span></button>
                     </div>
                   </section>
 
@@ -156,7 +172,7 @@
                   </section>
                 </section>
 
-                <section id="detail-panel-settings" class="detail-tab-panel hidden">
+                <section id="detail-panel-settings" class="detail-tab-panel dtpanel hidden">
                   <section class="detail-section">
                     <h4>Alerty cenowe</h4>
                     <form id="threshold-form" class="threshold-form">
@@ -271,52 +287,26 @@
 
       <p id="ui-error" class="error hidden"></p>
     </div>
-    <nav class="bottom-nav" aria-label="Główna nawigacja">
-      <button class="bottom-nav-item on" type="button" data-view-target="trackings">
-        <span class="bottom-nav-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-            <path d="M8 4h8" />
-            <path d="M9 4v6l-3 3v1h12v-1l-3-3V4" />
-            <path d="M12 14v6" />
-          </svg>
-        </span>
-        <span class="bottom-nav-label" data-i18n="nav.trackings">Śledzone</span>
+    <nav class="bottom-nav bnav" aria-label="Główna nawigacja">
+      <button class="bottom-nav-item bnav-item on" type="button" data-view-target="trackings">
+        <span class="material-icons-round">bookmark</span>
+        <span class="bottom-nav-label bnav-label" data-i18n="nav.trackings">Śledzone</span>
       </button>
-      <button class="bottom-nav-item" type="button" data-view-target="deals">
-        <span class="bottom-nav-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-            <path d="M12 3c3 3 5 5 5 9a5 5 0 1 1-10 0c0-2.5 1.2-4.4 3-6" />
-            <path d="M12 11c1.3 1.1 2 2.1 2 3.3A2.8 2.8 0 0 1 11.2 17 2.8 2.8 0 0 1 8.5 14c0-1 .4-1.8 1.3-2.8" />
-          </svg>
-        </span>
-        <span class="bottom-nav-label" data-i18n="nav.deals">Okazje</span>
+      <button class="bottom-nav-item bnav-item" type="button" data-view-target="deals">
+        <span class="material-icons-round">local_fire_department</span>
+        <span class="bottom-nav-label bnav-label" data-i18n="nav.deals">Okazje</span>
       </button>
-      <button class="bottom-nav-item bottom-nav-item-add" type="button" data-view-target="add">
-        <span class="bottom-nav-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-            <path d="M12 5v14" />
-            <path d="M5 12h14" />
-          </svg>
-        </span>
-        <span class="bottom-nav-label" data-i18n="nav.add">Dodaj</span>
+      <button class="bottom-nav-item bottom-nav-item-add bnav-item" type="button" data-view-target="add">
+        <span class="material-icons-round">add_circle</span>
+        <span class="bottom-nav-label bnav-label" data-i18n="nav.add">Dodaj</span>
       </button>
-      <button class="bottom-nav-item" type="button" data-view-target="alerts">
-        <span class="bottom-nav-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-            <path d="M12 4a4 4 0 0 0-4 4v2.4c0 .9-.3 1.8-.8 2.6L6 15h12l-1.2-2c-.5-.8-.8-1.7-.8-2.6V8a4 4 0 0 0-4-4Z" />
-            <path d="M9.5 18a2.5 2.5 0 0 0 5 0" />
-          </svg>
-        </span>
-        <span class="bottom-nav-label" data-i18n="nav.alerts">Alerty</span>
+      <button class="bottom-nav-item bnav-item" type="button" data-view-target="alerts">
+        <span class="material-icons-round">notifications</span>
+        <span class="bottom-nav-label bnav-label" data-i18n="nav.alerts">Alerty</span>
       </button>
-      <button class="bottom-nav-item" type="button" data-view-target="settings">
-        <span class="bottom-nav-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-            <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />
-            <path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-5L9 6.1a7 7 0 0 0-1.7 1l-2.4-1-2 3.4L5 11a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a7 7 0 0 0 1.7 1l.5 3.1h5l.5-3.1a7 7 0 0 0 1.7-1l2.4 1 2-3.4L18.9 13c.1-.3.1-.7.1-1Z" />
-          </svg>
-        </span>
-        <span class="bottom-nav-label" data-i18n="nav.settings">Ustawienia</span>
+      <button class="bottom-nav-item bnav-item" type="button" data-view-target="settings">
+        <span class="material-icons-round">settings</span>
+        <span class="bottom-nav-label bnav-label" data-i18n="nav.settings">Ustawienia</span>
       </button>
     </nav>
 
