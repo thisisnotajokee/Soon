@@ -25,6 +25,8 @@ const state = {
   detailOpen: false,
   detailTab: 'overview',
   detailDraft: null,
+  detailRange: '3m',
+  detailMarket: 'de',
 };
 
 const DEFAULT_CHANNELS = {
@@ -54,6 +56,8 @@ const nodes = {
   detailBuyNow: document.querySelector('#detail-buy-now'),
   detailSnoozeBadge: document.querySelector('#detail-snooze-badge'),
   detailChart: document.querySelector('#detail-chart'),
+  detailRangeRow: document.querySelector('.detail-range-row'),
+  detailMarketRow: document.querySelector('.detail-market-row'),
   miniMin: document.querySelector('#mini-min'),
   miniMax: document.querySelector('#mini-max'),
   miniAvg: document.querySelector('#mini-avg'),
@@ -835,9 +839,37 @@ function syncChipState(container, attributeName, activeValue) {
   }
 }
 
+function syncDetailChoiceRows() {
+  if (nodes.detailRangeRow) {
+    const rangeButtons = nodes.detailRangeRow.querySelectorAll('button[data-range]');
+    for (const button of rangeButtons) {
+      const isActive = String(button.dataset.range || '') === state.detailRange;
+      button.classList.toggle('on', isActive);
+    }
+  }
+  if (nodes.detailMarketRow) {
+    const marketButtons = nodes.detailMarketRow.querySelectorAll('button[data-market]');
+    for (const button of marketButtons) {
+      const isActive = String(button.dataset.market || '').toLowerCase() === state.detailMarket;
+      button.classList.toggle('on', isActive);
+    }
+  }
+}
+
 function renderMapList(node, mapping) {
   node.innerHTML = '';
-  const entries = Object.entries(mapping || {});
+  const entries = Object.entries(mapping || {}).sort((left, right) => {
+    const leftMarket = String(left[0] || '').toLowerCase();
+    const rightMarket = String(right[0] || '').toLowerCase();
+    if (leftMarket === state.detailMarket && rightMarket !== state.detailMarket) return -1;
+    if (rightMarket === state.detailMarket && leftMarket !== state.detailMarket) return 1;
+    const leftIndex = TRACKING_MARKET_ORDER.indexOf(leftMarket);
+    const rightIndex = TRACKING_MARKET_ORDER.indexOf(rightMarket);
+    const safeLeft = leftIndex >= 0 ? leftIndex : Number.POSITIVE_INFINITY;
+    const safeRight = rightIndex >= 0 ? rightIndex : Number.POSITIVE_INFINITY;
+    if (safeLeft !== safeRight) return safeLeft - safeRight;
+    return leftMarket.localeCompare(rightMarket);
+  });
   if (!entries.length) {
     const li = document.createElement('li');
     li.className = 'muted';
@@ -1030,6 +1062,7 @@ async function loadDetail() {
   nodes.detailBestBadge.textContent = '↓ Najlepsza cena';
   const bestNew = minPriceEntry(detail.pricesNew);
   if (bestNew?.market && Number.isFinite(bestNew.value)) {
+    state.detailMarket = String(bestNew.market).toLowerCase();
     nodes.detailMarketFlag.textContent = marketFlag(bestNew.market.toLowerCase());
     nodes.detailBuyNow.textContent = `Kup teraz — ${eur(bestNew.value)} w Amazon ${bestNew.market}`;
     nodes.detailBuyNow.dataset.url = buildAmazonProductUrl(detail.asin || state.selectedAsin, bestNew.market.toLowerCase());
@@ -1083,6 +1116,7 @@ async function loadDetail() {
   nodes.thresholdTargetNew.value = Number.isFinite(state.detailDraft?.targetPriceNew) ? String(state.detailDraft.targetPriceNew) : '';
   nodes.thresholdTargetUsed.value = Number.isFinite(state.detailDraft?.targetPriceUsed) ? String(state.detailDraft.targetPriceUsed) : '';
   renderDetailAlertStatus();
+  syncDetailChoiceRows();
   setDetailTab(state.detailTab);
   queueAutoFit();
 }
@@ -1144,6 +1178,24 @@ nodes.detailTabs.addEventListener('click', (event) => {
   if (button === nodes.detailTabOverview) setDetailTab('overview');
   if (button === nodes.detailTabSettings) setDetailTab('settings');
 });
+
+if (nodes.detailRangeRow) {
+  nodes.detailRangeRow.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-range]');
+    if (!button) return;
+    state.detailRange = String(button.dataset.range || state.detailRange);
+    syncDetailChoiceRows();
+  });
+}
+
+if (nodes.detailMarketRow) {
+  nodes.detailMarketRow.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-market]');
+    if (!button) return;
+    state.detailMarket = String(button.dataset.market || state.detailMarket).toLowerCase();
+    syncDetailChoiceRows();
+  });
+}
 
 nodes.detailShare.addEventListener('click', async () => {
   const selected = getSelectedTracking();

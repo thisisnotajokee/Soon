@@ -75,12 +75,12 @@
             <section class="panel detail-panel">
               <div id="detail-empty" class="empty-state">Wybierz produkt z listy.</div>
               <div id="detail-content" class="detail-content hidden">
-                <header class="detail-header">
+                <header class="detail-header detail-hero">
                   <div class="detail-thumb">
                     <img id="detail-thumb-img" alt="" />
                     <span id="detail-thumb-fallback" class="detail-thumb-fallback" aria-hidden="true">📦</span>
                   </div>
-                  <div>
+                  <div class="detail-hero-main">
                     <h3 id="detail-title"></h3>
                     <p id="detail-asin" class="muted"></p>
                     <p id="detail-rating" class="detail-rating">(0.0)</p>
@@ -94,17 +94,17 @@
                   <span id="detail-snooze-badge" class="chip hidden"></span>
                 </header>
 
-                <section>
+                <section class="detail-buy-wrap">
                   <button id="detail-buy-now" class="detail-buy-btn" type="button">🛒 Kup teraz</button>
                 </section>
 
                 <section class="detail-tabs" id="detail-tabs">
-                  <button id="detail-tab-overview" class="detail-tab on" type="button">Przegląd</button>
-                  <button id="detail-tab-settings" class="detail-tab" type="button">Ustawienia</button>
+                  <button id="detail-tab-overview" class="detail-tab on" type="button"><span class="detail-tab-icon">▦</span>Przegląd</button>
+                  <button id="detail-tab-settings" class="detail-tab" type="button"><span class="detail-tab-icon">☰</span>Ustawienia</button>
                 </section>
 
                 <section id="detail-panel-overview" class="detail-tab-panel on">
-                  <section>
+                  <section class="detail-section detail-section-chart">
                     <h4>Historia (new)</h4>
                     <svg id="detail-chart" class="price-chart" viewBox="0 0 600 180" role="img" aria-label="Wykres historii cen"></svg>
                     <div class="detail-chart-legend">
@@ -119,45 +119,45 @@
                       <div class="mini-card"><span>OD MINIMUM</span><strong id="mini-days-from-min">—</strong></div>
                     </div>
                     <div class="detail-range-row">
-                      <button type="button">1D</button>
-                      <button type="button">1W</button>
-                      <button type="button">1M</button>
-                      <button type="button" class="on">3M</button>
-                      <button type="button">6M</button>
+                      <button type="button" data-range="1d">1D</button>
+                      <button type="button" data-range="1w">1W</button>
+                      <button type="button" data-range="1m">1M</button>
+                      <button type="button" data-range="3m" class="on">3M</button>
+                      <button type="button" data-range="6m">6M</button>
                     </div>
                     <div class="detail-market-row">
-                      <button type="button" class="on">🇩🇪 DE</button>
-                      <button type="button">🇮🇹 IT</button>
-                      <button type="button">🇫🇷 FR</button>
-                      <button type="button">🇪🇸 ES</button>
-                      <button type="button">🇬🇧 UK</button>
-                      <button type="button">🇳🇱 NL</button>
+                      <button type="button" data-market="de" class="on">🇩🇪 DE</button>
+                      <button type="button" data-market="it">🇮🇹 IT</button>
+                      <button type="button" data-market="fr">🇫🇷 FR</button>
+                      <button type="button" data-market="es">🇪🇸 ES</button>
+                      <button type="button" data-market="uk">🇬🇧 UK</button>
+                      <button type="button" data-market="nl">🇳🇱 NL</button>
                     </div>
                   </section>
 
-                  <section>
+                  <section class="detail-section">
                     <h4>Ceny new</h4>
                     <ul id="detail-new-prices" class="market-list"></ul>
                   </section>
 
-                  <section>
+                  <section class="detail-section">
                     <h4>Ceny used</h4>
                     <ul id="detail-used-prices" class="market-list"></ul>
                   </section>
 
-                  <section>
+                  <section class="detail-section">
                     <h4>Podsumowanie</h4>
                     <ul id="detail-summary" class="plain-list"></ul>
                   </section>
 
-                  <section>
+                  <section class="detail-section">
                     <h4>Ostatnia historia cen</h4>
                     <ul id="detail-history" class="history-list"></ul>
                   </section>
                 </section>
 
                 <section id="detail-panel-settings" class="detail-tab-panel hidden">
-                  <section>
+                  <section class="detail-section">
                     <h4>Alerty cenowe</h4>
                     <form id="threshold-form" class="threshold-form">
                       <label>
@@ -184,7 +184,7 @@
                     <ul id="detail-thresholds" class="plain-list"></ul>
                   </section>
 
-                  <section class="detail-actions">
+                  <section class="detail-actions detail-section">
                     <button id="action-refresh" type="button">Refresh ASIN</button>
                     <button id="action-snooze" type="button">Snooze 60 min</button>
                     <button id="action-unsnooze" type="button">Unsnooze</button>
