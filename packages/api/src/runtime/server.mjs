@@ -1430,6 +1430,99 @@ function buildMobileTrackingItem(item) {
   };
 }
 
+const DASHBOARD_MARKET_ORDER = ['de', 'it', 'fr', 'es', 'uk', 'nl', 'pl'];
+
+function sortDashboardMarkets(markets = []) {
+  return [...markets].sort((leftRaw, rightRaw) => {
+    const left = String(leftRaw ?? '').toLowerCase();
+    const right = String(rightRaw ?? '').toLowerCase();
+    const leftIdx = DASHBOARD_MARKET_ORDER.indexOf(left);
+    const rightIdx = DASHBOARD_MARKET_ORDER.indexOf(right);
+    const safeLeft = leftIdx >= 0 ? leftIdx : Number.POSITIVE_INFINITY;
+    const safeRight = rightIdx >= 0 ? rightIdx : Number.POSITIVE_INFINITY;
+    if (safeLeft !== safeRight) return safeLeft - safeRight;
+    return left.localeCompare(right);
+  });
+}
+
+function normalizeDashboardSparkline(points = []) {
+  if (!Array.isArray(points)) return [];
+  return points
+    .map((point) => {
+      const ts = String(point?.ts ?? '').trim();
+      const value = normalizeMarketPriceValue(point?.value ?? point?.price);
+      if (!ts || value === null) return null;
+      return { ts, value };
+    })
+    .filter(Boolean)
+    .slice(-30);
+}
+
+function buildDashboardCardPreview(item, detail = null) {
+  const detailPayload = detail && typeof detail === 'object' ? detail : null;
+  const pricesNew = buildMobileMarketPrices(detailPayload?.pricesNew ?? item?.pricesNew ?? {});
+  const pricesUsed = buildMobileMarketPrices(detailPayload?.pricesUsed ?? item?.pricesUsed ?? {});
+  const newEntries = Object.entries(pricesNew);
+  const newValues = newEntries.map(([, value]) => Number(value)).filter(Number.isFinite);
+  const usedValues = Object.values(pricesUsed).map(Number).filter(Number.isFinite);
+  const bestEntry = newEntries.reduce((acc, [market, value]) => {
+    const normalizedValue = Number(value);
+    if (!Number.isFinite(normalizedValue)) return acc;
+    if (!acc || normalizedValue < acc.value) {
+      return { market: String(market).toLowerCase(), value: normalizedValue };
+    }
+    return acc;
+  }, null);
+  const avgPriceNew = newValues.length
+    ? Number((newValues.reduce((sum, value) => sum + value, 0) / newValues.length).toFixed(2))
+    : null;
+  const bestPriceNew = bestEntry ? Number(bestEntry.value.toFixed(2)) : null;
+  const bestPriceUsed = usedValues.length ? Number(Math.min(...usedValues).toFixed(2)) : null;
+  const deltaPctVsAvg =
+    Number.isFinite(bestPriceNew) && Number.isFinite(avgPriceNew) && avgPriceNew > 0
+      ? Number((((bestPriceNew - avgPriceNew) / avgPriceNew) * 100).toFixed(2))
+      : null;
+
+  const markets = sortDashboardMarkets(new Set([...Object.keys(pricesNew), ...Object.keys(pricesUsed)]));
+  const marketRows = markets.map((market) => {
+    const newPrice = normalizeMarketPriceValue(pricesNew[market]);
+    const usedPrice = normalizeMarketPriceValue(pricesUsed[market]);
+    const trendPct =
+      Number.isFinite(newPrice) && Number.isFinite(avgPriceNew) && avgPriceNew > 0
+        ? Number((((newPrice - avgPriceNew) / avgPriceNew) * 100).toFixed(2))
+        : null;
+    return {
+      market,
+      newPrice,
+      usedPrice,
+      isBestNew: Boolean(bestEntry && bestEntry.market === market && Number.isFinite(newPrice)),
+      trendPct,
+    };
+  });
+
+  const sparklineSource = Array.isArray(detailPayload?.historyPoints)
+    ? detailPayload.historyPoints
+    : Array.isArray(item?.historyPoints)
+      ? item.historyPoints
+      : [];
+  const sparkline = normalizeDashboardSparkline(sparklineSource);
+
+  return {
+    isActive: item?.is_active === false || item?.isActive === false ? false : true,
+    rating: toFiniteNumber(item?.rating),
+    imageUrl: String(item?.imageUrl ?? '').trim() || null,
+    popularity: toFiniteNumber(item?.popularity),
+    outOfStock: Boolean(item?.outOfStock),
+    bestDomain: bestEntry?.market ?? null,
+    bestPriceNew,
+    bestPriceUsed,
+    avgPriceNew,
+    deltaPctVsAvg,
+    marketRows,
+    sparkline,
+  };
+}
+
 function mobileTrackingPreferencesKey(userId, asin) {
   return `${MOBILE_TRACKING_PREFERENCES_PREFIX}${String(userId ?? '').trim()}:${String(asin ?? '').trim().toUpperCase()}`;
 }
@@ -3765,6 +3858,11 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
       const dashboardMatch = pathname.match(/^\/api\/dashboard\/([^/]+)$/);
       if (method === 'GET' && dashboardMatch) {
         const chatId = normalizeChatId(dashboardMatch[1]);
+        const includeTokens = String(url.searchParams.get('include') ?? '')
+          .split(',')
+          .map((token) => token.trim().toLowerCase())
+          .filter(Boolean);
+        const includeCardPreview = includeTokens.includes('card-preview');
         const chatSettingsState = store.getRuntimeState
           ? await store.getRuntimeState(buildChatSettingsStateKey(chatId))
           : null;
@@ -3777,9 +3875,12 @@ export function createSoonApiServer({ store = resolveStore() } = {}) {
               ? await store.getRuntimeState(buildTrackingSnoozeStateKey(chatId, item.asin))
               : null;
             const snooze = snoozeState?.stateValue ?? null;
+            const detail = includeCardPreview ? await store.getProductDetail(item.asin) : null;
+            const cardPreview = includeCardPreview ? buildDashboardCardPreview(item, detail) : undefined;
             return {
               ...item,
               snooze: snooze ? { ...snooze, active: Boolean(snooze.until && Date.parse(snooze.until) > Date.now()) } : null,
+              ...(cardPreview ? { cardPreview } : {}),
             };
           }),
         );
