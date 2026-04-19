@@ -10,6 +10,35 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ---
 
+## [2026-04-19 03:12:57Z] UI parity stage-1C: detail view polish (Ambot-like layout/UX, no AI)
+
+### Scope
+
+- Refined `Szczegóły produktu` structure and styling for closer Ambot parity:
+  - stronger hero section hierarchy (thumb/title/ASIN/price badges),
+  - polished topbar proportions and action controls,
+  - improved buy CTA section,
+  - card-like section wrappers for chart, prices, summary, and history.
+- Added visual segmented-control behavior in detail:
+  - time range chips (`1D/1W/1M/3M/6M`) now maintain active state,
+  - market chips (`DE/IT/FR/ES/UK/NL`) now maintain active state.
+- Improved price list ordering logic:
+  - selected market is pinned first,
+  - remaining markets are sorted by defined market order.
+- Preserved existing functional constraints:
+  - no AI features added,
+  - no swipe/context-menu gestures added.
+
+### Validation
+
+- `node --check packages/web/src/main.mjs` -> PASS
+- `npm --prefix /home/piotras/Soon run -s smoke:e2e` -> PASS
+
+### Next
+
+- Add browser-level screenshot diff for detail view (mobile viewport) to keep pixel consistency in future UI changes.
+- Optionally wire range chips (`1D/1W/1M/...`) to real history slicing in chart data layer.
+
 ## [2026-04-19 11:30:00Z] UI parity stage-1B: tracked cards card-preview API + Ambot layout/interactions
 
 ### Scope
