@@ -9,135 +9,217 @@
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <div>
-          <h1>Soon</h1>
-          <p class="subtitle">Tracking Core v1</p>
+        <div class="logo" aria-hidden="true">S</div>
+        <div class="sbar">
+          <span class="sbar-icon" aria-hidden="true">⌕</span>
+          <input id="filter-query" type="search" placeholder="Szukaj ASIN, tytułu..." />
+          <button id="search-clear" class="sbar-clear" type="button" aria-label="Wyczyść wyszukiwanie">×</button>
         </div>
         <div class="topbar-actions">
-          <button id="reload-trackings" type="button">Odśwież listę</button>
-          <button id="reload-detail" type="button">Odśwież szczegóły</button>
-          <button id="copy-mobile-url" type="button">Kopiuj URL</button>
+          <button id="reload-trackings" type="button" aria-label="Odśwież listę">↻</button>
+          <button id="reload-detail" type="button" aria-label="Odśwież szczegóły">◎</button>
+          <button id="copy-mobile-url" type="button" aria-label="Kopiuj URL">⎘</button>
         </div>
       </header>
 
-      <section class="panel quick-session-panel">
-        <form id="chat-id-form" class="chat-id-form">
-          <label>
-            Chat ID do testów
-            <input id="chat-id-input" type="text" placeholder="np. 123456" />
-          </label>
-          <button id="chat-id-apply" type="submit">Ustaw Chat ID</button>
-        </form>
-      </section>
-
-      <section class="status-row">
-        <div class="status-item">
-          <span class="label">API</span>
-          <strong id="health-status">...</strong>
-        </div>
-        <div class="status-item">
-          <span class="label">Storage</span>
-          <strong id="health-storage">...</strong>
-        </div>
-        <div class="status-item">
-          <span class="label">Trackings</span>
-          <strong id="trackings-count">0</strong>
-        </div>
-        <div class="status-item">
-          <span class="label">Chat ID</span>
-          <strong id="chat-id">...</strong>
-        </div>
-      </section>
-
-      <main class="layout">
-        <aside class="panel">
-          <h2>Lista trackingów</h2>
-          <div class="list-controls">
-            <label>
-              Szukaj
-              <input id="filter-query" type="search" placeholder="ASIN / tytuł" />
-            </label>
-            <label>
-              Filtr
-              <select id="filter-snooze">
-                <option value="all">Wszystkie</option>
-                <option value="active">Aktywne</option>
-                <option value="snoozed">Snoozowane</option>
-              </select>
-            </label>
-            <label>
-              Sortowanie
-              <select id="sort-by">
-                <option value="updated_desc">Najnowsze</option>
-                <option value="new_min_asc">new min (rosnąco)</option>
-                <option value="used_min_asc">used min (rosnąco)</option>
-                <option value="title_asc">Tytuł A-Z</option>
-              </select>
-            </label>
+      <section id="view-trackings" class="view-page on">
+        <section class="status-row">
+          <div class="status-item">
+            <span class="label">API</span>
+            <strong id="health-status">...</strong>
           </div>
-          <ul id="tracking-list" class="tracking-list"></ul>
-        </aside>
+          <div class="status-item">
+            <span class="label">Storage</span>
+            <strong id="health-storage">...</strong>
+          </div>
+          <div class="status-item">
+            <span class="label">Trackings</span>
+            <strong id="trackings-count">0</strong>
+          </div>
+          <div class="status-item">
+            <span class="label">Chat ID</span>
+            <strong id="chat-id">...</strong>
+          </div>
+        </section>
 
-        <section class="panel detail-panel">
-          <h2>Szczegóły produktu</h2>
-          <div id="detail-empty" class="empty-state">Wybierz produkt z listy.</div>
-          <div id="detail-content" class="detail-content hidden">
-            <header class="detail-header">
-              <div>
-                <h3 id="detail-title"></h3>
-                <p id="detail-asin" class="muted"></p>
+        <main class="layout">
+          <aside class="panel">
+            <h2>Lista trackingów</h2>
+            <div class="list-controls">
+              <div class="chip-toolbar" id="filter-snooze-chips">
+                <button class="deal-chip on" type="button" data-filter-snooze="active">Aktywne</button>
+                <button class="deal-chip" type="button" data-filter-snooze="all">Wszystkie</button>
+                <button class="deal-chip" type="button" data-filter-snooze="snoozed">Snoozowane</button>
               </div>
-              <span id="detail-snooze-badge" class="chip hidden"></span>
-            </header>
-
-            <section>
-              <h4>Historia (new)</h4>
-              <svg id="detail-chart" class="price-chart" viewBox="0 0 600 180" role="img" aria-label="Wykres historii cen"></svg>
-            </section>
-
-            <section class="detail-actions">
-              <button id="action-refresh" type="button">Refresh ASIN</button>
-              <button id="action-snooze" type="button">Snooze 60 min</button>
-              <button id="action-unsnooze" type="button">Unsnooze</button>
-            </section>
-
-            <section>
-              <h4>Ceny new</h4>
-              <ul id="detail-new-prices" class="market-list"></ul>
-            </section>
-
-            <section>
-              <h4>Ceny used</h4>
-              <ul id="detail-used-prices" class="market-list"></ul>
-            </section>
-
-            <section class="grid-2">
-              <div>
-                <h4>Thresholds</h4>
-                <form id="threshold-form" class="threshold-form">
-                  <label>
-                    Drop %
-                    <input id="threshold-drop-pct" type="number" min="1" max="95" step="1" />
-                  </label>
-                  <button id="threshold-save" type="submit">Zapisz próg</button>
-                </form>
-                <ul id="detail-thresholds" class="plain-list"></ul>
+              <div class="chip-toolbar" id="sort-chips">
+                <button class="deal-chip on" type="button" data-sort-by="updated_desc">Najnowsze</button>
+                <button class="deal-chip" type="button" data-sort-by="new_min_asc">new min</button>
+                <button class="deal-chip" type="button" data-sort-by="used_min_asc">used min</button>
+                <button class="deal-chip" type="button" data-sort-by="title_asc">Tytuł A-Z</button>
               </div>
-              <div>
-                <h4>Podsumowanie</h4>
-                <ul id="detail-summary" class="plain-list"></ul>
-              </div>
-            </section>
+            </div>
+            <ul id="tracking-list" class="tracking-list"></ul>
+          </aside>
+        </main>
 
-            <section>
-              <h4>Ostatnia historia cen</h4>
-              <ul id="detail-history" class="history-list"></ul>
+        <section id="detail-overlay" class="tracking-detail-overlay hidden" aria-hidden="true">
+          <header class="detail-topbar">
+            <button id="detail-back" type="button">← Wróć</button>
+            <strong>Szczegóły produktu</strong>
+            <div class="detail-topbar-actions">
+              <button id="detail-share" type="button" aria-label="Udostępnij">⤴</button>
+              <button id="detail-delete" type="button" aria-label="Usuń">🗑</button>
+            </div>
+          </header>
+          <div class="detail-scroll">
+            <section class="panel detail-panel">
+              <div id="detail-empty" class="empty-state">Wybierz produkt z listy.</div>
+              <div id="detail-content" class="detail-content hidden">
+                <header class="detail-header">
+                  <div class="detail-thumb">
+                    <img id="detail-thumb-img" alt="" />
+                    <span id="detail-thumb-fallback" class="detail-thumb-fallback" aria-hidden="true">📦</span>
+                  </div>
+                  <div>
+                    <h3 id="detail-title"></h3>
+                    <p id="detail-asin" class="muted"></p>
+                    <p id="detail-rating" class="detail-rating">(0.0)</p>
+                    <div class="detail-price-line">
+                      <span id="detail-market-flag" class="detail-market-flag">🇩🇪</span>
+                      <strong id="detail-main-price"></strong>
+                      <span id="detail-best-badge" class="detail-best-badge">Najlepsza cena</span>
+                      <span id="detail-drop-badge" class="detail-drop-badge"></span>
+                    </div>
+                  </div>
+                  <span id="detail-snooze-badge" class="chip hidden"></span>
+                </header>
+
+                <section>
+                  <button id="detail-buy-now" class="detail-buy-btn" type="button">🛒 Kup teraz</button>
+                </section>
+
+                <section class="detail-tabs" id="detail-tabs">
+                  <button id="detail-tab-overview" class="detail-tab on" type="button">Przegląd</button>
+                  <button id="detail-tab-settings" class="detail-tab" type="button">Ustawienia</button>
+                </section>
+
+                <section id="detail-panel-overview" class="detail-tab-panel on">
+                  <section>
+                    <h4>Historia (new)</h4>
+                    <svg id="detail-chart" class="price-chart" viewBox="0 0 600 180" role="img" aria-label="Wykres historii cen"></svg>
+                    <div class="detail-chart-legend">
+                      <span><i class="dot dot-new"></i>DE New</span>
+                      <span><i class="dot dot-used"></i>DE Używane</span>
+                    </div>
+                    <div class="detail-mini-stats">
+                      <div class="mini-card"><span>MIN</span><strong id="mini-min">—</strong></div>
+                      <div class="mini-card"><span>MAX</span><strong id="mini-max">—</strong></div>
+                      <div class="mini-card"><span>ŚR.</span><strong id="mini-avg">—</strong></div>
+                      <div class="mini-card"><span>ZMIENNOŚĆ</span><strong id="mini-volatility">—</strong></div>
+                      <div class="mini-card"><span>OD MINIMUM</span><strong id="mini-days-from-min">—</strong></div>
+                    </div>
+                    <div class="detail-range-row">
+                      <button type="button">1D</button>
+                      <button type="button">1W</button>
+                      <button type="button">1M</button>
+                      <button type="button" class="on">3M</button>
+                      <button type="button">6M</button>
+                    </div>
+                    <div class="detail-market-row">
+                      <button type="button" class="on">🇩🇪 DE</button>
+                      <button type="button">🇮🇹 IT</button>
+                      <button type="button">🇫🇷 FR</button>
+                      <button type="button">🇪🇸 ES</button>
+                      <button type="button">🇬🇧 UK</button>
+                      <button type="button">🇳🇱 NL</button>
+                    </div>
+                  </section>
+
+                  <section>
+                    <h4>Ceny new</h4>
+                    <ul id="detail-new-prices" class="market-list"></ul>
+                  </section>
+
+                  <section>
+                    <h4>Ceny used</h4>
+                    <ul id="detail-used-prices" class="market-list"></ul>
+                  </section>
+
+                  <section>
+                    <h4>Podsumowanie</h4>
+                    <ul id="detail-summary" class="plain-list"></ul>
+                  </section>
+
+                  <section>
+                    <h4>Ostatnia historia cen</h4>
+                    <ul id="detail-history" class="history-list"></ul>
+                  </section>
+                </section>
+
+                <section id="detail-panel-settings" class="detail-tab-panel hidden">
+                  <section>
+                    <h4>Alerty cenowe</h4>
+                    <form id="threshold-form" class="threshold-form">
+                      <label>
+                        Drop %
+                        <input id="threshold-drop-pct" type="number" min="1" max="95" step="1" />
+                      </label>
+                      <label>
+                        Rise %
+                        <input id="threshold-rise-pct" type="number" min="1" max="95" step="1" />
+                      </label>
+                      <label>
+                        Target new (EUR)
+                        <input id="threshold-target-new" type="number" min="0" step="0.01" />
+                      </label>
+                      <label>
+                        Target used (EUR)
+                        <input id="threshold-target-used" type="number" min="0" step="0.01" />
+                      </label>
+                      <button id="threshold-save" type="submit">Zapisz zmiany</button>
+                    </form>
+                    <div id="detail-alert-status" class="detail-alert-status">
+                      Podgląd alertu: zmień próg i kliknij "Zapisz zmiany".
+                    </div>
+                    <ul id="detail-thresholds" class="plain-list"></ul>
+                  </section>
+
+                  <section class="detail-actions">
+                    <button id="action-refresh" type="button">Refresh ASIN</button>
+                    <button id="action-snooze" type="button">Snooze 60 min</button>
+                    <button id="action-unsnooze" type="button">Unsnooze</button>
+                  </section>
+
+                  <section class="detail-snooze-quick">
+                    <button type="button" data-snooze-minutes="1440">1d</button>
+                    <button type="button" data-snooze-minutes="4320">3d</button>
+                    <button type="button" data-snooze-minutes="10080">7d</button>
+                    <button type="button" data-snooze-minutes="20160">14d</button>
+                    <button type="button" data-snooze-minutes="43200">30d</button>
+                  </section>
+                </section>
+              </div>
             </section>
           </div>
         </section>
-      </main>
+      </section>
 
-      <section class="panel settings-panel">
+      <section id="view-deals" class="view-page panel hidden">
+        <h2 data-i18n="view.deals_title">Okazje</h2>
+        <p class="muted" data-i18n="view.placeholder">Widok w przygotowaniu dla Soon UI v1.</p>
+      </section>
+
+      <section id="view-add" class="view-page panel hidden">
+        <h2 data-i18n="view.add_title">Dodaj</h2>
+        <p class="muted" data-i18n="view.placeholder">Widok w przygotowaniu dla Soon UI v1.</p>
+      </section>
+
+      <section id="view-alerts" class="view-page panel hidden">
+        <h2 data-i18n="view.alerts_title">Alerty</h2>
+        <p class="muted" data-i18n="view.placeholder">Widok w przygotowaniu dla Soon UI v1.</p>
+      </section>
+
+      <section id="view-settings" class="view-page panel settings-panel hidden">
         <h2>Ustawienia v1</h2>
         <form id="settings-form" class="settings-form">
           <label>
@@ -189,6 +271,54 @@
 
       <p id="ui-error" class="error hidden"></p>
     </div>
+    <nav class="bottom-nav" aria-label="Główna nawigacja">
+      <button class="bottom-nav-item on" type="button" data-view-target="trackings">
+        <span class="bottom-nav-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+            <path d="M8 4h8" />
+            <path d="M9 4v6l-3 3v1h12v-1l-3-3V4" />
+            <path d="M12 14v6" />
+          </svg>
+        </span>
+        <span class="bottom-nav-label" data-i18n="nav.trackings">Śledzone</span>
+      </button>
+      <button class="bottom-nav-item" type="button" data-view-target="deals">
+        <span class="bottom-nav-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+            <path d="M12 3c3 3 5 5 5 9a5 5 0 1 1-10 0c0-2.5 1.2-4.4 3-6" />
+            <path d="M12 11c1.3 1.1 2 2.1 2 3.3A2.8 2.8 0 0 1 11.2 17 2.8 2.8 0 0 1 8.5 14c0-1 .4-1.8 1.3-2.8" />
+          </svg>
+        </span>
+        <span class="bottom-nav-label" data-i18n="nav.deals">Okazje</span>
+      </button>
+      <button class="bottom-nav-item bottom-nav-item-add" type="button" data-view-target="add">
+        <span class="bottom-nav-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+            <path d="M12 5v14" />
+            <path d="M5 12h14" />
+          </svg>
+        </span>
+        <span class="bottom-nav-label" data-i18n="nav.add">Dodaj</span>
+      </button>
+      <button class="bottom-nav-item" type="button" data-view-target="alerts">
+        <span class="bottom-nav-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+            <path d="M12 4a4 4 0 0 0-4 4v2.4c0 .9-.3 1.8-.8 2.6L6 15h12l-1.2-2c-.5-.8-.8-1.7-.8-2.6V8a4 4 0 0 0-4-4Z" />
+            <path d="M9.5 18a2.5 2.5 0 0 0 5 0" />
+          </svg>
+        </span>
+        <span class="bottom-nav-label" data-i18n="nav.alerts">Alerty</span>
+      </button>
+      <button class="bottom-nav-item" type="button" data-view-target="settings">
+        <span class="bottom-nav-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+            <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />
+            <path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-5L9 6.1a7 7 0 0 0-1.7 1l-2.4-1-2 3.4L5 11a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a7 7 0 0 0 1.7 1l.5 3.1h5l.5-3.1a7 7 0 0 0 1.7-1l2.4 1 2-3.4L18.9 13c.1-.3.1-.7.1-1Z" />
+          </svg>
+        </span>
+        <span class="bottom-nav-label" data-i18n="nav.settings">Ustawienia</span>
+      </button>
+    </nav>
 
     <script type="module" src="/main.mjs"></script>
   </body>

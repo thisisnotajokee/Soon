@@ -29,8 +29,10 @@ export function createApiClient(baseUrl) {
       return body;
     },
 
-    async getDashboard(chatId) {
-      const response = await fetch(`${apiBase}/api/dashboard/${encodeURIComponent(String(chatId))}`);
+    async getDashboard(chatId, options = {}) {
+      const includeCardPreview = options?.includeCardPreview !== false;
+      const query = includeCardPreview ? '?include=card-preview' : '';
+      const response = await fetch(`${apiBase}/api/dashboard/${encodeURIComponent(String(chatId))}${query}`);
       const body = await response.json();
       assertOk(response, body, 'getDashboard');
       return body;
@@ -107,6 +109,18 @@ export function createApiClient(baseUrl) {
       );
       const body = await response.json();
       assertOk(response, body, 'unsnoozeTracking');
+      return body;
+    },
+
+    async deleteTracking(chatId, asin) {
+      const response = await fetch(
+        `${apiBase}/api/trackings/${encodeURIComponent(String(chatId))}/${encodeURIComponent(asin)}`,
+        {
+          method: 'DELETE',
+        },
+      );
+      const body = await response.json();
+      assertOk(response, body, 'deleteTracking');
       return body;
     },
 

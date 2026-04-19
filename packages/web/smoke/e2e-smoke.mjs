@@ -22,6 +22,16 @@ async function run() {
     const detail = await client.getProductDetail(asin);
     assert.equal(detail.asin, asin);
 
+    const dashboard = await client.getDashboard('demo');
+    assert.ok(Array.isArray(dashboard.items));
+    const dashboardItem = dashboard.items.find((item) => item.asin === asin) ?? dashboard.items[0];
+    assert.ok(dashboardItem?.cardPreview);
+    assert.ok(Array.isArray(dashboardItem.cardPreview.marketRows));
+    assert.ok(dashboardItem.cardPreview.marketRows.length >= 1);
+    assert.ok(Array.isArray(dashboardItem.cardPreview.sparkline));
+    assert.ok(dashboardItem.cardPreview.bestDomain === null || typeof dashboardItem.cardPreview.bestDomain === 'string');
+    assert.ok(dashboardItem.cardPreview.bestPriceNew === null || Number.isFinite(Number(dashboardItem.cardPreview.bestPriceNew)));
+
     const update = await client.updateThresholds(asin, {
       thresholdDropPct: 18,
       thresholdRisePct: 11,

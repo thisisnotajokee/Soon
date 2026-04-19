@@ -10,6 +10,80 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ---
 
+## [2026-04-19 11:30:00Z] UI parity stage-1B: tracked cards card-preview API + Ambot layout/interactions
+
+### Scope
+
+- Implemented additive dashboard enrichment mode:
+  - `GET /api/dashboard/:chatId?include=card-preview`.
+- Added `item.cardPreview` payload for tracked cards (no DB migration):
+  - `isActive`, `rating`, `imageUrl`, `popularity`, `outOfStock`,
+  - `bestDomain`, `bestPriceNew`, `bestPriceUsed`, `avgPriceNew`, `deltaPctVsAvg`,
+  - `marketRows[]`, `sparkline[]`.
+- Kept backward compatibility:
+  - without `include=card-preview`, dashboard response shape is unchanged.
+- Updated web client data flow:
+  - `getDashboard()` now requests `include=card-preview` by default.
+- Reworked `Śledzone` card renderer to Ambot-like structure + interactions (without swipe):
+  - top section (thumb/title/meta/status),
+  - price row with flag/price/delta/used badge,
+  - signal chips row,
+  - market grid (`pgrid`),
+  - sparkline block.
+- Added card interactions:
+  - card click -> open detail,
+  - price-row click -> open Amazon `bestDomain`,
+  - market-row click -> open Amazon selected domain.
+
+### Validation
+
+- `node --check packages/api/src/runtime/server.mjs` -> PASS
+- `node --check packages/web/src/api-client.mjs` -> PASS
+- `node --check packages/web/src/main.mjs` -> PASS
+- `npm run -s test:contracts` -> PASS
+- `npm run -s smoke:e2e` -> PASS
+
+### Next
+
+- Pixel-polish tracked cards against latest Ambot screenshots (spacing/typography/badge weights).
+- Optional: add browser-level UI smoke that verifies `pgrid` + sparkline rendering in DOM.
+
+---
+
+## [2026-04-19 10:40:00Z] UI parity stage-1: Detail tabs + full thresholds workflow (without AI)
+
+### Scope
+
+- Compared `Soon` detail UX with `ambot-pro` and implemented stage-1 parity for non-AI flow in `Śledzone -> Szczegóły produktu`.
+- Added detail tabs in Soon:
+  - `Przegląd`
+  - `Ustawienia`
+- Moved and grouped detail sections to match ambot interaction model:
+  - overview focus on chart/prices/summary/history,
+  - settings focus on thresholds and quick actions.
+- Extended thresholds UI + save flow:
+  - `drop %`, `rise %`, `target new`, `target used`,
+  - single save action (`Zapisz zmiany`) persisting all values via `POST /trackings/:asin/thresholds`.
+- Added detail alert status preview box reflecting current draft thresholds.
+- Added quick snooze chips (`1d/3d/7d/14d/30d`) and wired them to snooze API.
+- Enabled real delete action from detail (instead of placeholder message):
+  - `DELETE /api/trackings/:chatId/:asin`.
+
+### Validation
+
+- `node --check packages/web/src/main.mjs` -> PASS
+- `node --check packages/web/src/api-client.mjs` -> PASS
+- `npm --prefix /home/piotras/Soon run -s smoke:e2e` -> PASS
+
+### Next
+
+- Continue stage-1 parity on `Śledzone` cards:
+  - align remaining card micro-layout details and interactions with `ambot-pro`.
+- Add detail settings polish:
+  - dirty-state CTA and clearer saved/error feedback inline.
+
+---
+
 ## [2026-04-17 22:45:00Z] Core live logs compatibility endpoint implemented
 
 ### Scope
@@ -3106,3 +3180,179 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - `make up-lan` lokalnie FAIL w tym środowisku (`DB migrations: connect EPERM 127.0.0.1:5433`), traktowane jako ograniczenie runtime/sandbox, nie regresja UI.
 - Następny krok:
   - Wykonać realny test smartfonowy na hostowym środowisku dev (ten sam Wi‑Fi), zweryfikować flow: load listy -> detail -> save settings -> reload.
+
+## [2026-04-19 09:35:00Z] UI v1 aligned with Ambot interaction patterns (topbar search + chip filters/sort)
+- Zakres (`packages/web`):
+  - Przeniesiono wzorce interakcji z `ambot-pro/public` do nowego UI v1 bez zmiany kontraktów API:
+    - topbar z kompaktowym search barem (wyszukiwanie + szybkie czyszczenie),
+    - chipowe sterowanie filtrem statusu trackingów (`active/all/snoozed`),
+    - chipowe sterowanie sortowaniem (`updated/new min/used min/title`).
+  - Ujednolicono warstwę wizualną listy trackingów pod „Ambot feel”:
+    - bardziej „chip/card” styl dla listy,
+    - aktywny stan kafla z mocnym wyróżnieniem,
+    - mobilna ergonomia (duże cele dotykowe, przewidywalny układ akcji).
+- Zmiany JS (`packages/web/src/main.mjs`):
+  - Zastąpiono listener-y `select` listenerami chipów (`data-filter-snooze`, `data-sort-by`).
+  - Dodano synchronizację aktywnego stanu chipów po każdym rerenderze listy.
+  - Dodano akcję `search-clear` (reset query + rerender listy).
+- Weryfikacja:
+  - `npm run test:contracts` -> PASS.
+  - `npm run smoke:e2e` -> PASS.
+- Uwaga:
+  - `npm run check` w tym środowisku raportował niestabilny FAIL na etapie `test:contracts`, mimo że uruchomione osobno `test:contracts` przechodzi stabilnie (brak oznak regresji UI).
+- Następny krok:
+  - Uruchomić test manualny na smartfonie (Docker/LAN): walidacja UX chipów i wyszukiwarki przy realnym scrollu/dotyku.
+
+## [2026-04-19 09:55:00Z] UI v1 smartphone ergonomics pass (thumb-zone + chip touch targets)
+- Zakres (`packages/web/src/styles.css`):
+  - Wzmocniono mobilny layout shell:
+    - pełna szerokość, mniejsze marginesy boczne, stabilniejszy viewport na małych ekranach.
+  - Poprawiono ergonomię topbara:
+    - akcje topbara jako poziomy scroll (bez łamania i bez „skakania” układu),
+    - search bar bez sztywnego minimum szerokości.
+  - Poprawiono touch targets:
+    - większe chipy filtrów/sortowania (`min-height: 40px`),
+    - większy „hit area” kart trackingów.
+  - Poprawiono obsługę szczegółów na telefonie:
+    - `detail-actions` jako sticky panel przy dolnej krawędzi treści,
+    - przyciski akcji full-width w strefie kciuka.
+  - Zmniejszono wysokość wykresu w mobile (`140px`) dla lepszego balansu treści.
+- Weryfikacja:
+  - `node --check packages/web/src/main.mjs` -> PASS.
+  - `npm run -s smoke:e2e` -> PASS.
+- Następny krok:
+  - Manual test na smartphonie: zweryfikować wygodę przełączania chipów i akcje sticky w `detail` podczas długiego scrolla.
+
+## [2026-04-19 10:10:00Z] UI v1 one-hand mobile refinement (chip rail + safe-area detail actions)
+- Zakres (`packages/web/src/styles.css`):
+  - Wzmocniono sterowanie chipami na telefonie:
+    - chip toolbary działają jako poziome „rail” (`overflow-x` + `nowrap`),
+    - chipy mają stały touch target i nie ściskają się na małej szerokości.
+  - Ustabilizowano dolną strefę akcji `detail`:
+    - dodano bezpieczny dolny padding contentu (`safe-area`), aby sticky action bar nie zasłaniał treści.
+- Weryfikacja:
+  - `npm run -s smoke:e2e` -> PASS.
+- Następny krok:
+  - Potwierdzić manualnie na smartphonie: czy chipy przewijają się płynnie i czy ostatnie sekcje detail pozostają czytelne nad sticky action bar.
+
+## [2026-04-19 10:30:00Z] Ambot-like bottom nav added (Tracked/Deals/Add/Alerts/Settings) + EN/PL/DE labels
+- Zakres (`packages/web/src/index.html`, `main.mjs`, `styles.css`):
+  - Dodano dolny pasek nawigacji w układzie 5 zakładek jak w Ambot:
+    - `Śledzone`, `Okazje`, `Dodaj`, `Alerty`, `Ustawienia`.
+  - Dodano przełączanie widoków z jednego miejsca (single-page tabs):
+    - aktywny widok `trackings` (rdzeń),
+    - placeholdery dla `deals`, `add`, `alerts`,
+    - osobny widok `settings`.
+  - Stylizacja nav w trybie mobilnym:
+    - fixed bottom bar,
+    - aktywny tab,
+    - wizualnie wyróżniony środkowy przycisk `Dodaj`.
+- i18n:
+  - Dodano 3 wersje językowe etykiet nawigacji i nagłówków placeholderów:
+    - `PL`, `EN`, `DE`.
+  - Źródło języka:
+    - `?lang=pl|en|de` (priorytet),
+    - `localStorage(soon.lang)`,
+    - fallback z `navigator.language`.
+- Weryfikacja:
+  - `node --check packages/web/src/main.mjs` -> PASS.
+  - `npm run -s smoke:e2e` -> PASS.
+- Następny krok:
+  - Manualny test na smartphonie i potwierdzenie finalnego setu ikon (jeśli chcesz, kolejny pass zrobię już na docelowych SVG zamiast unicode).
+
+## [2026-04-19 10:45:00Z] Bottom nav icons refreshed to modern trend style (outline SVG set)
+- Zakres (`packages/web/src/index.html`, `styles.css`):
+  - Zastąpiono emoji/unicode ikon nowym zestawem spójnych ikon outline SVG:
+    - `Śledzone`, `Okazje`, `Dodaj`, `Alerty`, `Ustawienia`.
+  - Ujednolicono styl ikon:
+    - `stroke: currentColor`,
+    - jednolita grubość linii,
+    - spójne proporcje pod mobile bottom nav.
+  - Cel: bardziej nowoczesny i produktowy wygląd zgodny z bieżącymi trendami UI (minimalistyczne line icons).
+- Weryfikacja:
+  - `npm run -s smoke:e2e` -> PASS.
+- Następny krok:
+  - Potwierdzić na urządzeniu docelowym czytelność ikon przy realnym świetle/kontraście; ewentualnie dobrać wariant filled dla aktywnego taba.
+
+## [2026-04-19 10:55:00Z] Bottom nav active-icon state refined (trend: emphasized selected tab)
+- Zakres (`packages/web/src/styles.css`):
+  - Dopracowano aktywny stan ikony w dolnym pasku:
+    - subtelne „filled badge” pod aktywną ikoną,
+    - delikatne pogrubienie linii i lekki scale-up SVG aktywnego taba.
+  - Cel UX: szybsze skanowanie aktywnej sekcji jedną ręką na smartphonie.
+- Weryfikacja:
+  - `npm run -s smoke:e2e` -> PASS.
+- Następny krok:
+  - Manualnie potwierdzić kontrast aktywnej ikony na docelowym ekranie; jeśli trzeba, podbić opacity badge tylko dla trybu outdoor.
+
+## [2026-04-19 11:20:00Z] UI text overflow hardening + automatic font auto-fit mechanism
+- Zakres (`packages/web/src/main.mjs`, `styles.css`):
+  - Dodano mechanizm automatycznego dopasowania wielkości czcionki (`data-autofit`) dla dynamicznych elementów UI:
+    - tytuły kart trackingów,
+    - tytuł produktu w detail,
+    - etykiety dolnej nawigacji.
+  - Implementacja runtime:
+    - `queueAutoFit()` + `runAutoFit()` + `fitTextToBox()` (iteracyjne zmniejszanie fontu do momentu braku overflow),
+    - wywołania po renderach, zmianie widoku, zmianie języka i resize okna.
+  - Dodatkowe zabezpieczenia CSS anty-overflow:
+    - line clamp + `overflow-wrap:anywhere` dla tytułów,
+    - `min-width:0` i wymuszenie łamania dla długich etykiet w listach,
+    - `ellipsis` dla podpisów bottom-nav.
+- Weryfikacja:
+  - `node --check packages/web/src/main.mjs` -> PASS.
+  - `npm run -s smoke:e2e` -> PASS.
+- Następny krok:
+  - Manualny test na docelowym telefonie z długimi nazwami produktów (PL/EN/DE), potwierdzenie czytelności bez ucinania i bez wychodzenia poza kafelki.
+
+## [2026-04-19 11:40:00Z] Tracked tab redesigned to Ambot-style product cards
+- Zakres (`packages/web/src/main.mjs`, `styles.css`):
+  - Przebudowano listę `Śledzone` na układ kart wzorowany na Ambot:
+    - sekcja top karty (`pcard-top`) z miniaturą/placeholderem i blokiem informacji,
+    - tytuł + meta (ASIN i czas aktualizacji),
+    - wyeksponowana cena główna `new min`,
+    - sygnały/badge (`new min`, `used min`, `snooze`) w stylu chips/badges jak w Ambot.
+  - Dostosowano warstwę wizualną kart do ciemnego, kontrastowego stylu Ambot:
+    - ciemne tło karty, pomarańczowe wyróżnienia ceny,
+    - aktywny stan karty z mocnym akcentem i shadow.
+  - Zachowano istniejącą logikę danych/API (zmiana UI-only).
+- Weryfikacja:
+  - `node --check packages/web/src/main.mjs` -> PASS.
+  - `npm run -s smoke:e2e` -> PASS.
+- Następny krok:
+  - Manualny test mobile: dopracować finalnie gęstość informacji (meta vs badge) przy bardzo długich tytułach i mniejszych ekranach.
+
+## [2026-04-19 12:05:00Z] Tracked flow switched to Ambot-like interaction (tap card -> full detail view)
+- Zakres (`packages/web/src/index.html`, `main.mjs`, `styles.css`):
+  - Zmieniono interakcję zakładki `Śledzone` na wzorzec Ambot:
+    - klik/tap kafelka produktu otwiera pełny widok szczegółów (`detail overlay`),
+    - dodano górny pasek detail z akcją `Wróć`,
+    - zamknięcie detail przy przełączeniu na inną dolną zakładkę.
+  - Przebudowano strukturę HTML:
+    - detail przeniesiony z layoutu obok listy do dedykowanego full-screen overlay.
+  - Dostosowano styl detail do Ambot-like mobile UX:
+    - pełny ekran, własny topbar, niezależny scroll,
+    - ciemna karta szczegółów i kontrastowe sekcje danych.
+  - Zakres funkcjonalny zgodny z założeniami projektu:
+    - brak funkcji AI, tylko tracking/detail/actions/settings v1.
+- Weryfikacja:
+  - `node --check packages/web/src/main.mjs` -> PASS.
+  - `npm run -s smoke:e2e` -> PASS.
+- Następny krok:
+  - Manualny test na smartphonie i drobne strojenie spacingu/kontrastu w detail-overlay pod docelowy ekran.
+
+## [2026-04-19 12:25:00Z] Tracked detail visual/layout pass aligned closer to Ambot screenshots
+- Zakres (`packages/web/src/index.html`, `main.mjs`, `styles.css`):
+  - Dopracowano układ `detail overlay` pod realny screen-reference Ambot:
+    - topbar z akcjami po prawej (share/delete style),
+    - hero sekcja produktu (miniatura/placeholder, tytuł, ASIN, duża cena),
+    - badge `Najlepsza cena` + badge spadku `%`,
+    - ciemniejszy chart container i mocniejszy kontrast kart sekcji.
+  - Uzupełniono logikę danych w detail:
+    - główna cena z `new min`,
+    - wyliczany drop `%` z `summary.max/min`.
+  - Dodano akcję share (Web Share/clipboard fallback) i placeholder delete action.
+- Weryfikacja:
+  - `node --check packages/web/src/main.mjs` -> PASS.
+  - `npm run -s smoke:e2e` -> PASS.
+- Następny krok:
+  - Iteracja pixel-tuning po feedbacku z telefonu (spacing, wielkość ikon topbara, gęstość hero) aż do akceptacji 1:1 w stylu Ambot.

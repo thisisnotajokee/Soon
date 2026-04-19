@@ -697,6 +697,21 @@ test('P0-C: /api/trackings/save + /api/dashboard/:chatId + DELETE /api/trackings
     assert.ok(Array.isArray(dashboard.body.items));
     assert.ok(dashboard.body.items.some((item) => item.asin === asin));
     assert.ok(dashboard.body.items.some((item) => item.asin === asinAlias));
+    assert.ok(!('cardPreview' in dashboard.body.items[0]));
+
+    const dashboardWithPreview = await readJson(await fetch(`${baseUrl}/api/dashboard/${chatId}?include=card-preview`));
+    assert.equal(dashboardWithPreview.status, 200);
+    assert.equal(dashboardWithPreview.body.chatId, chatId);
+    assert.ok(Array.isArray(dashboardWithPreview.body.items));
+    const previewItem = dashboardWithPreview.body.items.find((item) => item.asin === asinAlias);
+    assert.ok(previewItem?.cardPreview);
+    assert.ok(Array.isArray(previewItem.cardPreview.marketRows));
+    assert.ok(Array.isArray(previewItem.cardPreview.sparkline));
+    assert.ok(previewItem.cardPreview.bestDomain === null || typeof previewItem.cardPreview.bestDomain === 'string');
+    assert.ok(previewItem.cardPreview.imageUrl === null || typeof previewItem.cardPreview.imageUrl === 'string');
+    assert.ok(
+      previewItem.cardPreview.rating === null || Number.isFinite(Number(previewItem.cardPreview.rating)),
+    );
 
     const trackingsCompat = await readJson(await fetch(`${baseUrl}/api/trackings/${chatId}`));
     assert.equal(trackingsCompat.status, 200);
