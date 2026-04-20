@@ -1360,13 +1360,18 @@ function renderMarketCompare(rows: Array<[string, number]>, bestValue: number | 
   return rows
     .map(([market, value]) => {
       const widthPct = maxValue > 0 ? Math.max(14, Math.round((value / maxValue) * 100)) : 14;
-      const diff = Number.isFinite(Number(bestValue)) && Number(bestValue) > 0 ? value - Number(bestValue) : 0;
-      const diffClass = diff > 0 ? 'up' : diff < 0 ? 'dn' : 'neu';
-      const diffLabel = diff === 0 ? '—' : `${diff > 0 ? '+' : ''}${formatPrice(Math.abs(diff), market)}`;
+      const safeBest = Number.isFinite(Number(bestValue)) && Number(bestValue) > 0 ? Number(bestValue) : value;
+      const diff = value - safeBest;
+      const absDiff = Math.abs(diff);
+      const isBest = absDiff < 0.005;
+      const diffClass = isBest ? 'dn' : diff > 0.005 ? 'up' : 'neu';
+      const trendIcon = isBest ? 'south' : diff > 0.005 ? 'north' : 'remove';
+      const diffLabel = isBest ? '' : `${diff > 0 ? '+' : ''}${formatPrice(absDiff, market)}`;
       return `<button class="detail-market-row" type="button" data-action="open-market" data-asin="${escapeHtml(asin)}" data-market="${escapeHtml(market)}">
         <span class="detail-market-left">${marketFlag(market)} ${escapeHtml(market.toUpperCase())}</span>
         <span class="detail-market-bar"><span class="detail-market-fill ${diffClass}" style="width:${widthPct}%"></span></span>
         <strong class="detail-market-price">${escapeHtml(formatPrice(value, market))}</strong>
+        <span class="detail-market-trend ${diffClass}"><span class="material-icons-round">${trendIcon}</span></span>
         <span class="detail-market-diff ${diffClass}">${escapeHtml(diffLabel)}</span>
       </button>`;
     })
