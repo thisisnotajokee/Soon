@@ -43,5 +43,11 @@ jobs:
           sudo systemctl restart soon-api.service
           sudo systemctl is-active --quiet soon-api.service
 
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3100/health >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
           curl -fsS http://127.0.0.1:3100/health >/dev/null
           curl -fsS http://127.0.0.1:3100/ >/dev/null
