@@ -18,42 +18,30 @@ concurrency:
 jobs:
   deploy:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.event == 'push') }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, vm210]
     timeout-minutes: 20
 
     steps:
-      - name: Deploy on VM210 over SSH
-        uses: appleboy/ssh-action@v1.2.2
-        with:
-          host: ${{ secrets.SOON_DEPLOY_HOST }}
-          username: ${{ secrets.SOON_DEPLOY_USER }}
-          key: ${{ secrets.SOON_DEPLOY_SSH_KEY }}
-          port: 22
-          script_stop: true
-          command_timeout: 20m
-          script: |
-            set -euo pipefail
+      - name: Deploy on VM210 (self-hosted)
+        run: |
+          set -euo pipefail
 
-            if [ -d /home/soonadmin/Soon ]; then
-              cd /home/soonadmin/Soon
-            else
-              cd "$HOME/Soon"
-            fi
+          cd /home/soonadmin/Soon
 
-            if ! git diff --quiet || ! git diff --cached --quiet; then
-              echo "[deploy] Aborting: production worktree has local changes" >&2
-              git status --short
-              exit 1
-            fi
+          if ! git diff --quiet || ! git diff --cached --quiet; then
+            echo "[deploy] Aborting: production worktree has local changes" >&2
+            git status --short
+            exit 1
+          fi
 
-            git fetch origin --prune
-            git checkout main
-            git pull --ff-only origin main
+          git fetch origin --prune
+          git checkout main
+          git pull --ff-only origin main
 
-            npm ci --silent
+          npm ci --silent
 
-            sudo systemctl restart soon-api.service
-            sudo systemctl is-active --quiet soon-api.service
+          sudo systemctl restart soon-api.service
+          sudo systemctl is-active --quiet soon-api.service
 
-            curl -fsS http://127.0.0.1:3000/health >/dev/null
-            curl -fsS http://127.0.0.1:3000/ >/dev/null
+          curl -fsS http://127.0.0.1:3000/health >/dev/null
+          curl -fsS http://127.0.0.1:3000/ >/dev/null
