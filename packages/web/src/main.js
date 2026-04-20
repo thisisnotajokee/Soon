@@ -1095,13 +1095,13 @@ function renderMarketCompare(rowsSource, asin, mode = "new") {
     const cls = isBest ? "competitor-best" : isWorst ? "competitor-worst" : "";
     const cur = currencyForDomain(domain);
     const markerHtml = isBest ? `<span class="competitor-rank-badge best" title="Najlepsza cena"><span class="material-icons-round">arrow_downward</span></span>` : `<span class="competitor-meta">${isWorst ? `<span class="competitor-rank-badge worst" title="Najgorsza cena"><span class="material-icons-round">arrow_upward</span></span>` : ""}<span class="competitor-gap${isWorst ? " worst" : ""}">+${cur}${savings.toFixed(2)}</span></span>`;
-    return `<button class="competitor-row" type="button" data-action="open-market" data-asin="${escapeHtml(asin)}" data-market="${escapeHtml(domain)}">
+    return `<div class="competitor-row" data-action="open-market" data-asin="${escapeHtml(asin)}" data-market="${escapeHtml(domain)}">
         <span class="competitor-flag flag-round">${marketFlag(domain)}</span>
         <span style="flex:0 0 70px;font-size:12px">${escapeHtml(domain.toUpperCase())}</span>
         <div class="competitor-bar"><div class="competitor-bar-fill" style="width:${100 - pct}%"></div></div>
         <span class="competitor-price ${cls}${mode === "used" ? " ptable-cell-used" : ""}">${escapeHtml(cur)}${escapeHtml(price.toFixed(2))}</span>
         ${markerHtml}
-      </button>`;
+      </div>`;
   }).join("");
 }
 function getSelectedTrackingItem() {
