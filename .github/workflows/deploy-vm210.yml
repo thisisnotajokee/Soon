@@ -28,7 +28,7 @@ jobs:
           host: ${{ secrets.SOON_DEPLOY_HOST }}
           username: ${{ secrets.SOON_DEPLOY_USER }}
           key: ${{ secrets.SOON_DEPLOY_SSH_KEY }}
-          port: ${{ secrets.SOON_DEPLOY_PORT }}
+          port: 22
           script_stop: true
           command_timeout: 20m
           script: |
@@ -57,11 +57,3 @@ jobs:
 
             curl -fsS http://127.0.0.1:3000/health >/dev/null
             curl -fsS http://127.0.0.1:3000/ >/dev/null
-
-      - name: Verify public health endpoint
-        if: ${{ secrets.SOON_RUNTIME_BASE_URL != '' }}
-        env:
-          SOON_RUNTIME_BASE_URL: ${{ secrets.SOON_RUNTIME_BASE_URL }}
-        run: |
-          set -euo pipefail
-          curl -fsS "${SOON_RUNTIME_BASE_URL%/}/health" >/dev/null
