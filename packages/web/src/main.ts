@@ -1354,25 +1354,34 @@ function renderPriceRows(rows: Array<[string, number]>, type: 'new' | 'used', as
     .join('');
 }
 
-function renderMarketCompare(rows: Array<[string, number]>, bestValue: number | null, asin: string) {
-  if (!rows.length) return `<div class="detail-overview-value">${escapeHtml(t().noData)}</div>`;
-  const maxValue = Math.max(...rows.map((row) => row[1]));
-  return rows
-    .map(([market, value]) => {
-      const widthPct = maxValue > 0 ? Math.max(14, Math.round((value / maxValue) * 100)) : 14;
-      const safeBest = Number.isFinite(Number(bestValue)) && Number(bestValue) > 0 ? Number(bestValue) : value;
-      const diff = value - safeBest;
-      const absDiff = Math.abs(diff);
-      const isBest = absDiff < 0.005;
-      const diffClass = isBest ? 'dn' : diff > 0.005 ? 'up' : 'neu';
-      const trendIcon = isBest ? 'south' : diff > 0.005 ? 'north' : 'remove';
-      const diffLabel = isBest ? '' : `${diff > 0 ? '+' : ''}${formatPrice(absDiff, market)}`;
-      return `<button class="detail-market-row" type="button" data-action="open-market" data-asin="${escapeHtml(asin)}" data-market="${escapeHtml(market)}">
-        <span class="detail-market-left">${marketFlag(market)} ${escapeHtml(market.toUpperCase())}</span>
-        <span class="detail-market-bar"><span class="detail-market-fill ${diffClass}" style="width:${widthPct}%"></span></span>
-        <strong class="detail-market-price">${escapeHtml(formatPrice(value, market))}</strong>
-        <span class="detail-market-trend ${diffClass}"><span class="material-icons-round">${trendIcon}</span></span>
-        <span class="detail-market-diff ${diffClass}">${escapeHtml(diffLabel)}</span>
+function renderMarketCompare(rowsSource: Array<[string, number]>, asin: string, mode: 'new' | 'used' = 'new') {
+  if (!rowsSource.length) {
+    return `<div class="competitor-row"><span class="competitor-gap">Brak cen dla wybranych rynków</span></div>`;
+  }
+
+  const rowsSorted = [...rowsSource].sort((a, b) => a[1] - b[1]);
+  const best = rowsSorted[0][1];
+  const worst = rowsSorted[rowsSorted.length - 1][1];
+  const range = worst - best;
+
+  return rowsSorted
+    .map(([domain, price], idx) => {
+      const pct = range > 0 ? ((price - best) / range) * 100 : 0;
+      const savings = price - best;
+      const isBest = idx === 0;
+      const isWorst = idx === rowsSorted.length - 1;
+      const cls = isBest ? 'competitor-best' : isWorst ? 'competitor-worst' : '';
+      const cur = currencyForDomain(domain);
+      const markerHtml = isBest
+        ? `<span class="competitor-rank-badge best" title="Najlepsza cena"><span class="material-icons-round">arrow_downward</span></span>`
+        : `<span class="competitor-meta">${isWorst ? `<span class="competitor-rank-badge worst" title="Najgorsza cena"><span class="material-icons-round">arrow_upward</span></span>` : ''}<span class="competitor-gap${isWorst ? ' worst' : ''}">+${cur}${savings.toFixed(2)}</span></span>`;
+
+      return `<button class="competitor-row" type="button" data-action="open-market" data-asin="${escapeHtml(asin)}" data-market="${escapeHtml(domain)}">
+        <span class="competitor-flag flag-round">${marketFlag(domain)}</span>
+        <span style="flex:0 0 70px;font-size:12px">${escapeHtml(domain.toUpperCase())}</span>
+        <div class="competitor-bar"><div class="competitor-bar-fill" style="width:${100 - pct}%"></div></div>
+        <span class="competitor-price ${cls}${mode === 'used' ? ' ptable-cell-used' : ''}">${escapeHtml(cur)}${escapeHtml(price.toFixed(2))}</span>
+        ${markerHtml}
       </button>`;
     })
     .join('');
@@ -1524,10 +1533,11 @@ function renderDetail(item: TrackingItem) {
   </div>
 
   <div class="dtpanel ${state.detailTab === 'overview' ? 'on' : ''}" id="dt-overview">
-    <div class="detail-section-title-gap"><span class="material-icons-round">compare_arrows</span><span>Porównanie między rynkami</span></div>
-    <div class="detail-market-card">
-      ${renderMarketCompare(newRows, bestNew, asin)}
-      ${usedRows.length ? `<div class="detail-market-used-sep">Ceny używane</div>${renderMarketCompare(usedRows, bestUsed, asin)}` : ''}
+    <div class="competitor-card">
+      <div class="competitor-title"><span class="material-icons-round ui-icon-inline">compare_arrows</span>Porównanie między rynkami</div>
+      ${renderMarketCompare(newRows, asin, 'new')}
+      <div class="competitor-title" style="margin-top:10px"><span class="material-icons-round ui-icon-inline">autorenew</span>Ceny używane</div>
+      ${renderMarketCompare(usedRows, asin, 'used')}
     </div>
 
     <div class="ptable" id="priceTable">
