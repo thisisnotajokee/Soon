@@ -123,9 +123,10 @@ const refreshAllJobs = new Map();
 const WEB_ASSET_PATHS = new Map([
   ['/', { file: '../../../web/src/index.html', contentType: 'text/html; charset=utf-8' }],
   ['/index.html', { file: '../../../web/src/index.html', contentType: 'text/html; charset=utf-8' }],
-  ['/main.mjs', { file: '../../../web/src/main.mjs', contentType: 'text/javascript; charset=utf-8' }],
+  ['/main.js', { file: '../../../web/src/main.js', contentType: 'text/javascript; charset=utf-8' }],
   ['/api-client.mjs', { file: '../../../web/src/api-client.mjs', contentType: 'text/javascript; charset=utf-8' }],
   ['/styles.css', { file: '../../../web/src/styles.css', contentType: 'text/css; charset=utf-8' }],
+  ['/vendor/chart.umd.min.js', { file: '../../../web/src/vendor/chart.umd.min.js', contentType: 'text/javascript; charset=utf-8' }],
 ]);
 
 let apiLogNextId = 1;
@@ -202,9 +203,10 @@ async function tryServeWebAsset(method, pathname, res) {
 
   try {
     const payload = await readFile(new URL(asset.file, import.meta.url));
+    const noStorePaths = new Set(['/', '/index.html', '/main.js', '/styles.css', '/vendor/chart.umd.min.js']);
     res.writeHead(200, {
       'content-type': asset.contentType,
-      'cache-control': pathname === '/index.html' || pathname === '/' ? 'no-store' : 'public, max-age=300',
+      'cache-control': noStorePaths.has(pathname) ? 'no-store' : 'public, max-age=300',
     });
     res.end(payload);
     return true;
