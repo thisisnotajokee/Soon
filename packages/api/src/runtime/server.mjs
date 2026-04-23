@@ -126,7 +126,7 @@ const WEB_ASSET_PATHS = new Map([
   ['/main.js', { file: '../../../web/src/main.js', contentType: 'text/javascript; charset=utf-8' }],
   ['/api-client.mjs', { file: '../../../web/src/api-client.mjs', contentType: 'text/javascript; charset=utf-8' }],
   ['/styles.css', { file: '../../../web/src/styles.css', contentType: 'text/css; charset=utf-8' }],
-  ['/vendor/chart.umd.min.js', { file: '../../../web/src/vendor/chart.umd.min.js', contentType: 'text/javascript; charset=utf-8' }],
+  ['/vendor/chart.umd.min.js', { file: '../../../web/public/vendor/chart.umd.min.js', contentType: 'text/javascript; charset=utf-8' }],
 ]);
 
 let apiLogNextId = 1;
@@ -199,20 +199,51 @@ function aggregateRunMetrics(items) {
 async function tryServeWebAsset(method, pathname, res) {
   if (method !== 'GET') return false;
   const asset = WEB_ASSET_PATHS.get(pathname);
-  if (!asset) return false;
-
-  try {
-    const payload = await readFile(new URL(asset.file, import.meta.url));
-    const noStorePaths = new Set(['/', '/index.html', '/main.js', '/styles.css', '/vendor/chart.umd.min.js']);
-    res.writeHead(200, {
-      'content-type': asset.contentType,
-      'cache-control': noStorePaths.has(pathname) ? 'no-store' : 'public, max-age=300',
-    });
-    res.end(payload);
-    return true;
-  } catch {
-    return false;
+  if (asset) {
+    try {
+      const payload = await readFile(new URL(asset.file, import.meta.url));
+      const noStorePaths = new Set(['/', '/index.html', '/main.js', '/styles.css', '/vendor/chart.umd.min.js', '/sw.js']);
+      res.writeHead(200, {
+        'content-type': asset.contentType,
+        'cache-control': noStorePaths.has(pathname) ? 'no-store' : 'public, max-age=300',
+      });
+      res.end(payload);
+      return true;
+    } catch {
+      return false;
+    }
   }
+
+  // Fallback: serve any file from web/src/ or web/public/ with auto-detected Content-Type
+  const ext = pathname.split('.').pop();
+  const contentTypeMap = {
+    js: 'text/javascript; charset=utf-8',
+    mjs: 'text/javascript; charset=utf-8',
+    css: 'text/css; charset=utf-8',
+    html: 'text/html; charset=utf-8',
+    svg: 'image/svg+xml',
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    json: 'application/json',
+  };
+  const contentType = contentTypeMap[ext];
+  if (!contentType) return false;
+  const searchPaths = [`../../../web/src${pathname}`, `../../../web/public${pathname}`];
+  for (const relPath of searchPaths) {
+    try {
+      const payload = await readFile(new URL(relPath, import.meta.url));
+      res.writeHead(200, {
+        'content-type': contentType,
+        'cache-control': 'public, max-age=300',
+      });
+      res.end(payload);
+      return true;
+    } catch {
+      // try next path
+    }
+  }
+  return false;
 }
 
 function summarizeAutomationRuns(items, limit) {

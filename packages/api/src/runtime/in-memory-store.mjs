@@ -11,6 +11,26 @@ function sampleHistory(base) {
   }));
 }
 
+function sampleHistorySeries(pricesNew = {}) {
+  const markets = Object.keys(pricesNew);
+  const fallbackBase = Object.values(pricesNew)[0] ?? 100;
+  const now = Date.now();
+  const result = [];
+  for (const [index, market] of markets.entries()) {
+    const base = Number(pricesNew[market]) || Number(fallbackBase) || 100;
+    for (let i = 0; i < 24; i += 1) {
+      const wave = 0.9 + ((i + index) % 7) * 0.025;
+      result.push({
+        market,
+        condition: 'new',
+        ts: new Date(now - (23 - i) * 24 * 60 * 60 * 1000).toISOString(),
+        value: Number((base * wave).toFixed(2)),
+      });
+    }
+  }
+  return result;
+}
+
 export const SEEDED_TRACKINGS = [
   {
     asin: 'B0BYW7MMBR',
@@ -48,6 +68,7 @@ function buildRecord(item) {
   return {
     ...item,
     historyPoints: sampleHistory(item.pricesNew.de ?? Object.values(item.pricesNew)[0] ?? 100),
+    historySeries: sampleHistorySeries(item.pricesNew),
     updatedAt: new Date().toISOString(),
   };
 }
@@ -299,6 +320,7 @@ export function createInMemoryStore() {
         avg,
       },
       historyPoints: item.historyPoints,
+      historySeries: item.historySeries,
       updatedAt: item.updatedAt,
     };
   }
@@ -372,6 +394,7 @@ export function createInMemoryStore() {
       targetPriceNew: Number.isFinite(targetPriceNew) ? targetPriceNew : null,
       targetPriceUsed: Number.isFinite(targetPriceUsed) ? targetPriceUsed : null,
       historyPoints: existing?.historyPoints ?? sampleHistory(base),
+      historySeries: existing?.historySeries ?? sampleHistorySeries(pricesNew),
       updatedAt: nowIso,
     };
 

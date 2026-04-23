@@ -585,13 +585,24 @@ export function createPostgresStore({
       [asin],
     );
 
-    const historyPoints = historyRes.rows
+    const historyNewRows = historyRes.rows
       .filter((row) => row.condition === 'new')
       .map((row) => ({
+        market: String(row.market || '').toLowerCase(),
         ts: row.recorded_at.toISOString(),
         value: toNumber(row.price),
+      }));
+
+    const defaultMarket = tracking.pricesNew?.de ? 'de' : (historyNewRows[0]?.market || 'de');
+    const historyPoints = historyNewRows
+      .filter((row) => row.market === defaultMarket)
+      .map((row) => ({
+        ts: row.ts,
+        value: row.value,
       }))
       .reverse();
+
+    const historySeries = historyNewRows.reverse();
 
     return {
       asin: tracking.asin,
@@ -606,6 +617,7 @@ export function createPostgresStore({
       },
       summary: toSummary(tracking.pricesNew),
       historyPoints,
+      historySeries,
       updatedAt: tracking.updatedAt,
     };
   }
