@@ -5,8 +5,47 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>soon</title>
 <meta name="theme-color" content="#ff6600">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Soon">
+<link rel="stylesheet" href="/styles.css?v=3">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/svg+xml" sizes="32x32" href="/icons/favicon-32.svg">
+<link rel="icon" type="image/svg+xml" sizes="16x16" href="/icons/favicon-16.svg">
+<link rel="icon" type="image/svg+xml" href="/icons/icon-512.svg">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180.svg">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+<style>
+  .dtabs{display:flex!important;gap:6px!important;padding:0 10px 8px!important}
+  .dtab{flex:1 1 0!important;display:flex!important;align-items:center!important;justify-content:center!important;gap:6px!important;padding:8px 12px!important;border-radius:10px!important;border:1px solid var(--border)!important;background:var(--surface)!important;color:var(--t2)!important;font-size:12px!important;font-weight:600!important;cursor:pointer!important;transition:all .15s ease!important}
+  .dtab.on{border-color:var(--orange)!important;background:rgba(255,128,32,.14)!important;color:#fff!important}
+  .dtab:not(.on):hover{border-color:var(--t2)!important;color:var(--t1)!important}
+  .dtab .material-icons-round{font-size:16px!important}
+  .view:not(.on) .deals-fab-wrap{display:none!important}
+  body.detail-open .deals-fab-wrap{display:none!important}
+  .target-price-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 10px 10px}
+  .target-price-grid .saux.card-slim{margin:0!important}
+  .target-price-grid .saux-row span{font-size:11px!important;line-height:1.3!important}
+  .target-price-grid .price-row-new,
+  .target-price-grid .price-row-used{padding:6px 10px!important}
+  .target-price-grid .target-input{font-size:14px!important}
+  .target-price-grid .add-quick-preview div[style*="color:var(--t2)"]{display:none!important}
+  .target-price-grid .add-quick-preview div[style*="font-size:14px"]{font-size:11px!important}
+  #d-profiles .deal-chip[data-profile="safe"].on{border-color:rgba(63,185,80,.58)!important;background:linear-gradient(180deg,rgba(63,185,80,.24),rgba(63,185,80,.10)),var(--tile-bg-idle)!important;color:#e8ffe9!important;box-shadow:0 0 0 1px rgba(63,185,80,.18),0 10px 22px rgba(63,185,80,.12),inset 0 1px 0 rgba(255,255,255,.10)!important}
+  #d-profiles .deal-chip[data-profile="standard"].on{border-color:var(--tile-border-active-warm)!important;background:var(--tile-bg-active-warm)!important;color:var(--tile-text-active)!important;box-shadow:var(--tile-shadow-active-warm),inset 0 1px 0 rgba(255,255,255,.10)!important}
+  #d-profiles .deal-chip[data-profile="aggressive"].on{border-color:rgba(248,81,73,.58)!important;background:linear-gradient(180deg,rgba(248,81,73,.24),rgba(248,81,73,.10)),var(--tile-bg-idle)!important;color:#ffe1dd!important;box-shadow:0 0 0 1px rgba(248,81,73,.2),0 10px 22px rgba(248,81,73,.12),inset 0 1px 0 rgba(255,255,255,.10)!important}
+  #d-track-modes .deal-chip[data-mode="rise"].on{border-color:var(--tile-border-active-cool)!important;background:linear-gradient(180deg,rgba(88,166,255,.24),rgba(88,166,255,.09)),var(--tile-bg-idle)!important;color:#eaf4ff!important;box-shadow:var(--tile-shadow-active-cool),inset 0 1px 0 rgba(255,255,255,.10)!important}
+  #d-stock-alerts .deal-chip.on{border-color:rgba(63,185,80,.55)!important;background:linear-gradient(180deg,rgba(63,185,80,.24),rgba(63,185,80,.09)),var(--tile-bg-idle)!important;color:#e5ffe9!important;box-shadow:0 0 0 1px rgba(63,185,80,.15),0 10px 22px rgba(63,185,80,.11),inset 0 1px 0 rgba(255,255,255,.10)!important}
+</style>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Icons+Round">
-<link rel="stylesheet" href="/styles.css">
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
+</script>
 </head>
 <body>
 <div id="root">
@@ -35,49 +74,599 @@
         <button class="deal-chip" data-tracking-status="inactive" data-action="set-tracking-status" data-status="inactive">Wyłączone</button>
       </div>
       <div id="productsList"><div class="empty"><div class="spinner"></div><p class="loader-gap-top">Ładowanie...</p></div></div>
+      <div class="deals-fab-wrap" id="trackingFabMenu">
+        <div class="deals-fab-actions" id="trackingFabActions">
+          <button class="deals-fab-action on" type="button" data-action="set-tracking-sort" data-sort="newest" data-close-tracking-fab="1"><span class="material-icons-round">schedule</span><span>Najnowsze</span></button>
+          <button class="deals-fab-action" type="button" data-action="set-tracking-sort" data-sort="price_asc" data-close-tracking-fab="1"><span class="material-icons-round">trending_up</span><span>Cena ↑</span></button>
+          <button class="deals-fab-action" type="button" data-action="set-tracking-sort" data-sort="price_desc" data-close-tracking-fab="1"><span class="material-icons-round">trending_down</span><span>Cena ↓</span></button>
+          <button class="deals-fab-action" type="button" data-action="set-tracking-sort" data-sort="drop_desc" data-close-tracking-fab="1"><span class="material-icons-round">arrow_downward</span><span>Największy spadek</span></button>
+          <button class="deals-fab-action" type="button" data-action="set-tracking-sort" data-sort="title_asc" data-close-tracking-fab="1"><span class="material-icons-round">sort_by_alpha</span><span>Tytuł A-Z</span></button>
+          <button class="deals-fab-action" type="button" data-action="set-tracking-sort" data-sort="category_asc" data-close-tracking-fab="1"><span class="material-icons-round">label</span><span>Kategoria</span></button>
+          <button class="deals-fab-action" type="button" data-action="set-tracking-sort" data-sort="deals_only" data-close-tracking-fab="1"><span class="material-icons-round">local_fire_department</span><span>Tylko okazje</span></button>
+          <button class="deals-fab-action" type="button" data-action="set-tracking-sort" data-sort="stock_used" data-close-tracking-fab="1"><span class="material-icons-round">inventory_2</span><span>Magazyn/Używane</span></button>
+          <button class="deals-fab-action" type="button" data-action="set-tracking-sort" data-sort="with_alerts" data-close-tracking-fab="1"><span class="material-icons-round">notifications</span><span>Z alertami</span></button>
+        </div>
+        <button class="deals-fab-main" type="button" data-action="toggle-tracking-fab-menu" aria-label="Sortowanie śledzonych"><span class="material-icons-round deals-fab-main-icon">tune</span></button>
+      </div>
     </div>
 
     <div class="view" id="v-deals">
-      <div class="empty">
-        <h3 id="deals-title">Okazje</h3>
-        <p id="deals-desc">Zakładka w przygotowaniu.</p>
+      <div class="deals-toolbar" id="dealsToolbar">
+        <div class="deals-toolbar-row deals-toolbar-scroll" id="dealsQuickFilters">
+          <button class="deal-chip on" data-deals-source="all" data-action="set-deals-source" data-source="all">Wszystko</button>
+          <button class="deal-chip" data-deals-source="hunter" data-action="set-deals-source" data-source="hunter">Hunter</button>
+          <button class="deal-chip" data-deals-source="web" data-action="set-deals-source" data-source="web">Web</button>
+        </div>
+      </div>
+      <div id="dealsList"></div>
+      <div class="deals-fab-wrap" id="dealsFabMenu">
+        <div class="deals-fab-actions" id="dealsFabActions">
+          <button class="deals-fab-action" type="button" data-action="set-deals-sort" data-sort="newest" data-close-deals-fab="1"><span class="material-icons-round">schedule</span><span>Najnowsze</span></button>
+          <button class="deals-fab-action" type="button" data-action="set-deals-sort" data-sort="discount" data-close-deals-fab="1"><span class="material-icons-round">percent</span><span>Największa obniżka</span></button>
+          <button class="deals-fab-action" type="button" data-action="set-deals-sort" data-sort="price_asc" data-close-deals-fab="1"><span class="material-icons-round">trending_down</span><span>Najniższa cena</span></button>
+          <button class="deals-fab-action" type="button" data-action="set-deals-sort" data-sort="price_desc" data-close-deals-fab="1"><span class="material-icons-round">trending_up</span><span>Najwyższa cena</span></button>
+          <button class="deals-fab-action" type="button" data-action="refresh-deals-feed" data-close-deals-fab="1"><span class="material-icons-round">refresh</span><span>Odśwież</span></button>
+        </div>
+        <button class="deals-fab-main" type="button" data-action="toggle-deals-fab-menu" aria-label="Szybkie akcje Okazje"><span class="material-icons-round deals-fab-main-icon">tune</span></button>
       </div>
     </div>
 
     <div class="view" id="v-add">
-      <div class="empty">
-        <h3 id="add-title">Dodaj</h3>
-        <p id="add-desc">Dodawanie produktu uruchomimy w kolejnym etapie.</p>
+      <div class="addview">
+        <div class="add-input-card">
+          <div class="add-input-head">
+            <span class="material-icons-round">link</span>
+            <div class="add-input-title">Wklej linki Amazon lub ASIN</div>
+          </div>
+          <textarea class="asin-input" id="asinInput" placeholder="Np.:\nB0DCKJG2Z3\nhttps://amazon.de/dp/B0DCKJG2Z3" rows="3"></textarea>
+        </div>
+        <div class="add-quick-preview settings-hidden" id="addQuickPreview" aria-live="polite"></div>
+        <div class="add-onboarding-steps" id="addOnboardingSteps">
+          <div class="add-onboarding-step" id="addStepInput"><span class="add-onboarding-dot"></span><span>1. Wklej link lub ASIN</span></div>
+          <div class="add-onboarding-step" id="addStepMarket"><span class="add-onboarding-dot"></span><span>2. Wybierz rynek</span></div>
+          <div class="add-onboarding-step" id="addStepAction"><span class="add-onboarding-dot"></span><span>3. Dodaj produkt</span></div>
+        </div>
+        <div class="add-mode-switch" id="addModeSwitch" role="tablist" aria-label="Tryb dodawania">
+          <button class="add-mode-chip on" type="button" data-add-mode="quick">Szybkie</button>
+          <button class="add-mode-chip" type="button" data-add-mode="advanced">Dodaj produkt</button>
+        </div>
+        <div class="add-mode-hint" id="addModeHint">Tryb szybki: tylko najważniejsze pola, 1 klik = dodanie.</div>
+
+        <div class="add-section">
+          <div class="add-section-title">Rynki do śledzenia</div>
+          <div class="add-domains" id="addDomains">
+            <div class="domtoggle on" data-d="de"><span class="flag-round" aria-hidden="true">🇩🇪</span><span>DE</span></div>
+            <div class="domtoggle on" data-d="it"><span class="flag-round" aria-hidden="true">🇮🇹</span><span>IT</span></div>
+            <div class="domtoggle on" data-d="fr"><span class="flag-round" aria-hidden="true">🇫🇷</span><span>FR</span></div>
+            <div class="domtoggle on" data-d="es"><span class="flag-round" aria-hidden="true">🇪🇸</span><span>ES</span></div>
+            <div class="domtoggle on" data-d="uk"><span class="flag-round" aria-hidden="true">🇬🇧</span><span>UK</span></div>
+            <div class="domtoggle on" data-d="nl"><span class="flag-round" aria-hidden="true">🇳🇱</span><span>NL</span></div>
+          </div>
+        </div>
+
+        <div class="add-primary-actions">
+          <button class="asin-add-btn" type="button" data-action="set-add-mode" data-add-mode="advanced"><span class="material-icons-round top-icon-20">add_circle</span> Zaawansowane</button>
+          <button class="add-tool-btn" type="button" data-action="open-amazon-quick-add"><span class="material-icons-round">shopping_cart</span> Przeglądaj Amazon</button>
+          <button class="add-tool-btn add-clipboard-btn" type="button" id="addClipboardAddBtn" data-action="paste-clipboard-add"><span class="material-icons-round">content_paste</span> Wklej ze schowka i dodaj</button>
+        </div>
+        <div class="add-amazon-flow-hint" id="addAmazonFlowHint">
+          <span class="material-icons-round">touch_app</span>
+          <div class="add-amazon-flow-body">Otwórz Amazon, znajdź produkt, udostępnij link do AmaBot. Przy jednym linku produkt doda się automatycznie.</div>
+        </div>
+
+        <div class="add-section add-advanced-block">
+          <div class="add-section-title">Ceny docelowe (opcjonalnie)</div>
+          <div class="add-track-quick">
+            <div class="add-track-group">
+              <div class="add-track-group-title">Presety dodawania (1 tap)</div>
+              <div class="add-track-chip-row" id="addPresetChips">
+                <button class="add-track-chip" type="button" data-add-preset="safe">Bezpieczny</button>
+                <button class="add-track-chip on" type="button" data-add-preset="standard">Standard</button>
+                <button class="add-track-chip" type="button" data-add-preset="aggressive">Agresywny</button>
+              </div>
+            </div>
+            <div class="add-track-group">
+              <div class="add-track-group-title">Typ ceny</div>
+              <div class="add-track-chip-row" id="addPriceTypeChips">
+                <button class="add-track-chip on" type="button" data-price-type="buybox">Buy Box</button>
+                <button class="add-track-chip" type="button" data-price-type="amazon">Amazon</button>
+                <button class="add-track-chip" type="button" data-price-type="new">New</button>
+                <button class="add-track-chip" type="button" data-price-type="buybox_used">Buy Box Used</button>
+                <button class="add-track-chip" type="button" data-price-type="used">Used</button>
+              </div>
+            </div>
+            <div class="add-track-group">
+              <div class="add-track-group-title">Typ śledzenia</div>
+              <div class="add-track-chip-row" id="addTrackingTypeChips">
+                <button class="add-track-chip on" type="button" data-track-mode="drop">Spadek</button>
+                <button class="add-track-chip" type="button" data-track-mode="rise">Wzrost</button>
+              </div>
+            </div>
+            <div class="add-track-group">
+              <div class="add-track-group-title">Szybki próg spadku</div>
+              <div class="add-track-chip-row add-track-chip-row-presets" id="addDropPresetChips">
+                <button class="add-track-chip" type="button" data-drop-pct="5">5%</button>
+                <button class="add-track-chip on" type="button" data-drop-pct="10">10%</button>
+                <button class="add-track-chip" type="button" data-drop-pct="15">15%</button>
+                <button class="add-track-chip" type="button" data-drop-pct="20">20%</button>
+                <button class="add-track-chip" type="button" data-drop-pct="25">25%</button>
+                <button class="add-track-chip" type="button" data-drop-pct="1">Jakikolwiek spadek</button>
+              </div>
+            </div>
+            <div class="add-track-group">
+              <div class="add-track-group-title">Szybki próg wzrostu</div>
+              <div class="add-track-chip-row add-track-chip-row-presets" id="addRisePresetChips">
+                <button class="add-track-chip on" type="button" data-rise-pct="5">5%</button>
+                <button class="add-track-chip" type="button" data-rise-pct="10">10%</button>
+                <button class="add-track-chip" type="button" data-rise-pct="15">15%</button>
+                <button class="add-track-chip" type="button" data-rise-pct="20">20%</button>
+                <button class="add-track-chip" type="button" data-rise-pct="25">25%</button>
+                <button class="add-track-chip" type="button" data-rise-pct="1">Jakikolwiek wzrost</button>
+              </div>
+            </div>
+            <div class="add-track-group">
+              <div class="add-track-group-title">Dodatkowe alerty</div>
+              <div class="add-track-chip-row" id="addStockEventChips">
+                <button class="add-track-chip on" type="button" data-stock-event="out">Brak w magazynie</button>
+                <button class="add-track-chip on" type="button" data-stock-event="back">Ponownie dostępne</button>
+              </div>
+            </div>
+          </div>
+          <div class="add-price-grid">
+            <div class="add-price-card" id="addTargetPriceCard">
+              <div class="add-price-card-title">Cena nowa</div>
+              <div class="add-price-row">
+                <span class="add-price-currency new">€</span>
+                <input type="number" class="add-price-input" id="addTargetPrice" placeholder="0.00" step="0.01" min="0">
+              </div>
+              <div class="add-price-desc">Alert, gdy nowa cena osiągnie cel</div>
+            </div>
+            <div class="add-price-card" id="addTargetPriceUsedCard">
+              <div class="add-price-card-title">Cena używana</div>
+              <div class="add-price-row">
+                <span class="add-price-currency used">€</span>
+                <input type="number" class="add-price-input" id="addTargetPriceUsed" placeholder="0.00" step="0.01" min="0">
+              </div>
+              <div class="add-price-desc">Alert dla ceny magazynowej / używanej</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bulk-progress" id="bulkProgress">
+          <div class="bulk-bar"><div class="bulk-bar-fill" id="bulkBarFill"></div></div>
+          <div class="bulk-status" id="bulkStatus"></div>
+        </div>
+        <div class="add-result-box" id="addResultBox" aria-live="polite"></div>
+        <div class="asin-hint">Obsługuje: kody ASIN i adresy URL produktów Amazon (DE/IT/FR/ES/UK/NL)</div>
       </div>
     </div>
 
     <div class="view" id="v-notifications">
-      <div class="empty">
-        <h3 id="alerts-title">Alerty</h3>
-        <p id="alerts-desc">Panel alertów będzie rozwijany po sekcji Śledzone.</p>
+      <div class="notif-tabs">
+        <div class="ntab on" data-nt="alerts" data-action="switch-notif-tab" data-notif-tab="alerts"><span class="material-icons-round ntab-icon">notifications</span><span class="ntab-label">Alerty</span></div>
       </div>
+      <div id="notifList" class="notif-panel"></div>
     </div>
 
     <div class="view" id="v-settings">
-      <div class="dtpanel on">
-        <div class="srow">
-          <div class="srow-info">
-            <div class="srow-title" id="settings-title">Ustawienia</div>
-            <div class="srow-desc">Chat ID</div>
+      <div class="settings-view" id="settingsView">
+        <div class="settings-group">
+          <div class="settings-group-title" data-i18n="settings.notif.group_title">Preferencje powiadomień</div>
+          <div class="settings-card notif-accordion settings-accordion" id="notifAccordion">
+            <div class="notif-accordion-head" data-action="toggle-notif-prefs-panel">
+              <div class="notif-accordion-left">
+                <span class="material-icons-round settings-icon-orange">notifications_active</span>
+                <div>
+                  <div class="notif-accordion-title" data-i18n="settings.notif.accordion_title">Zarządzanie powiadomieniami</div>
+                  <div class="notif-accordion-sub" id="notifPrefsSummary">Ładowanie...</div>
+                </div>
+              </div>
+              <span class="material-icons-round notif-accordion-chevron">expand_more</span>
+            </div>
+            <div class="notif-accordion-panel" id="notifPrefsPanel">
+              <div class="notify-toggle">
+                <div><div class="notify-toggle-label"><span class="material-icons-round ui-icon-inline">gps_fixed</span><span data-i18n="settings.notif.target.title">Alerty celu</span></div><div class="notify-toggle-desc" data-i18n="settings.notif.target.desc">Gdy cena spadnie poniżej Twojego celu</div></div>
+                <div class="toggle-switch on" id="tog-target" data-action="toggle-notif" data-notif-key="notify_target"></div>
+              </div>
+              <div class="notify-toggle">
+                <div><div class="notify-toggle-label"><span class="material-icons-round ui-icon-inline">mail</span><span data-i18n="settings.notif.digest.title">Codzienne podsumowanie</span></div><div class="notify-toggle-desc" data-i18n="settings.notif.digest.desc">Poranne podsumowanie o 9:00</div></div>
+                <div class="toggle-switch on" id="tog-digest" data-action="toggle-notif" data-notif-key="notify_digest"></div>
+              </div>
+              <div class="notify-toggle">
+                <div><div class="notify-toggle-label"><span class="material-icons-round ui-icon-inline">local_fire_department</span><span data-i18n="nav.deals">Okazje</span></div><div class="notify-toggle-desc" data-i18n="settings.notif.deals.desc">Powiadomienia o gorących okazjach</div></div>
+                <div class="toggle-switch on" id="tog-deals" data-action="toggle-notif" data-notif-key="notify_deals"></div>
+              </div>
+              <div class="notify-toggle">
+                <div><div class="notify-toggle-label"><span class="material-icons-round ui-icon-inline">trending_down</span><span data-i18n="settings.notif.pct_drop.title">Spadek ceny %</span></div><div class="notify-toggle-desc" data-i18n="settings.notif.pct_drop.desc">Gdy cena spadnie o X%</div></div>
+                <div class="toggle-switch on" id="tog-pct-drop" data-action="toggle-notif" data-notif-key="notify_pct_drop"></div>
+              </div>
+              <div class="settings-item settings-item-wide settings-item-gap-top">
+                <span class="material-icons-round settings-icon-blue">bedtime</span>
+                <div class="settings-item-info">
+                  <div class="settings-item-title" data-i18n="settings.notif.quiet_hours.title">Cisza nocna</div>
+                  <div class="settings-item-desc" data-i18n="settings.notif.quiet_hours.desc">Wstrzymaj alerty zakupowe w wybranych godzinach</div>
+                </div>
+                <div class="toggle-switch" id="tog-quiet-hours-enabled" data-action="toggle-pref-saveall"></div>
+              </div>
+              <div class="settings-item settings-item-wide">
+                <span class="material-icons-round settings-icon-blue">schedule</span>
+                <div class="settings-item-info">
+                  <div class="settings-item-title" data-i18n="settings.notif.quiet_hours.range">Zakres ciszy</div>
+                  <div class="settings-item-desc" data-i18n="settings.notif.quiet_hours.range_desc">Od i do (0-23)</div>
+                </div>
+                <div class="settings-inline-row">
+                  <select class="settings-select settings-input-sm" id="quietHoursStart" data-change-action="save-all-prefs"></select>
+                  <span class="settings-unit">→</span>
+                  <select class="settings-select settings-input-sm" id="quietHoursEnd" data-change-action="save-all-prefs"></select>
+                </div>
+              </div>
+              <div class="settings-item settings-item-wide">
+                <span class="material-icons-round settings-icon-gold">priority_high</span>
+                <div class="settings-item-info">
+                  <div class="settings-item-title" data-i18n="settings.notif.quiet_hours.bypass">Przepuszczaj tylko pilne</div>
+                  <div class="settings-item-desc" data-i18n="settings.notif.quiet_hours.bypass_desc">Mimo ciszy nocnej wyślij alert krytyczny</div>
+                </div>
+                <div class="toggle-switch" id="tog-quiet-hours-bypass" data-action="toggle-pref-saveall"></div>
+              </div>
+              <div class="settings-item settings-item-wide">
+                <span class="material-icons-round settings-icon-cyan">timer</span>
+                <div class="settings-item-info">
+                  <div class="settings-item-title" data-i18n="settings.notif.purchase_cooldown.title">Cooldown per ASIN (h)</div>
+                  <div class="settings-item-desc" data-i18n="settings.notif.purchase_cooldown.desc">Minimum odstępu między alertami tego samego produktu (0 = wyłączony)</div>
+                </div>
+                <input type="number" class="settings-input-sm" id="alertPurchaseCooldownHours" min="0" max="168" step="1" placeholder="0-168" data-change-action="save-all-prefs">
+              </div>
+              <div class="settings-item settings-item-wide">
+                <span class="material-icons-round settings-icon-gold">priority_high</span>
+                <div class="settings-item-info">
+                  <div class="settings-item-title" data-i18n="settings.notif.priority_only.title">Tylko priorytetowe okazje</div>
+                  <div class="settings-item-desc" data-i18n="settings.notif.priority_only.desc">Wysyłaj tylko najmocniejsze alerty zakupowe</div>
+                </div>
+                <div class="toggle-switch" id="tog-alert-priority-only" data-action="toggle-pref-saveall"></div>
+              </div>
+              <div class="settings-item settings-item-wide">
+                <span class="material-icons-round settings-icon-green">percent</span>
+                <div class="settings-item-info">
+                  <div class="settings-item-title" data-i18n="settings.notif.min_drop.title">Minimalny spadek %</div>
+                  <div class="settings-item-desc" data-i18n="settings.notif.min_drop.desc">Nie wysyłaj poniżej tego progu (1-90)</div>
+                </div>
+                <input type="number" class="settings-input-sm" id="alertMinDropPct" min="1" max="90" step="1" placeholder="1-90" data-change-action="save-all-prefs">
+              </div>
+              <div class="settings-item settings-item-wide">
+                <span class="material-icons-round settings-icon-green">euro</span>
+                <div class="settings-item-info">
+                  <div class="settings-item-title" data-i18n="settings.notif.min_saving.title">Minimalna oszczędność €</div>
+                  <div class="settings-item-desc" data-i18n="settings.notif.min_saving.desc">Nie wysyłaj gdy oszczędność jest mniejsza</div>
+                </div>
+                <input type="number" class="settings-input-sm" id="alertMinSavingEur" min="0" max="5000" step="0.01" placeholder="0.00" data-change-action="save-all-prefs">
+              </div>
+              <div class="settings-item settings-item-wide settings-item-gap-top">
+                <span class="material-icons-round settings-icon-cyan">alt_route</span>
+                <div class="settings-item-info">
+                  <div class="settings-item-title" id="purchaseAlertChannelTitle">Purchase alert channel</div>
+                  <div class="settings-item-desc" id="purchaseAlertChannelDesc">Where to send alerts: target, warehouse, % drop, deals, and digest</div>
+                </div>
+                <select class="settings-select settings-input-sm" id="purchaseAlertChannelSelect">
+                  <option value="telegram">Telegram</option>
+                  <option value="off">Off</option>
+                </select>
+              </div>
+            </div>
           </div>
-          <input id="chatIdInput" class="sinput" type="text" inputmode="text" autocomplete="off" />
         </div>
-        <button id="chatIdSave" class="buy-btn" type="button">Ustaw Chat ID</button>
-
-        <div class="srow">
-          <div class="srow-info">
-            <div class="srow-title">Język</div>
-            <div class="srow-desc">PL / EN / DE</div>
+        <div class="settings-group">
+          <div class="settings-group-title"><span class="material-icons-round">palette</span>Wygląd</div>
+          <div class="settings-card notif-accordion settings-accordion" id="appearanceAccordion">
+            <div class="notif-accordion-head" data-action="toggle-settings-accordion" data-accordion-id="appearanceAccordion">
+              <div class="notif-accordion-left">
+                <span class="material-icons-round settings-icon-gold">palette</span>
+                <div>
+                  <div class="notif-accordion-title">Wygląd</div>
+                  <div class="notif-accordion-sub" id="appearanceSummary">Ładowanie...</div>
+                </div>
+              </div>
+              <span class="material-icons-round notif-accordion-chevron">expand_more</span>
+            </div>
+            <div class="notif-accordion-panel">
+              <div class="settings-card tile-grid settings-card-flat">
+                <div class="settings-item settings-item-compact">
+                  <span class="material-icons-round settings-icon-gold">dark_mode</span>
+                  <div class="settings-item-info">
+                    <div class="settings-item-title">Motyw</div>
+                    <div class="settings-item-desc">Wybierz motyw kolorystyczny aplikacji</div>
+                  </div>
+                  <select class="settings-select" id="themeSelect" data-change-action="set-theme">
+                    <option value="amoled">AMOLED</option>
+                    <option value="ember">Ember Neon</option>
+                  </select>
+                </div>
+                <div class="settings-item settings-item-compact settings-item-clickable" data-action="toggle-card-size">
+                  <span class="material-icons-round settings-icon-cyan">view_agenda</span>
+                  <div class="settings-item-info">
+                    <div class="settings-item-title">Rozmiar kart</div>
+                    <div class="settings-item-desc">Kompaktowe lub normalne karty produktów</div>
+                  </div>
+                  <div class="settings-item-value" id="set-card-size">Normalny</div>
+                </div>
+                <div class="settings-item settings-item-compact">
+                  <span class="material-icons-round settings-icon-blue">translate</span>
+                  <div class="settings-item-info">
+                    <div class="settings-item-title" data-i18n="settings.language.title">Język aplikacji</div>
+                    <div class="settings-item-desc" data-i18n="settings.language.desc">Interfejs AmaBot (PL/EN)</div>
+                  </div>
+                  <select class="settings-select" id="uiLanguageSelect" data-i18n-aria-label="settings.language.selector_aria" aria-label="Wybór języka aplikacji">
+                    <option value="pl" data-i18n="settings.language.pl">Polski</option>
+                    <option value="en" data-i18n="settings.language.en">English</option>
+                  </select>
+                </div>
+                <div class="settings-item settings-item-wide" id="fontScaleCard">
+                  <div class="settings-inline-row-wide tab-font-head">
+                    <span class="material-icons-round settings-icon-blue">format_size</span>
+                    <div class="settings-item-info">
+                      <div class="settings-item-title">Wielkość czcionki</div>
+                    </div>
+                  </div>
+                  <div class="tab-font-presets">
+                    <button class="cc-btn" type="button" data-action="apply-font-preset" data-font-preset="compact">Kompakt</button>
+                    <button class="cc-btn" type="button" data-action="apply-font-preset" data-font-preset="standard">Standard</button>
+                    <button class="cc-btn" type="button" data-action="apply-font-preset" data-font-preset="readable">Czytelny</button>
+                  </div>
+                  <div class="tab-font-grid">
+                    <label class="tab-font-cell">
+                      <span class="tab-font-label" data-i18n="settings.font.tab_tracking">Śledzenie</span>
+                      <div class="tab-font-row">
+                        <select class="settings-select tab-font-scale-select" id="fontScale-tracking" data-change-action="set-tab-font-scale" data-font-tab="tracking">
+                          <option value="0.85">XS</option>
+                          <option value="0.92">S</option>
+                          <option value="1.00" selected>M</option>
+                          <option value="1.08">L</option>
+                          <option value="1.16">XL</option>
+                          <option value="1.24">XXL</option>
+                        </select>
+                        <button class="cc-btn tab-font-reset" type="button" data-action="reset-tab-font-scale" data-font-tab="tracking">↺</button>
+                      </div>
+                    </label>
+                    <label class="tab-font-cell">
+                      <span class="tab-font-label" data-i18n="settings.font.tab_deals">Okazje</span>
+                      <div class="tab-font-row">
+                        <select class="settings-select tab-font-scale-select" id="fontScale-deals" data-change-action="set-tab-font-scale" data-font-tab="deals">
+                          <option value="0.85">XS</option>
+                          <option value="0.92">S</option>
+                          <option value="1.00" selected>M</option>
+                          <option value="1.08">L</option>
+                          <option value="1.16">XL</option>
+                          <option value="1.24">XXL</option>
+                        </select>
+                        <button class="cc-btn tab-font-reset" type="button" data-action="reset-tab-font-scale" data-font-tab="deals">↺</button>
+                      </div>
+                    </label>
+                    <label class="tab-font-cell">
+                      <span class="tab-font-label" data-i18n="settings.font.tab_details">Szczegóły</span>
+                      <div class="tab-font-row">
+                        <select class="settings-select tab-font-scale-select" id="fontScale-detail" data-change-action="set-tab-font-scale" data-font-tab="detail">
+                          <option value="0.85">XS</option>
+                          <option value="0.92">S</option>
+                          <option value="1.00" selected>M</option>
+                          <option value="1.08">L</option>
+                          <option value="1.16">XL</option>
+                          <option value="1.24">XXL</option>
+                        </select>
+                        <button class="cc-btn tab-font-reset" type="button" data-action="reset-tab-font-scale" data-font-tab="detail">↺</button>
+                      </div>
+                    </label>
+                    <label class="tab-font-cell">
+                      <span class="tab-font-label" data-i18n="settings.font.tab_add">Dodaj</span>
+                      <div class="tab-font-row">
+                        <select class="settings-select tab-font-scale-select" id="fontScale-add" data-change-action="set-tab-font-scale" data-font-tab="add">
+                          <option value="0.85">XS</option>
+                          <option value="0.92">S</option>
+                          <option value="1.00" selected>M</option>
+                          <option value="1.08">L</option>
+                          <option value="1.16">XL</option>
+                          <option value="1.24">XXL</option>
+                        </select>
+                        <button class="cc-btn tab-font-reset" type="button" data-action="reset-tab-font-scale" data-font-tab="add">↺</button>
+                      </div>
+                    </label>
+                    <label class="tab-font-cell">
+                      <span class="tab-font-label" data-i18n="settings.font.tab_forum">Forum</span>
+                      <div class="tab-font-row">
+                        <select class="settings-select tab-font-scale-select" id="fontScale-forum" data-change-action="set-tab-font-scale" data-font-tab="forum">
+                          <option value="0.85">XS</option>
+                          <option value="0.92">S</option>
+                          <option value="1.00" selected>M</option>
+                          <option value="1.08">L</option>
+                          <option value="1.16">XL</option>
+                          <option value="1.24">XXL</option>
+                        </select>
+                        <button class="cc-btn tab-font-reset" type="button" data-action="reset-tab-font-scale" data-font-tab="forum">↺</button>
+                      </div>
+                    </label>
+                    <label class="tab-font-cell">
+                      <span class="tab-font-label" data-i18n="settings.font.tab_alerts">Alerty</span>
+                      <div class="tab-font-row">
+                        <select class="settings-select tab-font-scale-select" id="fontScale-notifications" data-change-action="set-tab-font-scale" data-font-tab="notifications">
+                          <option value="0.85">XS</option>
+                          <option value="0.92">S</option>
+                          <option value="1.00" selected>M</option>
+                          <option value="1.08">L</option>
+                          <option value="1.16">XL</option>
+                          <option value="1.24">XXL</option>
+                        </select>
+                        <button class="cc-btn tab-font-reset" type="button" data-action="reset-tab-font-scale" data-font-tab="notifications">↺</button>
+                      </div>
+                    </label>
+                    <label class="tab-font-cell">
+                      <span class="tab-font-label" data-i18n="settings.font.tab_settings">Ustawienia</span>
+                      <div class="tab-font-row">
+                        <select class="settings-select tab-font-scale-select" id="fontScale-settings" data-change-action="set-tab-font-scale" data-font-tab="settings">
+                          <option value="0.85">XS</option>
+                          <option value="0.92">S</option>
+                          <option value="1.00" selected>M</option>
+                          <option value="1.08">L</option>
+                          <option value="1.16">XL</option>
+                          <option value="1.24">XXL</option>
+                        </select>
+                        <button class="cc-btn tab-font-reset" type="button" data-action="reset-tab-font-scale" data-font-tab="settings">↺</button>
+                      </div>
+                    </label>
+                  </div>
+                  <div class="tab-font-actions">
+                    <button class="cc-btn" type="button" data-action="apply-font-preset" data-font-preset="standard" data-i18n="settings.font.restore_default">Przywróć standard</button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-          <div id="langRow" class="market-toggle-bar">
-            <button class="mchip" type="button" data-lang="pl">PL</button>
-            <button class="mchip" type="button" data-lang="en">EN</button>
-            <button class="mchip" type="button" data-lang="de">DE</button>
+        </div>
+        <div class="settings-group">
+          <div class="settings-group-title">Integracja Telegram</div>
+          <div class="settings-card notif-accordion settings-accordion" id="telegramAccordion">
+            <div class="notif-accordion-head" data-action="toggle-settings-accordion" data-accordion-id="telegramAccordion">
+              <div class="notif-accordion-left">
+                <span class="material-icons-round settings-icon-cyan">send</span>
+                <div>
+                  <div class="notif-accordion-title">Integracja Telegram</div>
+                  <div class="notif-accordion-sub">Aplikacja WWW, ekran główny, pełny ekran, pamięć w chmurze</div>
+                </div>
+              </div>
+              <span class="material-icons-round notif-accordion-chevron">expand_more</span>
+            </div>
+            <div class="notif-accordion-panel">
+              <div class="settings-card tile-grid telegram-grid settings-card-flat">
+                <div class="settings-item settings-item-clickable" id="tgMiniAppCard" data-action="open-webapp">
+                  <span class="material-icons-round settings-icon-orange">language</span>
+                  <div class="settings-item-info">
+                    <div class="settings-item-title">Aplikacja WWW</div>
+                    <div class="settings-item-desc" id="set-webapp-desc">Otwórz aplikację</div>
+                  </div>
+                  <div class="settings-item-value" id="set-webapp-state">Otwórz</div>
+                </div>
+                <div class="settings-item settings-item-clickable" data-action="add-to-home">
+                  <span class="material-icons-round settings-icon-blue">install_mobile</span>
+                  <div class="settings-item-info">
+                    <div class="settings-item-title">Dodaj do ekranu głównego</div>
+                    <div class="settings-item-desc" id="set-homescreen">Szybkie uruchamianie z telefonu</div>
+                  </div>
+                  <span class="material-icons-round settings-icon-t2 settings-icon-sm">chevron_right</span>
+                </div>
+                <div class="settings-item settings-item-clickable" data-action="toggle-fullscreen">
+                  <span class="material-icons-round settings-icon-purple">fullscreen</span>
+                  <div class="settings-item-info">
+                    <div class="settings-item-title">Tryb pełnoekranowy</div>
+                    <div class="settings-item-desc">Pełne doświadczenie</div>
+                  </div>
+                  <div class="settings-item-value" id="set-fullscreen">Wyłączony</div>
+                </div>
+                <div class="settings-item">
+                  <span class="material-icons-round settings-icon-green">health_and_safety</span>
+                  <div class="settings-item-info">
+                    <div class="settings-item-title">Stan sesji Telegram</div>
+                    <div class="settings-item-desc" id="set-session-health-desc">Sprawdzanie sesji...</div>
+                  </div>
+                  <div class="settings-item-status" id="set-session-health-state">—</div>
+                </div>
+                <div class="settings-item">
+                  <span class="material-icons-round settings-icon-cyan">cloud_sync</span>
+                  <div class="settings-item-info">
+                    <div class="settings-item-title">Synchronizacja ustawień (Telegram)</div>
+                    <div class="settings-item-desc">Ustawienia zapisywane i przywracane przez Telegram</div>
+                  </div>
+                  <div class="settings-item-status ok" id="set-cloud" data-i18n="settings.status.active">Aktywne</div>
+                </div>
+                <div class="settings-item settings-item-wide">
+                  <span class="material-icons-round settings-icon-green">verified_user</span>
+                  <div class="settings-item-info">
+                    <div class="settings-item-title">Wersja API bota</div>
+                    <div class="settings-item-desc" id="set-tg-version">Sprawdzanie...</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="settings-group">
+          <div class="settings-group-title"><span class="material-icons-round">school</span><span data-i18n="settings.help.group_title">Pomoc</span></div>
+          <div class="settings-card notif-accordion settings-accordion" id="helpOnboardingAccordion">
+            <div class="notif-accordion-head" data-action="toggle-settings-accordion" data-accordion-id="helpOnboardingAccordion">
+              <div class="notif-accordion-left">
+                <span class="material-icons-round settings-icon-cyan">menu_book</span>
+                <div>
+                  <div class="notif-accordion-title" data-i18n="settings.help.accordion_title">Centrum pomocy</div>
+                  <div class="notif-accordion-sub" data-i18n="settings.help.accordion_sub">Szybki start, instalacja PWA krok po kroku, statystyki i problemy z logowaniem</div>
+                </div>
+              </div>
+              <span class="material-icons-round notif-accordion-chevron">expand_more</span>
+            </div>
+            <div class="notif-accordion-panel">
+              <div class="settings-card tile-grid settings-card-flat">
+                <div class="settings-item settings-item-wide">
+                  <span class="material-icons-round settings-icon-green">rocket_launch</span>
+                  <div class="settings-item-info">
+                    <div class="settings-item-title" data-i18n="settings.help.quick_start.title">Szybki start</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.quick_start.step_1">1) Otwórz zakładkę „Dodaj” i wklej link produktu z Amazon albo sam ASIN (np. B0...).</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.quick_start.step_2">2) Wybierz rynki, które chcesz monitorować (np. DE/PL), a następnie kliknij „Dodaj”.</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.quick_start.step_3">3) Ustaw próg alertu: cena docelowa albo procent spadku. Zapisz ustawienia.</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.quick_start.step_4">4) Wejdź do „Śledzenie”, aby sprawdzić czy produkt jest aktywny i czy ceny się odświeżają.</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.quick_start.step_5">5) Gdy pojawi się okazja, alert trafi do Ciebie na Telegram.</div>
+                  </div>
+                </div>
+
+                <div class="settings-item settings-item-wide">
+                  <span class="material-icons-round settings-icon-blue">insights</span>
+                  <div class="settings-item-info">
+                    <div class="settings-item-title" data-i18n="settings.help.stats.title">Jak czytać statystyki</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.stats.row_1">• „Stan sesji Telegram” pokazuje, czy aplikacja poprawnie widzi Twoje logowanie z Telegrama.</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.stats.row_2">• „Alert delivery metrics” pokazuje, czy alerty dochodzą i ile czasu to zajmuje.</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.stats.row_3">• „Historia alertów” to dziennik: co zostało wysłane, kiedy i dlaczego.</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.stats.row_4">• W „Śledzenie” widzisz produkty aktywne, ostatni odczyt ceny i aktualny trend.</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.stats.row_5">• Jeśli status długo stoi na „brak danych”, otwórz produkt i sprawdź szczegóły skanu.</div>
+                  </div>
+                </div>
+
+                <div class="settings-item settings-item-wide">
+                  <span class="material-icons-round settings-icon-cyan">radar</span>
+                  <div class="settings-item-info">
+                    <div class="settings-item-title" data-i18n="settings.help.hunter.title">Jak działa Hunter</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.hunter.row_1">• Hunter to automatyczny skaner okazji, który regularnie przeszukuje rynki i porównuje ceny.</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.hunter.row_2">• Z każdego skanu wybiera tylko oferty spełniające Twoje filtry i progi alertów.</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.hunter.row_3">• Nie każda oferta trafi do alertu: odrzucane są wyniki słabe, niepewne lub poza ustawieniami.</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.hunter.row_4">• Najlepsze wyniki zobaczysz w „Okazje”, a alerty dostaniesz na Telegramie.</div>
+                  </div>
+                </div>
+
+                <div class="settings-item settings-item-wide">
+                  <span class="material-icons-round settings-icon-purple">install_mobile</span>
+                  <div class="settings-item-info">
+                    <div class="settings-item-title" data-i18n="settings.help.pwa.title">Jak dodać naszą aplikację do ekranu głównego?</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.pwa.intro">Chcesz mieć błyskawiczny dostęp do bota bezpośrednio z pulpitu telefonu? Zainstaluj go jako aplikację PWA.</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.pwa.android_title"><strong>Dla użytkowników Android (Chrome)</strong></div>
+                    <div class="settings-item-desc" data-i18n="settings.help.pwa.android_step_1">1) Otwórz bota w Telegramie i wpisz /panel.</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.pwa.android_step_2">2) Gdy pojawi się link, kliknij w niego — otworzy się przeglądarka.</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.pwa.android_step_3">3) Z menu wybierz opcję „Dodaj do ekranu głównego”.</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.pwa.android_step_4">4) Zatwierdź wybór — ikona bota pojawi się na Twoim pulpicie.</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.pwa.ios_title"><strong>Dla użytkowników iPhone (Safari / iOS)</strong></div>
+                    <div class="settings-item-desc" data-i18n="settings.help.pwa.ios_step_1">1) Otwórz bota w Telegramie i wpisz /panel.</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.pwa.ios_step_2">2) Gdy pojawi się link, kliknij w niego — otworzy się przeglądarka.</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.pwa.ios_step_3">3) Gdy strona otworzy się w Safari, kliknij ikonę Udostępnij (kwadrat ze strzałką w górę na dole ekranu).</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.pwa.ios_step_4">4) Przewiń listę w dół i wybierz „Dodaj do ekranu początkowego”.</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.pwa.ios_step_5">5) Kliknij „Dodaj” w prawym górnym rogu. Gotowe!</div>
+                  </div>
+                </div>
+
+                <div class="settings-item settings-item-wide">
+                  <span class="material-icons-round settings-icon-red">health_and_safety</span>
+                  <div class="settings-item-info">
+                    <div class="settings-item-title" data-i18n="settings.help.login.title">Problemy z logowaniem</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.login.row_1">1) Otwórz aplikację bezpośrednio z bota Telegram komendą `/panel` (nie z losowego linku).</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.login.row_2">2) Zamknij wszystkie stare karty z app, potem wejdź ponownie z Telegrama.</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.login.row_3">3) Jeśli nadal jest problem: wyczyść cookies dla domeny app i uruchom panel jeszcze raz.</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.login.row_4">4) Sprawdź kafelek „Stan sesji Telegram”: jeśli nie jest OK, poczekaj chwilę i odśwież.</div>
+                    <div class="settings-item-desc" data-i18n="settings.help.login.row_5">5) Gdy problem nie znika, zgłoś godzinę i opis błędu, żeby łatwo znaleźć go w logach.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -123,6 +712,6 @@
 </div>
 
 <script src="/vendor/chart.umd.min.js"></script>
-<script type="module" src="/main.js"></script>
+<script type="module" src="/main.js?v=3"></script>
 </body>
 </html>
