@@ -2957,6 +2957,11 @@ html.light-theme .chart-wrap{background:#eef2f7;border-color:var(--border)}
 html.light-theme .pcard-img{background:#f8fafc}
 html.light-theme .pgrid-item,
 html.light-theme .sbox,
+.dtabs{display:flex;gap:6px;padding:0 10px 8px}
+.dtab{flex:1 1 0;display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--t2);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s ease}
+.dtab.on{border-color:var(--orange);background:rgba(255,128,32,.14);color:#fff}
+.dtab:not(.on):hover{border-color:var(--t2);color:var(--t1)}
+.dtab .material-icons-round{font-size:16px}
 html.light-theme .hentry{background:#f4f7fb}
 html.light-theme .material-icons-round{color:#334155}
 html.light-theme .settings-item .material-icons-round{color:var(--t2)}
@@ -6069,3 +6074,159 @@ body.forum-composer-open #mainScroll{
   height:112px;
   padding:6px 14px 12px 14px;
 }
+.settings-icon-blue{color:var(--blue)}
+.settings-icon-purple{color:var(--purple)}
+.settings-icon-cyan{color:var(--cyan)}
+.settings-icon-green{color:var(--green)}
+.settings-icon-gold{color:var(--gold)}
+.settings-icon-red{color:var(--red)}
+.settings-icon-t2{color:var(--t2)}
+.settings-icon-sm{font-size:18px}
+.settings-item-clickable{cursor:pointer}
+.settings-item-gap-top{
+  display:grid;
+  grid-template-columns:22px 1fr auto;
+  grid-template-areas:"icon info state";
+  column-gap:8px;
+  align-items:center;
+}
+.settings-item-gap-top{margin-top:10px}
+.settings-unit{font-size:13px;color:var(--t2)}
+.settings-inline-row{
+  justify-self:end;
+  white-space:nowrap;
+}
+.settings-inline-row{display:flex;align-items:center;gap:4px}
+.settings-inline-row-wide{
+  margin-bottom:6px;
+}
+.settings-inline-row-wide{
+  display:contents;
+}
+.settings-inline-row-wide{display:flex;align-items:center;gap:8px;width:100%}
+.settings-card-flat{box-shadow:none;border:0;padding:0}
+.tab-font-actions{
+  display:grid;
+  grid-template-columns:1fr 1fr 1fr;
+  gap:6px;
+  width:100%;
+}
+.tab-font-actions{grid-template-columns:1fr 1fr}
+.tab-font-actions{grid-template-columns:1fr}
+.tab-font-cell{
+  display:grid;
+  grid-template-columns:78px 1fr;
+  align-items:center;
+  gap:6px;
+}
+.tab-font-grid{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:6px;
+  width:100%;
+}
+.tab-font-head{
+  display:grid;
+  grid-template-columns:22px 1fr;
+  align-items:center;
+  gap:8px;
+}
+.tab-font-label{
+  font-size:11px;
+  color:var(--t2);
+  font-weight:600;
+  line-height:1.1;
+  white-space:nowrap;
+}
+.tab-font-presets{grid-template-columns:1fr 1fr}
+.tab-font-reset{
+  min-height:31px;
+  min-width:31px;
+  padding:0 8px;
+}
+.tab-font-row{
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:6px;
+  align-items:center;
+}
+.tab-font-row .settings-select{
+  width:100%;
+  min-width:0;
+  padding:5px 7px;
+}
+
+/* Theme: Ember Neon */
+html[data-theme="ember"]{
+  --bg:#1a0a00;
+  --surface:#2d1405;
+  --surface2:#3d1a08;
+  --text:#ffcc80;
+  --text2:#ffab40;
+  --accent:#ff6f00;
+  --border:#5d2e0a;
+  --inputBg:#1a0a00;
+}
+
+/* Theme: AMOLED */
+html[data-theme="amoled"]{
+  --bg:#000000;
+  --surface:#000000;
+  --surface2:#111111;
+  --text:#ffffff;
+  --text2:#cccccc;
+  --accent:#00bcd4;
+  --border:#333333;
+  --inputBg:#000000;
+}
+
+/* Font presets — per-element with !important and high specificity */
+body.font-compact .pcard-title,
+body.font-compact #v-tracking .pcard-title,
+body.font-compact #v-deals .pcard-title{font-size:12px !important}
+
+body.font-compact .pcard-meta,
+body.font-compact #v-tracking .pcard-meta,
+body.font-compact #v-deals .pcard-meta{font-size:10px !important}
+
+body.font-compact .pcard-prices .pprice,
+body.font-compact #v-tracking .pcard-prices .pprice,
+body.font-compact #v-deals .pcard-prices .pprice{font-size:16px !important}
+
+body.font-compact .deal-chip{font-size:11px !important}
+body.font-compact .sbox-title,
+body.font-compact .settings-item-title,
+body.font-compact .notif-accordion-title{font-size:13px !important}
+body.font-compact .material-icons-round{font-size:20px !important}
+
+body.font-readable .pcard-title,
+body.font-readable #v-tracking .pcard-title,
+body.font-readable #v-deals .pcard-title{font-size:18px !important}
+
+body.font-readable .pcard-meta,
+body.font-readable #v-tracking .pcard-meta,
+body.font-readable #v-deals .pcard-meta{font-size:14px !important}
+
+body.font-readable .pcard-prices .pprice,
+body.font-readable #v-tracking .pcard-prices .pprice,
+body.font-readable #v-deals .pcard-prices .pprice{font-size:26px !important}
+
+body.font-readable .deal-chip{font-size:13px !important}
+body.font-readable .sbox-title,
+body.font-readable .settings-item-title,
+body.font-readable .notif-accordion-title{font-size:15px !important}
+body.font-readable .material-icons-round{font-size:26px !important}
+
+/* Card size */
+body.cards-normal .pcard-img,
+body.cards-normal #v-tracking .pcard-img,
+body.cards-normal #v-deals .pcard-img{height:96px !important;width:96px !important}
+body.cards-normal .pcard-top,
+body.cards-normal #v-tracking .pcard-top,
+body.cards-normal #v-deals .pcard-top{padding:16px 18px !important;gap:16px !important}
+body.cards-compact .pcard-img,
+body.cards-compact #v-tracking .pcard-img,
+body.cards-compact #v-deals .pcard-img{height:56px !important;width:56px !important}
+body.cards-compact .pcard-top,
+body.cards-compact #v-tracking .pcard-top,
+body.cards-compact #v-deals .pcard-top{padding:8px 10px !important;gap:8px !important}

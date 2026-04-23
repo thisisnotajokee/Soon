@@ -11,3 +11,9 @@ Warstwa web dla projektu `Soon`.
 ## Smoke
 
 1. `npm run smoke:e2e` — web client -> API end-to-end.
+
+## Vite + TypeScript
+
+1. `npm run web:dev` — start web app in Vite dev server.
+2. `npm run web:typecheck` — TypeScript check (`tsc --noEmit`).
+3. `npm run web:build` — production build to `packages/web/dist`.

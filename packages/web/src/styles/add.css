@@ -1,0 +1,469 @@
+}
+
+#v-settings .settings-card.tile-grid.telegram-grid .settings-item > .settings-item-value,
+#v-settings .settings-card.tile-grid.telegram-grid .settings-item > .settings-item-status,
+#v-settings .settings-card.tile-grid.telegram-grid .settings-item > .material-icons-round:last-child {margin-left:auto;flex-shrink:0}
+
+#v-settings #tgMiniAppCard {display:grid;grid-template-columns:22px 1fr auto;grid-template-areas:"icon info state";column-gap:8px;align-items:center}
+
+#v-settings #tgMiniAppCard > .material-icons-round:first-child {grid-area:icon}
+
+#v-settings #tgMiniAppCard .settings-item-info {grid-area:info;padding-right:8px}
+
+#v-settings #tgMiniAppCard #set-webapp-state {grid-area:state;white-space:nowrap}
+
+#v-settings #tgMiniAppCard #set-webapp-desc {-webkit-line-clamp:1}
+
+#v-settings #tgAuthDiagCard {display:grid;grid-template-columns:22px 1fr auto;grid-template-areas:"icon info state";column-gap:8px;align-items:center}
+
+#v-settings #tgAuthDiagCard > .material-icons-round:first-child {grid-area:icon}
+
+#v-settings #tgAuthDiagCard .settings-item-info {grid-area:info;padding-right:10px;min-width:0}
+
+#v-settings #tgAuthDiagCard #set-auth-diag-state {grid-area:state;white-space:nowrap;justify-self:end}
+
+#v-settings #appearanceAccordion .settings-card.tile-grid {grid-template-columns:1fr}
+
+#v-settings #appearanceAccordion .settings-card.tile-grid .settings-item {
+}
+
+#v-settings #appearanceAccordion .settings-card.tile-grid .settings-item > .material-icons-round:first-child {grid-area:icon}
+
+#v-settings #appearanceAccordion .settings-card.tile-grid .settings-item .settings-item-info {grid-area:info;padding-right:10px;min-width:0}
+
+#v-settings #appearanceAccordion .settings-card.tile-grid .settings-item > .settings-select,
+#v-settings #appearanceAccordion .settings-card.tile-grid .settings-item > .settings-item-value {grid-area:state;justify-self:end;white-space:nowrap}
+
+#v-settings #notifAccordion .notify-toggle {
+}
+
+#v-settings #notifAccordion .notify-toggle > div:first-child {min-width:0}
+
+#v-settings #notifAccordion .notify-toggle-label {
+}
+
+#v-settings #notifAccordion .notify-toggle-desc {
+}
+
+#v-settings #notifAccordion .notify-toggle .settings-inline-row {
+}
+
+#v-settings #notifAccordion .notif-channel-grid {
+}
+
+#v-settings #notifAccordion .notif-channel-grid > .settings-inline-row-wide {
+}
+
+#v-settings #notifAccordion .notif-channel-grid > .notify-toggle {
+}
+
+#v-settings #notifAccordion .notif-channel-grid > .notify-toggle:last-child {
+}
+
+#v-settings #notifAccordion .notif-channel-grid > .notify-toggle .settings-select-sm {
+}
+
+#v-settings #notifAccordion .notif-channel-grid > .notify-toggle .notify-toggle-label {
+}
+
+#v-settings #notifAccordion .notif-channel-grid > .notify-toggle .notify-toggle-desc {
+}
+
+@media (max-width:420px){
+  #v-settings #notifAccordion .notif-channel-grid > .notify-toggle{
+    grid-template-columns:minmax(0,1fr) 152px;
+  }
+  #v-settings #notifAccordion .notif-channel-grid > .notify-toggle .settings-select-sm{
+    min-width:152px;
+    max-width:152px;
+  }
+}
+
+#v-settings #marketsAccordion .settings-item.settings-item-wide.settings-item-col {
+  grid-template-areas:
+    "icon info action"
+    "chips chips chips";
+}
+
+#v-settings #marketsAccordion .settings-item.settings-item-wide.settings-item-col > .settings-inline-row-wide {
+}
+
+#v-settings #marketsAccordion .settings-item.settings-item-wide.settings-item-col > .settings-inline-row-wide > .material-icons-round {grid-area:icon}
+
+#v-settings #marketsAccordion .settings-item.settings-item-wide.settings-item-col > .settings-inline-row-wide > .settings-item-info {
+}
+
+#v-settings #marketsAccordion .settings-item.settings-item-wide.settings-item-col > .domain-chips {
+}
+
+#v-settings #marketsAccordion .settings-item.settings-item-wide.settings-item-gap-top {
+}
+
+#v-settings #marketsAccordion .settings-item.settings-item-wide.settings-item-gap-top > .material-icons-round:first-child {grid-area:icon}
+
+#v-settings #marketsAccordion .settings-item.settings-item-wide.settings-item-gap-top > .settings-item-info {
+}
+
+#v-settings #marketsAccordion .settings-item.settings-item-wide.settings-item-gap-top > .toggle-switch {
+}
+
+#v-settings #dataMgmtAccordion .data-mgmt-counts {
+}
+
+#v-settings #dataMgmtAccordion .data-mgmt-counts span {
+}
+
+#v-settings #dataMgmtAccordion .danger-btn {
+}
+
+#v-settings #dataMgmtAccordion .danger-btn + .danger-btn {
+}
+
+#v-settings #dataMgmtAccordion .danger-btn .material-icons-round {color:currentColor}
+
+#v-settings #dataMgmtAccordion .danger-btn-soft {
+}
+
+#v-settings .cc-panel {padding:var(--settings-panel-pad) 0 var(--settings-space)}
+
+#v-settings .cc-panel .settings-inline-pad {padding:0}
+
+#v-settings .settings-overview-grid {
+}
+
+#v-settings .cc-status-grid,
+#v-settings .cc-kpi-grid {gap:6px;margin-bottom:8px}
+
+#v-settings .cc-status-item,
+#v-settings .cc-kpi-item {padding:8px}
+
+#v-settings .cc-chart-wrap,
+#v-settings .cc-errors,
+#v-settings .live-logs {padding:7px;border-radius:var(--settings-radius)}
+
+#v-settings .cc-chart-wrap {margin-bottom:6px}
+
+#v-settings .live-logs {margin-top:6px}
+
+#v-settings .keepa-hub-card {margin-bottom:8px}
+
+#v-settings .keepa-hub-head .settings-item-info {padding-right:8px}
+
+#v-settings .keepa-hub-actions {
+}
+
+#v-settings #keepaTokensHubMount {
+}
+
+#v-settings .settings-group-title {font-size:calc(13px * var(--settings-font-scale))}
+
+#v-settings .settings-item-title,
+#v-settings .notif-accordion-title,
+#v-settings .notify-toggle-label {font-size:calc(14px * var(--settings-font-scale));line-height:1.2}
+
+#v-settings .settings-item-desc,
+#v-settings .notif-accordion-sub,
+#v-settings .notify-toggle-desc {font-size:calc(11px * var(--settings-font-scale));line-height:1.3}
+
+#v-settings .settings-item-value {font-size:calc(14px * var(--settings-font-scale))}
+
+#v-settings .settings-select,
+#v-settings .settings-input-sm,
+#v-settings .pct-input {font-size:calc(13px * var(--settings-font-scale))}
+
+#v-settings .settings-item-status,
+#v-settings .cc-title {font-size:calc(12px * var(--settings-font-scale))}
+
+#v-settings .cc-btn {font-size:calc(11px * var(--settings-font-scale))}
+
+#v-settings .cc-kpi-lbl,
+#v-settings .cc-status-lbl,
+#v-settings .cc-chart-title,
+#v-settings .cc-errors-title,
+#v-settings .live-logs-title {font-size:calc(10px * var(--settings-font-scale))}
+
+#v-settings .cc-kpi-val,
+#v-settings .cc-status-val {font-size:calc(14px * var(--settings-font-scale))}
+
+#v-settings .cc-kpi-sub,
+#v-settings .cc-error-item,
+#v-settings .refresh-tokens,
+#v-settings .live-log-row,
+#v-settings .live-logs-filter {font-size:calc(10px * var(--settings-font-scale))}
+
+#v-settings .settings-item-title,
+#v-settings .notif-accordion-title,
+#v-settings .notify-toggle-label,
+#v-settings .cc-title {
+}
+
+#v-settings .settings-item-desc,
+#v-settings .notif-accordion-sub,
+#v-settings .notify-toggle-desc,
+#v-settings .cc-kpi-sub,
+#v-settings .settings-muted-sm {
+}
+
+#v-settings .cc-kpi-lbl,
+#v-settings .cc-status-lbl,
+#v-settings .cc-chart-title,
+#v-settings .cc-errors-title,
+#v-settings .live-logs-title {
+}
+
+#v-settings .settings-group-title,
+#v-settings .cc-kpi-lbl,
+#v-settings .cc-status-lbl,
+#v-settings .cc-chart-title,
+#v-settings .cc-errors-title,
+#v-settings .live-logs-title,
+#v-settings .hunter-custom-group-title {
+}
+
+#v-settings .settings-item-value,
+#v-settings .settings-item-status,
+#v-settings .cc-kpi-val,
+#v-settings .cc-status-val,
+#v-settings .hunter-inline-value {
+}
+
+#v-settings .cc-btn {
+}
+
+#v-settings .live-logs-actions {flex-wrap:wrap;align-items:stretch;justify-content:flex-end;width:100%}
+
+#v-settings .live-logs-filter {min-width:0;flex:1 1 150px;max-width:100%}
+
+#v-settings .live-logs-actions .cc-btn {flex:0 0 auto}
+
+@media (max-width: 560px){
+  #v-settings .live-logs-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  #v-settings .live-logs-actions .live-logs-filter{width:100%}
+  #v-settings .live-logs-actions .cc-btn{grid-column:1 / -1;width:100%}
+}
+
+@media (max-width:640px){
+  .settings-ux-row{display:block}
+  .settings-ux-dirty{display:inline-flex;margin-top:7px}
+  #v-settings .settings-card.tile-grid .settings-item{min-height:96px;align-items:flex-start}
+  #v-settings .settings-card.tile-grid .settings-item .settings-item-title{
+    display:block;
+    -webkit-line-clamp:unset;
+    -webkit-box-orient:initial;
+    overflow:visible;
+    min-height:0;
+  }
+  #v-settings .settings-card.tile-grid .settings-item .settings-item-desc{
+    display:block;
+    -webkit-line-clamp:unset;
+    -webkit-box-orient:initial;
+    overflow:visible;
+    min-height:0;
+  }
+  #v-settings .settings-overview-grid,
+  #v-settings #ccStatusGrid,
+  #v-settings #ccSelfHealGrid,
+  #v-settings #ccKpiGrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+
+#v-settings .live-log-msg {line-height:1 !important;overflow:hidden}
+
+#v-settings .live-log-msg-scale {
+}
+
+#v-settings #hunterAccordion #hunterLogsBody .live-log-msg {
+}
+
+#v-settings #hunterAccordion #hunterLogsBody {
+}
+
+@media (max-width: 560px){
+  #v-settings #hunterAccordion #hunterLogsBody .live-log-row{
+    grid-template-columns:52px 34px 1fr;
+    gap:6px;
+    font-size:10px;
+  }
+}
+
+.settings-inline-pad {padding:0 2px}
+
+.settings-gap-bottom-sm {margin-bottom:8px}
+
+.settings-gap-bottom-xs {margin-bottom:6px}
+
+.settings-gap-top-4 {margin-top:4px}
+
+.settings-card-top-gap {margin-top:8px}
+
+.settings-card-flat {box-shadow:none;border:0;padding:0}
+
+.settings-chart-top-gap {margin-top:8px}
+
+.settings-chart-h-160 {height:160px}
+
+.settings-chart-h-140 {height:140px}
+
+.settings-w-full {width:100%}
+
+.settings-muted-sm {font-size:11px;color:var(--t3)}
+
+.settings-hidden {display:none}
+
+.cc-actions-title-tight {margin-bottom:0}
+
+.settings-loader-center {text-align:center;padding:20px;color:var(--t3)}
+
+.settings-loader-text {margin-top:8px;font-size:11px}
+
+.settings-inline-row {display:flex;align-items:center;gap:4px}
+
+.settings-inline-row-wide {display:flex;align-items:center;gap:8px;width:100%}
+
+.tab-font-grid {
+}
+
+.tab-font-presets,.tab-font-actions {
+}
+
+.tab-font-actions {grid-template-columns:1fr 1fr}
+
+.tab-font-cell {
+}
+
+.tab-font-label {
+}
+
+.tab-font-row {
+}
+
+.tab-font-row .settings-select {
+}
+
+.tab-font-reset {
+}
+
+#v-settings #fontScaleCard {
+}
+
+#v-settings #fontScaleCard > * {
+}
+
+#v-settings #fontScaleCard .tab-font-head {
+}
+
+#v-settings #fontScaleCard .tab-font-head .settings-item-info {
+}
+
+#v-settings #fontScaleCard .tab-font-head .material-icons-round {
+}
+
+@media (max-width: 520px){
+  .tab-font-presets{grid-template-columns:1fr 1fr}
+  .tab-font-presets .cc-btn:last-child{grid-column:1 / -1}
+  .tab-font-actions{grid-template-columns:1fr}
+}
+
+.settings-item-clickable {cursor:pointer}
+
+.settings-item-col {flex-direction:column;align-items:flex-start}
+
+.settings-item-gap-top {margin-top:10px}
+
+.settings-unit {font-size:13px;color:var(--t2)}
+
+.settings-icon-orange {color:var(--orange)}
+
+.settings-icon-blue {color:var(--blue)}
+
+.settings-icon-purple {color:var(--purple)}
+
+.settings-icon-cyan {color:var(--cyan)}
+
+.settings-icon-green {color:var(--green)}
+
+.settings-icon-gold {color:var(--gold)}
+
+.settings-icon-red {color:var(--red)}
+
+.settings-icon-t2 {color:var(--t2)}
+
+.settings-icon-sm {font-size:18px}
+
+.danger-btn-soft {background:var(--gold);color:#000;margin-top:6px}
+
+/* Protection (ADMIN_ONLY): keep rows compact and prevent narrow vertical text wrapping */
+#v-settings #protectionAccordion .settings-item.settings-item-wide {
+}
+
+#v-settings #protectionAccordion .settings-item.settings-item-wide .settings-item-info {
+}
+
+#v-settings #protectionAccordion .settings-item.settings-item-wide .settings-item-title,
+#v-settings #protectionAccordion .settings-item.settings-item-wide .settings-item-desc {
+}
+
+#v-settings #protectionAccordion .settings-item.settings-item-wide > .cc-btn,
+#v-settings #protectionAccordion .settings-item.settings-item-wide > .danger-btn {
+}
+
+#v-settings #protectionAccordion .admin-protection-note {
+}
+
+@media (max-width:520px){
+  #v-settings #protectionAccordion .settings-item.settings-item-wide{
+    grid-template-columns:auto minmax(0,1fr);
+  }
+  #v-settings #protectionAccordion .settings-item.settings-item-wide > .cc-btn,
+  #v-settings #protectionAccordion .settings-item.settings-item-wide > .danger-btn{
+    grid-column:1 / -1;
+    width:100%;
+    white-space:normal;
+  }
+  #v-settings #protectionAccordion .admin-protection-note{
+    grid-column:1 / -1;
+  }
+}
+
+/* ─── GLOBAL UI ROLLOUT: TRACKING STYLE EVERYWHERE ─── */
+--ui-radius:12px;
+  --ui-card-border:rgba(255,255,255,.12);
+  --ui-card-bg:linear-gradient(180deg,rgba(255,255,255,.042),rgba(255,255,255,.012));
+  --ui-card-shadow:0 12px 24px rgba(0,0,0,.24),inset 0 1px 0 rgba(255,255,255,.04);
+}
+  background:
+    radial-gradient(circle at 92% -8%,rgba(255,102,0,.09),transparent 44%),
+    radial-gradient(circle at -6% 112%,rgba(88,166,255,.08),transparent 42%),
+    var(--page);
+}
+#detailView {
+  background:
+    radial-gradient(circle at 96% -8%,rgba(255,102,0,.10),transparent 46%),
+    radial-gradient(circle at -8% 112%,rgba(88,166,255,.08),transparent 40%),
+    var(--bg);
+}
+
+#v-deals .pcard,
+#v-notifications .ncard,
+#v-notifications .alert-hist-item,
+#v-notifications .alert-summary-card,
+#v-notifications .alert-legend-card,
+#v-add .add-hero,
+#v-add .add-input-card,
+#v-add .add-price-card,
+#v-add .add-tool-btn,
+#v-add .asin-input,
+#v-add .add-quick-preview,
+#v-add .add-result-box,
+#v-settings .settings-card,
+#v-settings .settings-card.tile-grid .settings-item,
+#v-settings .notif-accordion-head,
+#v-settings .notify-toggle,
+#v-settings .notif-accordion-panel > .settings-item,
+#v-settings .cc-chart-wrap,
+#v-settings .cc-errors,
+#v-settings .cc-actions-box,
+#v-settings .live-logs,
+#v-settings .cc-kpi-item,
+#v-settings .cc-status-item,
+#v-settings .srv-gauge,
+#v-settings .srv-info-item,

@@ -1,0 +1,61 @@
+export const nodes = {
+  views: {
+    tracking: document.querySelector('#v-tracking') as HTMLElement | null,
+    deals: document.querySelector('#v-deals') as HTMLElement | null,
+    add: document.querySelector('#v-add') as HTMLElement | null,
+    notifications: document.querySelector('#v-notifications') as HTMLElement | null,
+    settings: document.querySelector('#v-settings') as HTMLElement | null,
+  },
+  navItems: document.querySelectorAll('.bnav-item[data-v]') as NodeListOf<HTMLButtonElement>,
+  productsList: document.querySelector('#productsList') as HTMLDivElement | null,
+  searchInput: document.querySelector('#searchInput') as HTMLInputElement | null,
+  searchClear: document.querySelector('#searchClear') as HTMLButtonElement | null,
+  topRefreshBtn: document.querySelector('#topRefreshBtn') as HTMLButtonElement | null,
+  topCopyBtn: document.querySelector('#topCopyBtn') as HTMLButtonElement | null,
+  trackingStatusFilters: document.querySelector('#trackingStatusFilters') as HTMLDivElement | null,
+
+  detailView: document.querySelector('#detailView') as HTMLElement | null,
+  detailContent: document.querySelector('#detailContent') as HTMLDivElement | null,
+  detailBack: document.querySelector('#detailBack') as HTMLButtonElement | null,
+  detailShare: document.querySelector('#detailShare') as HTMLButtonElement | null,
+  detailDelete: document.querySelector('#detailDelete') as HTMLButtonElement | null,
+  detailTopbarTitle: (document.querySelector('#d-bartitle') || document.querySelector('#detailTopbarTitle')) as HTMLDivElement | null,
+
+  chatIdInput: document.querySelector('#chatIdInput') as HTMLInputElement | null,
+  chatIdSave: document.querySelector('#chatIdSave') as HTMLButtonElement | null,
+  langRow: document.querySelector('#langRow') as HTMLDivElement | null,
+
+  navLabels: {
+    tracking: document.querySelector('#nav-trackings') as HTMLElement | null,
+    deals: document.querySelector('#nav-deals') as HTMLElement | null,
+    add: document.querySelector('#nav-add') as HTMLElement | null,
+    alerts: document.querySelector('#nav-alerts') as HTMLElement | null,
+    settings: document.querySelector('#nav-settings') as HTMLElement | null,
+  },
+
+  dealsList: document.querySelector('#dealsList') as HTMLDivElement | null,
+  dealsFabMenu: document.querySelector('#dealsFabMenu') as HTMLDivElement | null,
+  trackingFabMenu: document.querySelector('#trackingFabMenu') as HTMLDivElement | null,
+  dealsQuickFilters: document.querySelector('#dealsQuickFilters') as HTMLDivElement | null,
+
+  notifList: document.querySelector('#notifList') as HTMLDivElement | null,
+
+  asinInput: document.querySelector('#asinInput') as HTMLTextAreaElement | null,
+  addDomains: document.querySelector('#addDomains') as HTMLDivElement | null,
+  addModeSwitch: document.querySelector('#addModeSwitch') as HTMLDivElement | null,
+  addModeHint: document.querySelector('#addModeHint') as HTMLDivElement | null,
+  addResultBox: document.querySelector('#addResultBox') as HTMLDivElement | null,
+  bulkProgress: document.querySelector('#bulkProgress') as HTMLDivElement | null,
+  bulkBarFill: document.querySelector('#bulkBarFill') as HTMLDivElement | null,
+  bulkStatus: document.querySelector('#bulkStatus') as HTMLDivElement | null,
+
+  serverStatsContainer: document.querySelector('#serverStatsContainer') as HTMLDivElement | null,
+  scanKpiBody: document.querySelector('#scanKpiBody') as HTMLDivElement | null,
+  keepaTokenBody: document.querySelector('#keepaTokenBody') as HTMLDivElement | null,
+  setLastscan: document.querySelector('#set-lastscan') as HTMLDivElement | null,
+  setNextscan: document.querySelector('#set-nextscan') as HTMLDivElement | null,
+  setLastscanDesc: document.querySelector('#set-lastscan-desc') as HTMLDivElement | null,
+  setNextscanDesc: document.querySelector('#set-nextscan-desc') as HTMLDivElement | null,
+  setKeepa: document.querySelector('#set-keepa') as HTMLDivElement | null,
+  setHunter: document.querySelector('#set-hunter') as HTMLDivElement | null,
+};

@@ -78,7 +78,7 @@ export function createApiClient(baseUrl) {
     },
 
     async refreshTracking(asin) {
-      const response = await fetch(`${apiBase}/api/refresh/${encodeURIComponent(asin)}`, {
+      const response = await fetch(`${apiBase}/api/refresh-all/${encodeURIComponent(asin)}`, {
         method: 'POST',
       });
       const body = await response.json();
@@ -382,6 +382,80 @@ export function createApiClient(baseUrl) {
       if (!response.ok) {
         throw new Error(`getPrometheusMetrics failed (${response.status}): ${body}`);
       }
+      return body;
+    },
+
+    async getDeals() {
+      const response = await fetch(`${apiBase}/api/keepa/deals`);
+      const body = await response.json();
+      assertOk(response, body, 'getDeals');
+      return body;
+    },
+
+    async addProduct(payload) {
+      const response = await fetch(`${apiBase}/api/add-product`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const body = await response.json();
+      assertOk(response, body, 'addProduct');
+      return body;
+    },
+
+    async getAlerts(chatId) {
+      const response = await fetch(`${apiBase}/api/alerts/${encodeURIComponent(String(chatId))}`);
+      const body = await response.json();
+      assertOk(response, body, 'getAlerts');
+      return body;
+    },
+
+    async getScanKpi() {
+      const response = await fetch(`${apiBase}/api/scan-kpi`);
+      const body = await response.json();
+      assertOk(response, body, 'getScanKpi');
+      return body;
+    },
+
+    async getPriceErrors() {
+      const response = await fetch(`${apiBase}/api/price-errors`);
+      const body = await response.json();
+      assertOk(response, body, 'getPriceErrors');
+      return body;
+    },
+
+    async getKeepaStatus() {
+      const response = await fetch(`${apiBase}/api/keepa/status`);
+      const body = await response.json();
+      assertOk(response, body, 'getKeepaStatus');
+      return body;
+    },
+
+    async getKeepaTokenUsage() {
+      const response = await fetch(`${apiBase}/api/keepa/token-usage`);
+      const body = await response.json();
+      assertOk(response, body, 'getKeepaTokenUsage');
+      return body;
+    },
+
+    async runScanNow() {
+      const response = await fetch(`${apiBase}/api/scan/run-now`, { method: 'POST' });
+      const body = await response.json();
+      assertOk(response, body, 'runScanNow');
+      return body;
+    },
+
+    async getHunterConfig() {
+      const response = await fetch(`${apiBase}/api/hunter-config`);
+      const body = await response.json();
+      assertOk(response, body, 'getHunterConfig');
+      return body;
+    },
+
+    async getAlertDeliveryMetrics(chatId) {
+      const response = await fetch(`${apiBase}/api/alerts/${encodeURIComponent(String(chatId))}/delivery-metrics`);
+      const body = await response.json();
+      assertOk(response, body, 'getAlertDeliveryMetrics');
       return body;
     },
   };

@@ -16,3 +16,18 @@ ops/reports/doctor/*.json
 .idea/
 
 ops/reports/deploy/*
+
+# web build/runtime artifacts generated outside src
+packages/web/dist/
+packages/web/main.js
+packages/web/services/
+packages/web/state/
+packages/web/utils/
+packages/web/views/
+
+# local tooling artifacts
+.codex
+.codex/
+.cursor/
+*.Zone.Identifier
+docker-compose.override.yml

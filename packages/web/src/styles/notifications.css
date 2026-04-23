@@ -1,0 +1,143 @@
+#detailView .dhdr,
+#detailView .chart-wrap,
+#detailView .dtabs,
+#detailView .dtpanel,
+#detailView .srow,
+#detailView .sbox,
+#detailView .ptable,
+#detailView .btb-card,
+#detailView .buybox-card,
+#detailView .competitor-card,
+#detailView .snooze-row {
+  background:var(--ui-card-bg),var(--surface);
+  border:1px solid var(--ui-card-border)!important;
+  border-radius:12px!important;
+  box-shadow:var(--ui-card-shadow)!important;
+}
+
+#v-settings .settings-card.notif-accordion {
+  background:transparent;
+  box-shadow:none!important;
+  border:0!important;
+}
+
+#v-settings .notif-accordion-panel {
+  background:transparent;
+}
+
+#v-settings .cc-panel {
+  background:transparent;
+  border-top-color:rgba(255,255,255,.08);
+}
+
+#v-deals .deals-toolbar,
+#v-notifications .notif-tabs,
+#v-add .add-section,
+#v-settings .settings-group {
+  border-radius:12px;
+}
+
+#v-add .add-section {
+  border:1px solid var(--ui-card-border);
+  box-shadow:var(--ui-card-shadow);
+}
+
+#v-notifications .ntab,
+#v-add .add-size-type-pill,
+#v-add .domtoggle,
+#v-deals .fchip {
+  border-radius:12px;
+  font-size:13px;
+  font-weight:700;
+}
+
+#v-notifications .ntab {min-height:60px}
+
+#v-add .add-size-type-pill,
+#v-add .domtoggle,
+#v-deals .fchip {min-height:46px}
+
+#v-add .add-size-type-pill {
+  min-height:42px;
+  font-size:11px;
+  padding-top:9px;
+  padding-bottom:9px;
+  border-color:rgba(255,255,255,.18);
+  background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.015)),var(--tile-bg-idle);
+}
+
+#v-add .add-size-type-pill.on {
+  background:linear-gradient(180deg,rgba(255,102,0,.22),rgba(255,102,0,.08)),var(--tile-bg-idle);
+  border-color:rgba(255,102,0,.62);
+  color:var(--tile-text-active);
+  box-shadow:var(--tile-shadow-active-warm),inset 0 1px 0 rgba(255,255,255,.08);
+}
+
+#v-settings .cc-btn,
+#detailView .date-btn,
+#v-add .add-tool-btn {
+  min-height:42px;
+  border-radius:11px;
+  font-size:12px;
+  font-weight:700;
+}
+
+#v-add .add-tool-btn {
+  color:var(--t1)!important;
+}
+
+#v-add .add-tool-btn .material-icons-round {
+  color:var(--t1)!important;
+}
+
+#v-add .asin-add-btn,
+#detailView .savebtn {
+  border-radius:12px;
+  box-shadow:0 12px 24px rgba(255,102,0,.22);
+}
+
+}
+#v-add .add-price-input,
+#v-add .add-size-select,
+#v-add .asin-input,
+#v-settings .settings-select,
+#v-settings .settings-input-sm,
+#v-settings .pct-input,
+#v-settings .live-logs-filter,
+#v-settings .cc-history-filter,
+#detailView .sinput,
+#detailView .date-field {
+}
+
+#v-add .add-price-input:focus,
+#v-add .add-size-select:focus,
+#v-add .asin-input:focus,
+#v-settings .settings-select:focus,
+#v-settings .settings-input-sm:focus,
+#v-settings .pct-input:focus,
+#v-settings .live-logs-filter:focus,
+#v-settings .cc-history-filter:focus,
+#detailView .sinput:focus,
+#detailView .date-field:focus {
+}
+
+#v-deals .pcard-title,
+#v-notifications .ncard-title,
+#v-notifications .alert-hist-type,
+#detailView .srow-title {
+}
+
+#v-deals .pcard-meta,
+#v-notifications .ncard-body,
+#v-notifications .alert-hist-detail,
+#v-add .add-price-desc,
+#detailView .srow-desc {
+}
+
+font-size:11px;
+  letter-spacing:.5px;
+}
+#v-add .add-input-title {
+  font-size:11px;
+  letter-spacing:.45px;
+}
