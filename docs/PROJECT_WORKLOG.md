@@ -10,6 +10,378 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
 
 ---
 
+## [2026-04-21 17:35:31Z] Detail parity stabilization: active market chips + CSS conflict lock
+
+### Scope
+
+- Stabilized `Szczegóły` parity path in `packages/web` with direct Ambot-aligned behavior:
+  - fixed market chip state persistence (`#chartMarkets`) so chips no longer reset to inactive after click,
+  - kept domain selection per ASIN (no forced filtering to only currently available history rows),
+  - normalized threshold values in detail summary (`drop/rise/target`) for mixed payload scales (percent basis points / fixed-point prices),
+  - applied final CSS parity override at file end to neutralize late global layout overrides breaking:
+    - market chips (`#chartMarkets`),
+    - time-range row (`#timeRange`),
+    - detail tabs (`.dtabs/.dtab/.dtpanel`).
+- Kept project boundaries unchanged:
+  - no `Forum`,
+  - no AI user-facing feature added.
+
+### Validation
+
+- `npm run -s smoke:e2e` -> PASS
+- Browser verification on `127.0.0.1:3100`:
+  - detail opens from card,
+  - market chips toggle on/off and keep state,
+  - tabs `Przegląd/Ustawienia` switch correctly.
+
+### Next
+
+- Continue strict 1:1 parity pass vs `ambot-pro` for `Szczegóły` visual micro-layout (spacing/typography) without adding AI/forum surfaces.
+
+## [2026-04-19 07:19:37Z] UI detail parity micro-pass: best-price badge + delta near headline price
+
+### Scope
+
+- Applied focused detail-view parity pass in `packages/web`:
+  - added `Najlepsza cena` badge directly under headline price in detail hero,
+  - added delta `%` badge next to best-price badge (using `cardPreview.deltaPctVsAvg`),
+  - tuned mobile spacing and CTA press feedback for one-hand use.
+- Synced API-served runtime bundle:
+  - regenerated `packages/web/src/main.js` from `main.ts` for `:3100`.
+
+### Validation
+
+- `npm run -s web:typecheck` -> PASS
+- `npm run -s smoke:e2e` -> PASS
+
+### Next
+
+- Final visual acceptance on smartphone for detail top section; if accepted, freeze detail baseline and move to `Okazje`.
+
+## [2026-04-19 07:04:56Z] UI cleanup after removing control panel block (trackings view)
+
+### Scope
+
+- Removed now-obsolete control-panel logic from `packages/web/src/main.ts` after deleting panel from UI:
+  - removed filter/sort/status node bindings and listeners,
+  - removed health-status polling/render path,
+  - simplified visible-items pipeline to: search + updated-at sort.
+- Rebuilt runtime JS for API-served web mode:
+  - regenerated `packages/web/src/main.js` from `main.ts` for `:3100` runtime compatibility.
+
+### Validation
+
+- `npm run -s web:typecheck` -> PASS
+- `npm run -s smoke:e2e` -> PASS
+
+### Next
+
+- Continue UI polish on detail view only (spacing + typography) with current simplified tracked list baseline.
+
+## [2026-04-19 06:59:34Z] Runtime fix: enable UI interactions on :3100 (serve transpiled JS instead of raw TS)
+
+### Scope
+
+- Diagnosed non-working UI interactions (`icons/buttons`) on `127.0.0.1:3100`:
+  - root cause: browser was loading raw `main.ts` from API static server, so script execution failed.
+- Applied runtime-safe fix:
+  - generated browser-ready `packages/web/src/main.js` from `packages/web/src/main.ts`,
+  - switched web entry in `index.html` from `/main.ts` to `/main.js`,
+  - updated API runtime static assets map to serve `/main.js`.
+
+### Validation
+
+- `npm run -s web:typecheck` -> PASS
+- `npm run -s smoke:e2e` -> PASS
+
+### Next
+
+- Add lightweight guard in web workflow so runtime JS is regenerated when `main.ts` changes (avoid drift).
+- Continue pixel-tuning after confirming icon/actions behavior on smartphone.
+
+## [2026-04-19 06:54:08Z] UI rebuild stage-1C: topbar functional wiring + CSS stability hotfix
+
+### Scope
+
+- Completed functional wiring for Ambot-like topbar in Soon web:
+  - `sync` action (`reload-trackings`) refreshes tracked list,
+  - `copy` action (`copy-mobile-url`) copies current URL with `chatId` + `lang`.
+- Replaced previous top badges with compact tracked status cards:
+  - `API` runtime status (`ok/offline`),
+  - active `Chat` context.
+- Applied CSS stability hotfix:
+  - fixed missing closing brace in `.topbar` block after topbar refactor.
+
+### Validation
+
+- `npm run -s web:typecheck` -> PASS
+- `npm run -s smoke:e2e` -> PASS
+
+### Next
+
+- Final smartphone pixel-tuning pass for `Szczegóły produktu` (header/icon scale + price row spacing).
+- Freeze Stage-1 UI baseline after mobile acceptance.
+
+## [2026-04-19 06:42:18Z] UI rebuild stage-1B: Ambot-like topbar integration (logo + search + action buttons)
+
+### Scope
+
+- Reworked Soon tracked-screen topbar to Ambot-like structure:
+  - `logo` tile on the left,
+  - compact `sbar` search in the center,
+  - circular action buttons (`sync`, `copy`) on the right.
+- Moved runtime status display from topbar badges into compact tracked status cards:
+  - `API` status (`health-status`) with `status-ok/status-bad`,
+  - active `Chat` context (`chat-status`).
+- Added topbar interactions in `main.ts`:
+  - `reload-trackings` -> refresh tracked list (`loadTrackings()`),
+  - `copy-mobile-url` -> copy current URL with `chatId` and `lang`.
+- Kept boundaries unchanged:
+  - no `Forum`,
+  - no AI user-facing additions.
+
+### Validation
+
+- `npm run -s web:typecheck` -> PASS
+- `npm run -s smoke:e2e` -> PASS
+
+### Next
+
+- Perform smartphone visual QA against Ambot screenshots and micro-adjust spacing for topbar + price rows.
+- Then lock UI baseline and continue tab-by-tab implementation (`Okazje`, `Dodaj`, `Alerty`).
+
+## [2026-04-19 06:29:18Z] UI rebuild stage-1A: Ambot CSS-class parity pass (cards + detail shell)
+
+### Scope
+
+- Performed direct visual-alignment pass using `ambot-pro/public/app.css` as source for class/token mapping in Soon UI.
+- Updated tracked-card render in `packages/web/src/main.ts` to Ambot-like structure and naming:
+  - `pcard-top`, `pcard-img`, `pcard-info`, `pcard-title`, `pcard-meta`,
+  - `pcard-price-row`, `pprice`, `pdrop`, `reco`,
+  - `pcard-signals` + `target-price-badge`,
+  - `pgrid` / `pgrid-item` / `pgrid-price` / `pgrid-used` / `pgrid-trend`,
+  - `pcard-spark`.
+- Updated detail render shell classes to align with Ambot layout semantics:
+  - `dbar`, `dscroll`, `dhdr`, `dhdr-img`, `dhdr-info`, `dhdr-title`, `dhdr-price`.
+- Updated CSS tokens and proportions in `packages/web/src/styles.css` toward Ambot baseline:
+  - dark palette + orange/blue/green accents,
+  - Roboto typography,
+  - topbar/nav/detail proportions closer to Ambot defaults.
+- Preserved project constraints:
+  - no `Forum`,
+  - no AI user-facing modules.
+
+### Validation
+
+- `npm run -s web:typecheck` -> PASS
+- `npm run -s smoke:e2e` -> PASS
+
+### Next
+
+- Smartphone visual verification pass against Ambot screenshots and final pixel-tuning (spacing + icon scale + line-height).
+- Then continue non-placeholder buildout for `Okazje`/`Dodaj`/`Alerty` on the same class system.
+
+## [2026-04-19 06:17:40Z] UI rebuild stage-1 (TypeScript): Tracked cards + detail overlay + i18n shell
+
+### Scope
+
+- Rebuilt `packages/web/src` UI layer on clean TS entrypoint (`main.ts`) with Ambot-like interaction baseline:
+  - `Śledzone` now renders product cards (`pcard`) with:
+    - hero row (thumb/title/meta),
+    - highlighted best-price row,
+    - chip signals (`active/snoozed`, `new min`, `used min`),
+    - market rows and sparkline.
+  - Added filters/sort/search for tracked list:
+    - filters: `active/all/snoozed`,
+    - sort: `updated/new min/used min/title`,
+    - search by title/ASIN.
+- Added detail full-screen overlay:
+  - topbar (`back/share/delete`),
+  - hero price section,
+  - buy CTA to Amazon by best market,
+  - sparkline panel,
+  - new/used market price lists and summary block.
+- Kept project boundaries:
+  - no `Forum`,
+  - no AI user-facing blocks/icons.
+- Added language shell for `PL/EN/DE` labels and placeholders (with `?lang=` + `localStorage` fallback).
+- Added settings mini-panel for mobile testing continuity:
+  - update `chatId` in UI and URL (`history.replaceState`).
+
+### Validation
+
+- `npm run -s web:typecheck` -> PASS
+- `npm run -s smoke:e2e` -> PASS
+
+### Next
+
+- Smartphone visual pass vs target Ambot style (spacing/typography/icon proportions).
+- Then implement remaining non-placeholder tabs (`Okazje`, `Dodaj`, `Alerty`) incrementally on the same visual system.
+
+## [2026-04-19 05:58:43Z] Web migration cleanup: single TypeScript entrypoint + Vite workspace setup
+
+### Scope
+
+- Consolidated web entrypoint to TypeScript:
+  - removed `packages/web/src/main.mjs`,
+  - moved active UI bootstrap logic to `packages/web/src/main.ts`,
+  - updated HTML script entry to `/main.ts`.
+- Updated runtime static asset mapping:
+  - replaced `/main.mjs` with `/main.ts` in API runtime web assets map.
+- Added explicit `Vite + TypeScript` workspace setup in `packages/web`:
+  - `packages/web/package.json` (`dev`, `build`, `preview`, `typecheck`),
+  - `packages/web/vite.config.ts`,
+  - `packages/web/tsconfig.json`.
+- Added root helper scripts:
+  - `web:dev`, `web:build`, `web:preview`, `web:typecheck`.
+- Installed dependencies (`vite`, `typescript`) via workspace install.
+
+### Validation
+
+- `npm run web:typecheck` -> PASS
+- `make -C /home/piotras/Soon check` -> PASS
+
+### Next
+
+- Continue UI rebuild on clean TS entrypoint:
+  - implement `Śledzone` layout/components first,
+  - then detail view, then remaining tabs.
+
+## [2026-04-19 05:48:37Z] UI rebuild stage-0: new clean shell after full reset
+
+### Scope
+
+- Built fresh UI shell from scratch in `packages/web/src` after layout wipe:
+  - new `index.html` structure with header, 5 core tabs, and view containers,
+  - new `styles.css` baseline theme and responsive nav shell,
+  - new `main.mjs` bootstrap (view switching + health + trackings preview).
+- Kept strict project constraints:
+  - architecture remains SPA in `packages/web`,
+  - no `Forum`,
+  - no AI sections.
+
+### Validation
+
+- `node --check packages/web/src/main.mjs` -> PASS
+- `npm run -s smoke:e2e` -> PASS
+- `make -C /home/piotras/Soon check` -> PASS
+
+### Next
+
+- Implement `Śledzone` proper layout on top of this shell (cards + interactions), then detail view.
+
+## [2026-04-19 05:38:20Z] UI reset: full layout cleared in Soon web (clean slate)
+
+### Scope
+
+- Removed entire previous UI layout from `packages/web/src` to start design from scratch.
+- Replaced files with minimal reset skeleton:
+  - `index.html` -> clean single-root structure,
+  - `styles.css` -> minimal base styling for reset card only,
+  - `main.mjs` -> minimal bootstrap rendering reset state + API health badge.
+- Preserved project architecture:
+  - `packages/web` remains standalone SPA,
+  - no backend/API contract changes.
+
+### Validation
+
+- `node --check packages/web/src/main.mjs` -> PASS
+- `npm run -s smoke:e2e` -> PASS
+- `make -C /home/piotras/Soon check` -> PASS
+
+### Next
+
+- Build new UI incrementally from empty baseline:
+  - step 1: navigation shell,
+  - step 2: tracked list cards,
+  - step 3: detail view.
+
+## [2026-04-19 05:24:00Z] UI parity stage-1G: detail market list placement + Ambot-like row styling
+
+### Scope
+
+- Moved detail market comparison block (`Ceny rynkowe`) above detail tabs, matching Ambot flow order.
+- Reworked market rows to Ambot-like presentation:
+  - long horizontal green meter bars,
+  - large market/price emphasis,
+  - separate styling for `new` and `used` buckets,
+  - `used` prices tinted purple, best market highlighted green.
+- Kept scope constraints unchanged:
+  - no `Forum`,
+  - no `AI`,
+  - no backend contract changes.
+
+### Validation
+
+- `node --check packages/web/src/main.mjs` -> PASS
+- `npm run -s smoke:e2e` -> PASS
+- `make -C /home/piotras/Soon check` -> PASS
+
+### Next
+
+- Visual check on smartphone vs Ambot for final micro-tuning (font proportions and spacing in detail header + market rows).
+
+## [2026-04-19 05:02:30Z] UI parity stage-1F: direct icon+theme alignment from ambot-pro (style-only port)
+
+### Scope
+
+- Aligned Soon `packages/web` UI to Ambot visual source (`ambot-pro/public/app.css`) for icon layout and theme tokens only.
+- Updated top bar iconography to Material Icons (search/clear/refresh/copy) in Soon HTML:
+  - `search` in search field
+  - iconized actions (`sync`, `refresh`, `content_copy`)
+- Updated key visual primitives to Ambot values:
+  - theme variables (`--bg`, `--surface`, `--raised`, `--page`, `--orange`, tile gradients/shadows),
+  - `topbar`, `topbtn`, `sbar`, `bnav`,
+  - tracked card metrics (`pprice` scale, `flag-round`, `pgrid` trend pills).
+- Kept project boundaries unchanged:
+  - no transfer of Ambot business logic,
+  - no architecture changes outside `packages/web`,
+  - no `Forum`, no `AI`.
+
+### Validation
+
+- `node --check packages/web/src/main.mjs` -> PASS
+- `npm run -s smoke:e2e` -> PASS
+- `make -C /home/piotras/Soon check` -> PASS
+
+### Next
+
+- Smartphone visual pass against Ambot parity for:
+  - top bar icon spacing,
+  - tracked card price row scale,
+  - detail header icon proportions.
+- If needed, final micro-adjustments only (no functional changes).
+
+## [2026-04-19 04:41:53Z] UI parity stage-1E: detail settings market compare (Ambot-like, no AI/forum)
+
+### Scope
+
+- Added `Ceny rynkowe` section inside `Szczegóły produktu -> Ustawienia` in Soon web UI.
+- Implemented Ambot-like market comparison rows for both buckets:
+  - `CENY NOWE`
+  - `CENY UŻYWANE`
+- Rows now render:
+  - market flag + code,
+  - relative price bar,
+  - market price,
+  - delta vs best market.
+- Added click interaction on each market row:
+  - open product on matching Amazon domain (`DE/IT/FR/ES/UK/NL/...`).
+- Preserved strict scope constraints:
+  - no `Forum`,
+  - no `AI` tab/icons/features.
+
+### Validation
+
+- `node --check packages/web/src/main.mjs` -> PASS
+- `npm run -s smoke:e2e` -> PASS
+- `make -C /home/piotras/Soon check` -> PASS
+
+### Next
+
+- Visual acceptance against Ambot screenshots on smartphone viewport (spacing and typography micro-polish).
+- If still needed, tune row/bar proportions to reach closer 1:1 parity in `Ustawienia`.
+
 ## [2026-04-19 03:37:05Z] UI parity stage-1D: direct Ambot class/layout port for Trackings + Detail
 
 ### Scope
@@ -3412,3 +3784,107 @@ Cel: stały zapis kluczowych decyzji, zmian i wyników weryfikacji.
   - `npm run -s smoke:e2e` -> PASS.
 - Następny krok:
   - Iteracja pixel-tuning po feedbacku z telefonu (spacing, wielkość ikon topbara, gęstość hero) aż do akceptacji 1:1 w stylu Ambot.
+
+## [2026-04-19 10:33:00Z] UI hard reset + Ambot-like rebuild baseline (without Forum/AI)
+
+### Scope
+
+- Performed full frontend UI reset in `packages/web/src` and rebuilt baseline to Ambot-like visual/layout structure while keeping Soon architecture (`Vite + TypeScript SPA`).
+- Replaced web shell markup in `packages/web/src/index.html` with Ambot-style structure:
+  - topbar (`logo`, search, sync/copy actions),
+  - main views (`tracking`, `deals`, `add`, `alerts`, `settings`),
+  - bottom nav (`Śledzone`, `Okazje`, `Dodaj`, `Alerty`, `Ustawienia`),
+  - full-screen detail view (`dbar`, `dscroll`).
+- Replaced styling in `packages/web/src/styles.css` with Ambot-inspired tokens/classes for:
+  - cards (`pcard*`),
+  - price grid (`pgrid*`),
+  - detail header/chart/tabs (`dhdr*`, `chart-*`, `dtab*`),
+  - market chips (`mchip`),
+  - bottom nav (`bnav*`).
+- Rewrote `packages/web/src/main.ts` to match the new structure and behavior:
+  - tracked cards rendering from Soon dashboard payload,
+  - detail rendering with overview/settings tabs,
+  - buy/open-market interactions,
+  - refresh/snooze/unsnooze in detail settings tab,
+  - delete/share actions,
+  - language + chatId controls,
+  - removed Forum and AI UI paths from Soon web shell.
+- Synced runtime bundle by regenerating `packages/web/src/main.js` from TypeScript.
+
+### Validation
+
+- `npm run -s web:typecheck` -> PASS
+- `npm run -s smoke:e2e` -> PASS
+
+### Next
+
+- Smartphone visual QA pass against Ambot references for micro-spacing and typography (header/title/price proportions + chips density).
+- If approved, freeze this baseline and continue feature parity iteration tab-by-tab (`Okazje`, `Dodaj`, `Alerty`).
+
+## [2026-04-19 10:52:00Z] Ambot parity corrective pass: missing detail/tracking blocks restored
+
+### Scope
+
+- Corrected parity gaps after user review that reported major layout drift vs Ambot.
+- Updated tracked cards (`packages/web/src/main.ts`) to include Ambot-like visual signals:
+  - stars/rating row (`(0.0)` fallback),
+  - `Najlepsza cena` badge near headline price,
+  - preserved status chips and market-grid behavior.
+- Extended detail view with Ambot-like missing sections:
+  - `Historia (new)` section title,
+  - market comparison block (`PORÓWNANIE MIĘDZY RYNKAMI`) with clickable rows,
+  - used-price comparison section,
+  - preserved overview/settings tabs without AI tab.
+- Added missing CSS classes in `packages/web/src/styles.css` for restored blocks:
+  - `.stars`, `.detail-section-title`, `.detail-aux-gap-12`,
+  - `.detail-market-*` compare layout and responsive behavior.
+- Regenerated runtime bundle (`packages/web/src/main.js`) from TS source.
+
+### Validation
+
+- `npm run -s web:typecheck` -> PASS
+- `npm run -s smoke:e2e` -> PASS
+
+### Next
+
+- Smartphone pixel QA against Ambot references (spacing, typography scale, icon sizing).
+- If still drift remains, perform strict class-by-class parity pass for `dhdr`, `chart-wrap`, `dtabs`, and `ptable` blocks.
+
+## [2026-04-19 11:04:00Z] Strict visual parity correction: imported Ambot CSS 1:1 baseline
+
+### Scope
+
+- Replaced Soon web stylesheet with direct Ambot source stylesheet (`ambot-pro/public/app.css`) to remove drift from hand-recreated styles.
+- Kept Soon runtime architecture (`packages/web` Vite + TypeScript SPA) unchanged.
+- Updated detail market chips behavior in `main.ts` to Ambot-like toggle mode (`on/off`) instead of opening Amazon directly.
+
+### Validation
+
+- `npm run -s web:typecheck` -> PASS
+- `npm run -s smoke:e2e` -> PASS
+
+### Next
+
+- Visual pass on smartphone and class-by-class DOM parity check for any remaining markup drift.
+
+## [2026-04-19 11:18:00Z] Strict DOM parity pass (Ambot structure) for Tracking + Detail
+
+### Scope
+
+- Replaced `packages/web/src/index.html` shell with Ambot-style DOM structure:
+  - topbar, main views, bottom nav (`bnav-item` with `data-v`), detail container (`dbar`, `dscroll`).
+- Aligned detail render markup in `packages/web/src/main.ts` to Ambot DOM IDs/classes:
+  - `d-*` header IDs, `buyNowBtn`, `chartStats` IDs,
+  - `timeRange` (`data-r`), `chartMarkets` (`data-dom`),
+  - `dtabs` with `data-dt`, `dt-overview`, `dt-settings`.
+- Removed AI/Forum detail tabs and sections while preserving same visual system and interaction model.
+- Updated event bindings for Ambot-like selectors (`data-dt`, `data-r`, `data-dom`).
+
+### Validation
+
+- `npm run -s web:typecheck` -> PASS
+- `npm run -s smoke:e2e` -> PASS
+
+### Next
+
+- User visual verification on smartphone (`Ctrl+F5`) and capture remaining micro-diffs for final pixel pass.
